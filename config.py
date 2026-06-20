@@ -59,7 +59,7 @@ class Settings(BaseSettings):
 
     # ── Agent S (gui-agents package) ───────────────────────────────────────
     agent_s_engine_type: str = "anthropic"   # "anthropic" | "openai"
-    agent_s_model: str = "claude-opus-4-8"
+    agent_s_model: str = "claude-3-5-haiku-latest"   # cheap default for dev testing
     agent_s_base_url: str = ""                # custom base URL (e.g. Ollama)
     anthropic_api_key: str = ""
     openai_api_key: str = ""
