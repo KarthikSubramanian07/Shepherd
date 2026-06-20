@@ -423,14 +423,33 @@ class ShepherdExecutionEngine:
             pyautogui.doubleClick(x, y)
 
         elif a == "type":
-            pyautogui.typewrite(sub(step.text) or "", interval=0.05)
+            import subprocess as _sp
+            text_val = sub(step.text) or ""
+            press_return = text_val.endswith("\n")
+            text_body = text_val.rstrip("\n")
+            if text_body:
+                # typewrite() silently drops : @ / etc. on macOS; clipboard-paste handles all chars.
+                _sp.run(["pbcopy"], input=text_body.encode(), check=False)
+                pyautogui.hotkey("cmd", "v")
+                time.sleep(0.05)
+            if press_return:
+                pyautogui.press("return")
 
         elif a == "hotkey":
             pyautogui.hotkey(*(step.keys or []))
 
         elif a == "open_app":
-            subprocess.Popen(["open", "-a", sub(step.target) or ""])
+            app_name = sub(step.target) or ""
+            url = sub(step.text) or ""
+            cmd = ["open", "-a", app_name]
+            if url:
+                cmd.append(url)   # opens app directly at the URL, avoids Cmd+L issues
+            subprocess.Popen(cmd)
             time.sleep(_APP_SETTLE)
+            subprocess.run(
+                ["osascript", "-e", f'tell application "{app_name}" to activate'],
+                check=False,
+            )
 
         elif a == "wait":
             time.sleep(step.seconds or 1.0)
