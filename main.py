@@ -13,17 +13,17 @@ import threading
 
 from config import FEATURES, EXECUTION_MODE, DASHBOARD_PORT
 from shepherd_types import Intent
-from router.router import GhostIntentRouter
-from engine.engine import GhostExecutionEngine
+from router.router import ShepherdIntentRouter
+from engine.engine import ShepherdExecutionEngine
 from engine.coords import load_coords
 from engine.routines import load_routines
-from telemetry.telemetry import GhostTelemetry
+from telemetry.telemetry import ShepherdTelemetry
 from telemetry.sentry_init import init_sentry
 from telemetry.memory import ExecutionMemory
 from dashboard.events import event_bus
 
 
-def _get_intent_text(engine: GhostExecutionEngine) -> str:
+def _get_intent_text(engine: ShepherdExecutionEngine) -> str:
     """
     Returns the raw intent text from Deepgram (voice) or typed input.
     Arms the stop-command listener before recording so 'stop' halts during execution.
@@ -54,12 +54,12 @@ def main() -> None:
 
     # ── Init ──────────────────────────────────────────────────────────────────
     init_sentry()
-    telemetry = GhostTelemetry()
+    telemetry = ShepherdTelemetry()
     memory    = ExecutionMemory()
     load_routines()          # pre-warm cache
     coords    = load_coords()
-    router    = GhostIntentRouter()
-    engine    = GhostExecutionEngine(coords=coords, telemetry=telemetry, mode=mode)
+    router    = ShepherdIntentRouter()
+    engine    = ShepherdExecutionEngine(coords=coords, telemetry=telemetry, mode=mode)
 
     # ── Start dashboard ───────────────────────────────────────────────────────
     try:

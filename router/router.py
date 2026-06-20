@@ -1,5 +1,5 @@
 """
-GhostIntentRouter — deterministic keyword/intent matching.
+ShepherdIntentRouter — deterministic keyword/intent matching.
 Routine SELECTION is always deterministic; never uses ML or vector search.
 Execution mode (LIVE vs LOCKED) is set separately in the engine.
 """
@@ -8,7 +8,7 @@ from shepherd_types import Intent, ResolvedRoutine
 from router.registry import REGISTRY, CONFIDENCE_THRESHOLD
 
 
-class GhostIntentRouter:
+class ShepherdIntentRouter:
     def __init__(self) -> None:
         self._registry = REGISTRY
 

@@ -1,5 +1,5 @@
 """
-GhostTelemetry — Arize Phoenix OpenTelemetry spans.
+ShepherdTelemetry — Arize Phoenix OpenTelemetry spans.
 Never crashes the demo: all Phoenix calls wrapped in try/except.
 Phoenix is a DEV instrument — open it in a separate browser window, not embedded in the Control Hub.
 """
@@ -14,7 +14,7 @@ class _Noop:
     def __exit__(self, *a): pass
 
 
-class GhostTelemetry:
+class ShepherdTelemetry:
     def __init__(self) -> None:
         self._tracer = None
         if FEATURES["arize"]:

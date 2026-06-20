@@ -44,11 +44,11 @@ class ExecutionMemory:
             )
             payload = _serialize(record)
             js = json.dumps(payload)
-            self._r.lpush("ghost:executions", js)
-            self._r.set(f"ghost:run:{run_id}", js)
-            self._r.set(f"ghost:last:{result.routine_id}", js)
+            self._r.lpush("shepherd:executions", js)
+            self._r.set(f"shepherd:run:{run_id}", js)
+            self._r.set(f"shepherd:last:{result.routine_id}", js)
             for k, v in result.variables.items():
-                self._r.set(f"ghost:var:{k}", v)
+                self._r.set(f"shepherd:var:{k}", v)
             return run_id
         except Exception as e:
             print(f"[redis] store failed (non-fatal): {e}")
@@ -58,7 +58,7 @@ class ExecutionMemory:
         if self._r is None:
             return []
         try:
-            return [json.loads(r) for r in self._r.lrange("ghost:executions", 0, n - 1)]
+            return [json.loads(r) for r in self._r.lrange("shepherd:executions", 0, n - 1)]
         except Exception:
             return []
 
@@ -66,7 +66,7 @@ class ExecutionMemory:
         if self._r is None:
             return None
         try:
-            raw = self._r.get(f"ghost:run:{run_id}")
+            raw = self._r.get(f"shepherd:run:{run_id}")
             return json.loads(raw) if raw else None
         except Exception:
             return None
@@ -75,7 +75,7 @@ class ExecutionMemory:
         if self._r is None:
             return None
         try:
-            return self._r.get(f"ghost:var:{var_name}")
+            return self._r.get(f"shepherd:var:{var_name}")
         except Exception:
             return None
 

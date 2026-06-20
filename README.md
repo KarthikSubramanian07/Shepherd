@@ -128,15 +128,15 @@ All integrations are feature-flagged in `.env`. With all flags off, core automat
 ```
 Voice (Deepgram STT)
   ↓
-GhostIntentRouter  — deterministic keyword matching → routine_id
+ShepherdIntentRouter  — deterministic keyword matching → routine_id
   ↓
-GhostExecutionEngine
+ShepherdExecutionEngine
   ├── LIVE: Agent S plans against recorded demonstration; pyautogui actuates
   └── LOCKED: deterministic verbatim replay
   ↓ (parallel, boundary-only)
 MonitorAgent  — captcha / credential / phishing / stuck → flag or halt
   ↓
-GhostTelemetry → Arize Phoenix (dev dashboard, separate window)
+ShepherdTelemetry → Arize Phoenix (dev dashboard, separate window)
   ↓
 ExecutionMemory → Redis (Replay panel)
   ↓

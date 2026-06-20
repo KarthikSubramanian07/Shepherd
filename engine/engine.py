@@ -1,5 +1,5 @@
 """
-GhostExecutionEngine
+ShepherdExecutionEngine
 
 LIVE mode  — Agent S plans actions against the recorded demonstration; pyautogui actuates.
 LOCKED mode — Deterministic verbatim replay of pre-mapped steps (offline demo floor).
@@ -27,7 +27,7 @@ pyautogui.PAUSE    = 0.3    # deliberate, watchable motion — this is the wow f
 _APP_SETTLE = 2.0           # seconds to wait after open_app
 
 
-class GhostExecutionEngine:
+class ShepherdExecutionEngine:
     def __init__(self, coords: dict, telemetry, mode: str = EXECUTION_MODE, agent_s=None) -> None:
         self._coords   = coords
         self._telemetry = telemetry
