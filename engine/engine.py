@@ -391,11 +391,10 @@ class ShepherdExecutionEngine:
                 f"\n[task-graph reference] This click is part of milestone "
                 f"'{ms['label']}', performed {ms['times_seen']}x before.")
 
-        if step.action == "batch_fill" and step.fields:
-            return self._agent_s.plan_batch_action(step.fields, index, demo_ctx)
-
-        # wait / hotkey / open_app don't benefit from vision planning — skip Agent S.
-        if step.action in ("wait", "hotkey", "open_app"):
+        # batch_fill, wait, hotkey, open_app all use _dispatch directly —
+        # batch_fill uses JS injection (more reliable than Agent S Tab code),
+        # the rest don't benefit from vision planning.
+        if step.action in ("batch_fill", "wait", "hotkey", "open_app"):
             return None
 
         instruction = self._build_instruction(step, index, routine)
@@ -463,17 +462,68 @@ class ShepherdExecutionEngine:
             time.sleep(step.seconds or 1.0)
 
         elif a == "batch_fill":
-            # Execute all sub-fields in one code block — no per-field Agent S call.
-            import subprocess as _sp
+            import os as _os, subprocess as _sp, tempfile as _tmp
+
+            # Best-effort: enable "Allow JavaScript from Apple Events" so JS injection works
+            # without a manual toggle. Checks current state first to avoid toggling it OFF.
+            _enable_js = (
+                'tell application "Google Chrome" to activate\n'
+                'delay 0.3\n'
+                'tell application "System Events" to tell process "Google Chrome"\n'
+                '  set mi to menu item "Allow JavaScript from Apple Events" of menu "Developer" '
+                'of menu item "Developer" of menu "View" of menu bar 1\n'
+                '  if value of attribute "AXMenuItemMarkChar" of mi is missing value then click mi\n'
+                'end tell\n'
+            )
+            _sp.run(["osascript", "-e", _enable_js], check=False, capture_output=True, text=True)
+
+            # Try JS injection first — reliable, no keyboard focus needed.
+            # Falls back to click-focus + Tab if JS is still blocked.
+            js_stmts = []
             for bf in (step.fields or []):
-                for _ in range(bf.tabs):
-                    pyautogui.hotkey("tab")
-                    time.sleep(0.05)
-                if bf.text:
-                    text_val = sub(bf.text) or ""
-                    _sp.run(["pbcopy"], input=text_val.encode(), check=False)
-                    pyautogui.hotkey("cmd", "v")
-                    time.sleep(0.05)
+                if not getattr(bf, "html_name", None) or not bf.text:
+                    continue
+                val = (sub(bf.text) or "").replace("\\", "\\\\").replace('"', '\\"')
+                js_stmts.append(
+                    f"(function(){{var e=document.querySelector('[name={bf.html_name}]');"
+                    f"if(e){{e.value=\\\"{val}\\\";e.dispatchEvent(new Event('input',{{bubbles:true}}))}}}})();"
+                )
+            js_block = "".join(js_stmts)
+            ascript = (
+                f'tell application "Google Chrome"\n'
+                f'  activate\n'
+                f'  tell active tab of front window\n'
+                f'    execute javascript "{js_block}"\n'
+                f'  end tell\n'
+                f'end tell\n'
+            )
+            with _tmp.NamedTemporaryFile(mode="w", suffix=".applescript", delete=False) as f:
+                f.write(ascript)
+                apath = f.name
+            result = _sp.run(["osascript", apath], check=False, capture_output=True, text=True)
+            _os.unlink(apath)
+
+            if result.returncode != 0:
+                # JS blocked — click Chrome tab bar to assert focus, Cmd+L → Tab to first field.
+                _sp.run(["osascript", "-e", 'tell application "Google Chrome" to activate'], check=False)
+                time.sleep(0.3)
+                pyautogui.click(640, 50)   # Chrome tab bar — gives focus without touching a form field
+                time.sleep(0.2)
+                pyautogui.hotkey("cmd", "l")  # focus address bar
+                time.sleep(0.15)
+                pyautogui.hotkey("tab")       # tab from address bar → first form field
+                time.sleep(0.15)
+                for bf in (step.fields or []):
+                    for _ in range(max(0, bf.tabs - 1)):   # first Tab already pressed above
+                        pyautogui.hotkey("tab")
+                        time.sleep(0.08)
+                    if bf.text:
+                        text_val = sub(bf.text) or ""
+                        _sp.run(["pbcopy"], input=text_val.encode(), check=False)
+                        pyautogui.hotkey("cmd", "v")
+                        time.sleep(0.12)
+                    pyautogui.hotkey("tab")   # advance to next field
+                    time.sleep(0.08)
 
         elif a == "browser":
             # Invoked only at routine boundaries, never mid-sequence

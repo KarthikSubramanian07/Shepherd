@@ -21,9 +21,10 @@ class ResolvedRoutine:
 @dataclass
 class BatchField:
     """One sub-step inside a batch_fill action."""
-    tabs: int = 1          # how many Tab presses before typing
-    text: Optional[str] = None    # text to type (None = tab-only, e.g. to skip a field)
-    description: Optional[str] = None   # field label for Agent S prompt
+    tabs: int = 1
+    text: Optional[str] = None
+    description: Optional[str] = None
+    html_name: Optional[str] = None   # HTML name attr — if set, fill via JS injection (no focus needed)
 
 
 @dataclass

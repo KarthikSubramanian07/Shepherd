@@ -41,41 +41,48 @@
           {
             "tabs": 1,
             "text": "{APPLICANT_NAME}",
-            "description": "First name"
+            "description": "First name",
+            "html_name": "fname"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_LASTNAME}",
-            "description": "Last name"
+            "description": "Last name",
+            "html_name": "lname"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_EMAIL}",
-            "description": "Email"
+            "description": "Email",
+            "html_name": "email"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_PHONE}",
-            "description": "Phone"
+            "description": "Phone",
+            "html_name": "phone"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_LINKEDIN}",
-            "description": "LinkedIn"
+            "description": "LinkedIn",
+            "html_name": "linkedin"
           },
           {
             "tabs": 1,
-            "description": "Skip role select (keep default)"
+            "description": "Skip role select"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_EXPERIENCE}",
-            "description": "Years of experience"
+            "description": "Years of experience",
+            "html_name": "yoe"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_SALARY}",
-            "description": "Expected salary"
+            "description": "Expected salary",
+            "html_name": "salary"
           }
         ]
       },
