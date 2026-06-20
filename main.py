@@ -197,6 +197,13 @@ def main() -> None:
             result = engine.execute(resolved)
 
             # ── Post-execution (all outside the click path) ───────────────────
+            if FEATURES["deepgram"]:
+                try:
+                    from services.deepgram_input import stop_listener
+                    stop_listener()
+                except Exception:
+                    pass
+
             if FEATURES["band"]:
                 threading.Thread(
                     target=_band_complete, args=(result,), daemon=True
