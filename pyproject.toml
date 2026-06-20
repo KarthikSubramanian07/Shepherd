@@ -11,7 +11,7 @@ dependencies = [
     "pynput==1.7.6",
     "fastapi==0.111.0",
     "uvicorn[standard]==0.29.0",
-    "websockets==12.0",
+    "websockets>=12.0",
     "arize-phoenix-otel>=0.9.0",
     "opentelemetry-sdk==1.24.0",
     "opentelemetry-exporter-otlp==1.24.0",
@@ -20,9 +20,10 @@ dependencies = [
     "deepgram-sdk==3.2.7",
     "browserbase==0.3.0",
     "playwright==1.44.0",
-    "httpx==0.27.0",
+    "httpx>=0.27.0",
     "pytesseract==0.3.10",
     "python-dotenv==1.0.1",
+    "gui-agents>=0.3",
 ]
 
 [project.optional-dependencies]
