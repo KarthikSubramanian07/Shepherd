@@ -1,0 +1,73 @@
+[
+  {
+    "routine_id": "ROUTINE_FORM_FILL",
+    "description": "Fill a job application form with applicant details. Authored by demonstration. Monitor halts at the planted credential step.",
+    "variables": ["APPLICANT_NAME", "APPLICANT_EMAIL", "APPLICANT_PHONE"],
+    "mode": "LIVE",
+    "high_stakes_steps": [11],
+    "step_instructions": {
+      "0": "Open the demo form in Safari — keyboard-first navigation throughout",
+      "4": "Tab through fields; type from variables injected at runtime",
+      "11": "PLANTED TRIGGER: credential field — monitor will halt here every time"
+    },
+    "steps": [
+      { "action": "open_app",  "target": "Safari",                                  "description": "Open browser" },
+      { "action": "wait",      "seconds": 2.0,                                      "description": "Wait for browser" },
+      { "action": "hotkey",    "keys": ["cmd", "l"],                                "description": "Focus URL bar" },
+      { "action": "type",      "text": "http://localhost:8765/demo-form\n",          "description": "Navigate to demo form" },
+      { "action": "wait",      "seconds": 1.5,                                      "description": "Wait for form" },
+      { "action": "hotkey",    "keys": ["tab"],                                     "description": "Focus name field" },
+      { "action": "type",      "text": "{APPLICANT_NAME}",                          "description": "Enter name" },
+      { "action": "hotkey",    "keys": ["tab"],                                     "description": "Next field" },
+      { "action": "type",      "text": "{APPLICANT_EMAIL}",                         "description": "Enter email" },
+      { "action": "hotkey",    "keys": ["tab"],                                     "description": "Next field" },
+      { "action": "type",      "text": "{APPLICANT_PHONE}",                         "description": "Enter phone" },
+      {
+        "action": "hotkey",    "keys": ["tab"],
+        "description": "Tab to password / API key field — MONITOR TRIGGER",
+        "monitor_trigger": "credential"
+      },
+      { "action": "hotkey",    "keys": ["cmd", "return"],                           "description": "Submit form" }
+    ],
+    "demonstration": null
+  },
+  {
+    "routine_id": "ROUTINE_BROWSER_SHOWPIECE",
+    "description": "Open a Browserbase cloud browser session and navigate to a URL. Falls back to local stub if offline.",
+    "variables": ["SEARCH_QUERY"],
+    "mode": "LIVE",
+    "high_stakes_steps": [],
+    "step_instructions": {
+      "0": "Uses Browserbase — a real remote browser, not a local tab"
+    },
+    "steps": [
+      {
+        "action": "browser",
+        "description": "Open Browserbase cloud browser",
+        "browser_step": { "url": "https://www.google.com", "action": "navigate" }
+      },
+      { "action": "wait", "seconds": 1.5, "description": "Wait for page load" }
+    ],
+    "demonstration": null
+  },
+  {
+    "routine_id": "ROUTINE_LOCKED_FALLBACK",
+    "description": "Deterministic offline fallback — opens TextEdit and types a note. Used if live agent flakes during demo. Never present this as the product.",
+    "variables": ["NOTE_TEXT"],
+    "mode": "LOCKED",
+    "high_stakes_steps": [],
+    "step_instructions": {},
+    "steps": [
+      { "action": "open_app", "target": "TextEdit",           "description": "Open TextEdit" },
+      { "action": "wait",     "seconds": 2.0,                 "description": "Wait for app" },
+      { "action": "hotkey",   "keys": ["cmd", "n"],           "description": "New document" },
+      { "action": "wait",     "seconds": 0.5 },
+      { "action": "type",     "text": "Shepherd Demo Run\n",  "description": "Type header" },
+      { "action": "type",     "text": "{NOTE_TEXT}\n",        "description": "Type note" },
+      { "action": "hotkey",   "keys": ["cmd", "s"],           "description": "Save" },
+      { "action": "wait",     "seconds": 0.5 },
+      { "action": "hotkey",   "keys": ["escape"],             "description": "Dismiss dialog" }
+    ],
+    "demonstration": null
+  }
+]

@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Shepherd — Control Hub</title>
+<style>
+:root {
+  --ground:   #080d14;
+  --surface:  #0f1521;
+  --border:   #1e2a3a;
+  --text:     #c9d1d9;
+  --dim:      #6e7f93;
+  --amber:    #e8a219;
+  --blue:     #2f7de1;
+  --green:    #3fb950;
+  --red:      #e5534b;
+  --amber-bg: rgba(232,162,25,0.08);
+  --red-bg:   rgba(229,83,75,0.12);
+  --green-bg: rgba(63,185,80,0.08);
+  --blue-bg:  rgba(47,125,225,0.08);
+  --font:     ui-monospace,'SF Mono','Cascadia Code',Consolas,monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--ground); color: var(--text); font-family: var(--font); font-size: 13px; overflow: hidden; }
+
+/* ── Header ── */
+#header {
+  display: flex; align-items: center; gap: 1.5rem;
+  padding: 0 1.25rem; height: 42px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+#header .logo { color: var(--amber); font-size: 0.8rem; letter-spacing: 0.2em; text-transform: uppercase; font-weight: 600; }
+#header .sep  { color: var(--border); }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); display: inline-block; margin-right: 5px; }
+.status-dot.live { background: var(--amber); box-shadow: 0 0 6px var(--amber); animation: pulse 1.8s ease-in-out infinite; }
+.status-dot.halted { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.status-dot.done { background: var(--green); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+#run-id { color: var(--dim); font-size: 0.72rem; }
+#mode-badge {
+  font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border); color: var(--dim);
+}
+#mode-badge.live  { border-color: var(--amber); color: var(--amber); }
+#mode-badge.locked { border-color: var(--blue);  color: var(--blue); }
+#clock { margin-left: auto; color: var(--dim); font-size: 0.72rem; }
+
+/* ── Layout ── */
+#layout {
+  display: grid;
+  grid-template-columns: 240px 1fr 260px;
+  grid-template-rows: 1fr;
+  height: calc(100vh - 42px - 130px);
+  gap: 1px; background: var(--border);
+}
+#log-strip { height: 130px; border-top: 1px solid var(--border); }
+
+/* ── Panels ── */
+.panel { background: var(--surface); overflow: hidden; display: flex; flex-direction: column; }
+.panel-label {
+  font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--dim); padding: 10px 14px 6px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.panel-body { flex: 1; overflow-y: auto; padding: 12px 14px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+/* Left column: 2 panels stacked */
+#left { display: flex; flex-direction: column; gap: 1px; background: var(--border); }
+#left .panel { flex: 1; }
+
+/* ── Intent Panel ── */
+.kv { margin-bottom: 10px; }
+.kv .k { font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); margin-bottom: 3px; }
+.kv .v { color: var(--text); font-size: 0.8rem; word-break: break-all; }
+.kv .v.big { font-size: 1rem; color: #e6edf3; }
+
+.conf-bar-wrap { background: var(--border); border-radius: 2px; height: 4px; overflow: hidden; margin-top: 4px; }
+.conf-bar { height: 100%; background: var(--amber); border-radius: 2px; transition: width 0.5s ease; }
+
+.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag { font-size: 0.65rem; padding: 2px 6px; background: var(--blue-bg); border: 1px solid rgba(47,125,225,0.25); border-radius: 3px; color: var(--blue); }
+
+.var-list { margin-top: 4px; }
+.var-row { display: flex; gap: 6px; font-size: 0.72rem; margin-bottom: 3px; color: var(--dim); }
+.var-row .var-k { color: var(--amber); min-width: 110px; flex-shrink: 0; }
+.var-row .var-v { color: var(--text); }
+
+/* ── Vision Panel ── */
+#vision-status { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; padding: 6px 0; }
+.vision-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); flex-shrink: 0; }
+.vision-dot.live { background: var(--blue); box-shadow: 0 0 5px var(--blue); animation: pulse 2s ease-in-out infinite; }
+.vision-desc { color: var(--text); }
+.vision-history { margin-top: 8px; }
+.vision-entry { font-size: 0.68rem; color: var(--dim); padding: 3px 0; border-top: 1px solid var(--border); }
+
+/* ── DAG (center) ── */
+#dag-panel { background: var(--surface); overflow: hidden; display: flex; flex-direction: column; }
+#dag-scroll { flex: 1; overflow-y: auto; padding: 16px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.dag-empty { color: var(--dim); font-size: 0.75rem; text-align: center; margin-top: 60px; }
+
+.dag-node-wrap { display: flex; flex-direction: column; align-items: center; }
+.dag-connector { width: 1px; height: 14px; background: var(--border); }
+.dag-node {
+  width: 100%; max-width: 380px;
+  border: 1px solid var(--border); border-radius: 5px;
+  padding: 8px 12px; cursor: default;
+  transition: border-color 0.2s, background 0.2s;
+  position: relative; overflow: hidden;
+}
+.dag-node .node-idx  { font-size: 0.6rem; color: var(--dim); margin-bottom: 2px; }
+.dag-node .node-desc { font-size: 0.78rem; color: var(--text); }
+.dag-node .node-meta { font-size: 0.65rem; color: var(--dim); margin-top: 3px; display: flex; gap: 8px; }
+.dag-node .node-dur  { color: var(--dim); }
+
+/* node states */
+.dag-node.pending  { border-color: var(--border); background: transparent; }
+.dag-node.active   { border-color: var(--amber); background: var(--amber-bg); }
+.dag-node.done     { border-color: rgba(63,185,80,0.3); background: var(--green-bg); }
+.dag-node.done .node-desc { color: var(--green); }
+.dag-node.failed   { border-color: rgba(229,83,75,0.4); background: var(--red-bg); }
+.dag-node.failed .node-desc { color: var(--red); }
+.dag-node.halted   { border-color: rgba(229,83,75,0.6); background: var(--red-bg); }
+.dag-node.halted .node-desc { color: var(--red); }
+.dag-node.flagged  { border-color: rgba(232,162,25,0.5); background: var(--amber-bg); }
+
+/* scan-line on active node */
+.dag-node.active::after {
+  content: ''; position: absolute; left: 0; top: 0;
+  width: 100%; height: 2px; background: var(--amber);
+  animation: scanline 1.4s linear infinite;
+  opacity: 0.6;
+}
+@keyframes scanline {
+  0%   { top: 0; opacity: 0.8; }
+  100% { top: 100%; opacity: 0; }
+}
+
+.node-status-icon { float: right; font-size: 0.7rem; }
+.icon-active  { color: var(--amber); }
+.icon-done    { color: var(--green); }
+.icon-failed  { color: var(--red); }
+.icon-halted  { color: var(--red); }
+.icon-flagged { color: var(--amber); }
+
+/* ── Right column: monitor + replay ── */
+#right { display: flex; flex-direction: column; gap: 1px; background: var(--border); }
+#monitor-panel { flex: 0 0 auto; min-height: 180px; }
+#replay-panel  { flex: 1; }
+
+/* ── Monitor Panel ── */
+#monitor-display {
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.monitor-ok { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: var(--green); }
+.monitor-ok .m-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+
+.monitor-alert-box {
+  border-radius: 4px; padding: 10px 12px;
+  border: 1px solid transparent;
+  transition: all 0.3s ease;
+}
+.monitor-alert-box.ok    { background: var(--green-bg);  border-color: rgba(63,185,80,0.3); }
+.monitor-alert-box.flag  { background: var(--amber-bg);  border-color: rgba(232,162,25,0.4); }
+.monitor-alert-box.halt  { background: var(--red-bg);    border-color: rgba(229,83,75,0.5); animation: haltpulse 1.5s ease-in-out infinite; }
+@keyframes haltpulse { 0%,100%{box-shadow:0 0 0 0 rgba(229,83,75,0)} 50%{box-shadow:0 0 10px 2px rgba(229,83,75,0.25)} }
+
+.alert-verdict { font-size: 0.65rem; letter-spacing: 0.15em; text-transform: uppercase; font-weight: 600; margin-bottom: 5px; }
+.alert-verdict.ok   { color: var(--green); }
+.alert-verdict.flag { color: var(--amber); }
+.alert-verdict.halt { color: var(--red); }
+.alert-reason  { font-size: 0.72rem; color: var(--text); line-height: 1.5; }
+.alert-meta    { font-size: 0.65rem; color: var(--dim); margin-top: 5px; }
+
+/* ── Replay Panel ── */
+.run-list { display: flex; flex-direction: column; gap: 4px; }
+.run-item {
+  padding: 7px 10px; border-radius: 4px; border: 1px solid var(--border);
+  cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  display: flex; align-items: center; gap: 8px;
+}
+.run-item:hover { border-color: var(--blue); background: var(--blue-bg); }
+.run-item.selected { border-color: var(--amber); background: var(--amber-bg); }
+.run-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.run-dot.completed { background: var(--green); }
+.run-dot.failed    { background: var(--red); }
+.run-dot.aborted   { background: var(--amber); }
+.run-id   { color: var(--dim); font-size: 0.65rem; flex-shrink: 0; }
+.run-name { color: var(--text); font-size: 0.7rem; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-dur  { color: var(--dim); font-size: 0.65rem; flex-shrink: 0; }
+.replay-empty { color: var(--dim); font-size: 0.72rem; text-align: center; padding: 20px 0; }
+
+/* ── Log Strip ── */
+#log-strip {
+  background: var(--surface);
+  display: flex; flex-direction: column;
+}
+#log-label {
+  font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--dim); padding: 6px 14px 4px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+#log-body { flex: 1; overflow-y: auto; padding: 4px 0; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.log-row {
+  display: grid; grid-template-columns: 80px 50px 30px 160px 70px 60px;
+  padding: 2px 14px; gap: 8px; align-items: center;
+  font-size: 0.68rem; line-height: 1.6;
+  border-bottom: 1px solid rgba(30,42,58,0.4);
+  animation: fadein 0.25s ease;
+}
+@keyframes fadein { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+.log-time    { color: var(--dim); }
+.log-type    { color: var(--dim); font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.log-idx     { color: var(--dim); text-align: right; }
+.log-desc    { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-status.ok     { color: var(--green); }
+.log-status.fail   { color: var(--red); }
+.log-status.halt   { color: var(--red); font-weight: 600; }
+.log-status.flag   { color: var(--amber); }
+.log-dur     { color: var(--dim); text-align: right; }
+.log-dur span { display: inline-block; background: var(--border); border-radius: 2px; padding: 0 4px; }
+
+/* ── Scrollbar styling ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────── -->
+<div id="header">
+  <span class="logo">◈ The Shepherd</span>
+  <span class="sep">|</span>
+  <span class="status-dot" id="status-dot"></span>
+  <span id="status-text" style="font-size:0.72rem;color:var(--dim)">Idle</span>
+  <span class="sep">|</span>
+  <span id="run-id" style="font-size:0.72rem"></span>
+  <span id="mode-badge">—</span>
+  <span id="clock"></span>
+</div>
+
+<!-- ── Main Layout ───────────────────────────── -->
+<div id="layout">
+
+  <!-- Left: Intent + Vision -->
+  <div id="left">
+    <div class="panel" id="intent-panel">
+      <div class="panel-label">Intent</div>
+      <div class="panel-body" id="intent-body">
+        <div class="kv"><div class="k">Raw text</div><div class="v big" id="intent-raw">—</div></div>
+        <div class="kv">
+          <div class="k">Routine</div>
+          <div class="v" id="intent-routine">—</div>
+        </div>
+        <div class="kv">
+          <div class="k">Confidence</div>
+          <div class="v" id="intent-conf-val">—</div>
+          <div class="conf-bar-wrap"><div class="conf-bar" id="intent-conf-bar" style="width:0%"></div></div>
+        </div>
+        <div class="kv">
+          <div class="k">Keywords</div>
+          <div class="tags" id="intent-keywords"></div>
+        </div>
+        <div class="kv">
+          <div class="k">Variables</div>
+          <div class="var-list" id="intent-vars"></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" id="vision-panel">
+      <div class="panel-label">Vision Audit</div>
+      <div class="panel-body">
+        <div id="vision-status">
+          <div class="vision-dot" id="vision-dot"></div>
+          <div class="vision-desc" id="vision-current">Waiting for stream…</div>
+        </div>
+        <div class="vision-history" id="vision-history"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center: Execution DAG -->
+  <div id="dag-panel" class="panel">
+    <div class="panel-label">Execution DAG</div>
+    <div id="dag-scroll">
+      <div class="dag-empty" id="dag-empty">Waiting for execution…</div>
+      <div id="dag-nodes"></div>
+    </div>
+  </div>
+
+  <!-- Right: Monitor + Replay -->
+  <div id="right">
+    <div class="panel" id="monitor-panel">
+      <div class="panel-label">Monitor / Alert</div>
+      <div id="monitor-display">
+        <div class="monitor-alert-box ok" id="monitor-box">
+          <div class="alert-verdict ok" id="monitor-verdict">● All Clear</div>
+          <div class="alert-reason" id="monitor-reason">No anomalies detected</div>
+          <div class="alert-meta" id="monitor-meta"></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" id="replay-panel">
+      <div class="panel-label">Replay</div>
+      <div class="panel-body">
+        <div class="run-list" id="run-list">
+          <div class="replay-empty">No past runs yet</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Log Strip ──────────────────────────────── -->
+<div id="log-strip">
+  <div id="log-label">Live Action Log</div>
+  <div id="log-body"></div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+const S = {
+  runId: null, totalSteps: 0, stepStates: {},
+  monitorVerdict: 'ok', status: 'idle',
+  visionHistory: [],
+};
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+function tick() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toTimeString().slice(0,8) + '.' + String(now.getMilliseconds()).padStart(3,'0');
+}
+setInterval(tick, 100); tick();
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+let ws = null;
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = e => { try { handle(JSON.parse(e.data)); } catch(_){} };
+  ws.onclose   = () => { setTimeout(connect, 2000); };
+  ws.onerror   = () => ws.close();
+}
+connect();
+loadRuns();
+
+// ── Event Handlers ────────────────────────────────────────────────────────────
+function handle(msg) {
+  const { type, data } = msg;
+  switch (type) {
+    case 'intent.received':  onIntentReceived(data);   break;
+    case 'routine.resolved': onRoutineResolved(data);  break;
+    case 'execution.start':  onExecStart(data);        break;
+    case 'step.start':       onStepStart(data);        break;
+    case 'step.complete':    onStepComplete(data);     break;
+    case 'step.error':       onStepError(data);        break;
+    case 'execution.complete': onExecComplete(data);   break;
+    case 'execution.halted': onExecHalted(data);       break;
+    case 'monitor.alert':    onMonitorAlert(data);     break;
+    case 'vision.update':    onVisionUpdate(data);     break;
+    case 'vision.offline':   onVisionOffline(data);    break;
+    case 'intent.unmatched': onIntentUnmatched(data);  break;
+  }
+}
+
+function onIntentReceived(d) {
+  document.getElementById('intent-raw').textContent = d.raw_text || '—';
+  document.getElementById('intent-routine').textContent = '—';
+  document.getElementById('intent-conf-val').textContent = '—';
+  document.getElementById('intent-conf-bar').style.width = '0%';
+  document.getElementById('intent-keywords').innerHTML = '';
+  document.getElementById('intent-vars').innerHTML = '';
+  setStatus('routing', 'Routing…');
+  log('INTENT', '—', d.raw_text, '', '');
+}
+
+function onIntentUnmatched(d) {
+  setStatus('idle', 'Unmatched');
+  log('ROUTER', '—', 'No match: ' + d.raw_text, 'fail', '');
+}
+
+function onRoutineResolved(d) {
+  document.getElementById('intent-routine').textContent = d.routine_id;
+  const pct = Math.round((d.confidence || 0) * 100);
+  document.getElementById('intent-conf-val').textContent = pct + '%';
+  document.getElementById('intent-conf-bar').style.width = pct + '%';
+
+  const kc = document.getElementById('intent-keywords');
+  kc.innerHTML = '';
+  (d.matched_keywords || []).forEach(k => {
+    const t = document.createElement('span');
+    t.className = 'tag'; t.textContent = k; kc.appendChild(t);
+  });
+
+  const vc = document.getElementById('intent-vars');
+  vc.innerHTML = '';
+  Object.entries(d.variables || {}).forEach(([k, v]) => {
+    const r = document.createElement('div');
+    r.className = 'var-row';
+    r.innerHTML = `<span class="var-k">${esc(k)}</span><span class="var-v">${esc(v)}</span>`;
+    vc.appendChild(r);
+  });
+}
+
+function onExecStart(d) {
+  S.runId = d.run_id; S.totalSteps = d.total_steps; S.stepStates = {};
+  document.getElementById('run-id').textContent = 'run ' + d.run_id + ' ·';
+  const badge = document.getElementById('mode-badge');
+  badge.textContent = d.mode || '—';
+  badge.className = 'mode-badge ' + (d.mode === 'LIVE' ? 'live' : 'locked');
+  setStatus('live', 'Running');
+  resetMonitor();
+  buildDAG(d.total_steps, []);
+  log('EXEC', '—', 'Started · ' + d.routine_id, 'ok', '');
+}
+
+function onStepStart(d) {
+  S.stepStates[d.index] = 'active';
+  updateDAGNode(d.index, 'active', d.description || d.action, null);
+  scrollDAGToNode(d.index);
+  log('STEP', d.index, d.description || d.action, 'active', '');
+}
+
+function onStepComplete(d) {
+  S.stepStates[d.index] = 'done';
+  updateDAGNode(d.index, 'done', null, d.duration_ms);
+  log('STEP', d.index, null, 'ok', d.duration_ms);
+}
+
+function onStepError(d) {
+  S.stepStates[d.index] = 'failed';
+  updateDAGNode(d.index, 'failed', d.error, null);
+  log('ERROR', d.index, d.error, 'fail', null);
+}
+
+function onExecComplete(d) {
+  const st = d.status === 'completed' ? 'done' : d.status === 'aborted' ? 'halted' : 'failed';
+  setStatus(st, d.status === 'completed' ? 'Completed' : d.status === 'aborted' ? 'Halted' : 'Failed');
+  log('EXEC', '—', d.status.toUpperCase() + ' · ' + d.duration_ms + 'ms', d.status === 'completed' ? 'ok' : 'fail', d.duration_ms);
+  setTimeout(loadRuns, 1000);
+}
+
+function onExecHalted(d) {
+  setStatus('halted', 'HALTED');
+  updateDAGNode(d.step_index, 'halted', 'Execution halted', null);
+  log('HALT', d.step_index, d.reason, 'halt', null);
+}
+
+function onMonitorAlert(d) {
+  S.monitorVerdict = d.verdict;
+  const box = document.getElementById('monitor-box');
+  const verdict = document.getElementById('monitor-verdict');
+  const reason  = document.getElementById('monitor-reason');
+  const meta    = document.getElementById('monitor-meta');
+
+  box.className = 'monitor-alert-box ' + d.verdict;
+  if (d.verdict === 'halt') {
+    verdict.className = 'alert-verdict halt';
+    verdict.textContent = '■ HALT';
+    setStatus('halted', 'HALTED');
+  } else {
+    verdict.className = 'alert-verdict flag';
+    verdict.textContent = '▲ FLAG';
+  }
+  reason.textContent = d.reason || '';
+  meta.textContent   = d.trigger ? ('trigger: ' + d.trigger + ' · step ' + d.step_index) : ('step ' + d.step_index);
+
+  if (d.verdict === 'halt') {
+    updateDAGNode(d.step_index, 'halted', null, null);
+  } else {
+    updateDAGNode(d.step_index, 'flagged', null, null);
+  }
+}
+
+function onVisionUpdate(d) {
+  document.getElementById('vision-dot').className = 'vision-dot live';
+  document.getElementById('vision-current').textContent = '"' + d.description + '"';
+  S.visionHistory.unshift(d.description);
+  if (S.visionHistory.length > 5) S.visionHistory.pop();
+  const hist = document.getElementById('vision-history');
+  hist.innerHTML = S.visionHistory.slice(1).map(t =>
+    `<div class="vision-entry">${esc(t)}</div>`
+  ).join('');
+}
+
+function onVisionOffline(d) {
+  document.getElementById('vision-dot').className = 'vision-dot';
+  document.getElementById('vision-current').textContent = 'vision audit offline';
+}
+
+// ── DAG helpers ───────────────────────────────────────────────────────────────
+function buildDAG(total, stepDescriptions) {
+  document.getElementById('dag-empty').style.display = 'none';
+  const c = document.getElementById('dag-nodes');
+  c.innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    if (i > 0) {
+      const conn = document.createElement('div');
+      conn.className = 'dag-node-wrap';
+      const line = document.createElement('div');
+      line.className = 'dag-connector';
+      conn.appendChild(line);
+      c.appendChild(conn);
+    }
+    const wrap = document.createElement('div');
+    wrap.className = 'dag-node-wrap';
+    const node = document.createElement('div');
+    node.className = 'dag-node pending';
+    node.id = 'dag-node-' + i;
+    node.innerHTML = `
+      <div class="node-idx">Step ${i}</div>
+      <div class="node-desc">${stepDescriptions[i] || '—'}</div>
+      <div class="node-meta"><span class="node-dur"></span></div>
+    `;
+    wrap.appendChild(node);
+    c.appendChild(wrap);
+  }
+}
+
+function updateDAGNode(index, state, desc, durMs) {
+  const node = document.getElementById('dag-node-' + index);
+  if (!node) return;
+  node.className = 'dag-node ' + state;
+  if (desc !== null) node.querySelector('.node-desc').textContent = desc;
+  if (durMs !== null) node.querySelector('.node-dur').textContent = durMs + 'ms';
+
+  const icons = { active: '<span class="node-status-icon icon-active">◉</span>',
+                  done:   '<span class="node-status-icon icon-done">✓</span>',
+                  failed: '<span class="node-status-icon icon-failed">✕</span>',
+                  halted: '<span class="node-status-icon icon-halted">■</span>',
+                  flagged:'<span class="node-status-icon icon-flagged">▲</span>' };
+  const existing = node.querySelector('.node-status-icon');
+  if (existing) existing.remove();
+  if (icons[state]) node.insertAdjacentHTML('beforeend', icons[state]);
+}
+
+function scrollDAGToNode(index) {
+  const node = document.getElementById('dag-node-' + index);
+  if (node) node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+// ── Status helpers ────────────────────────────────────────────────────────────
+function setStatus(state, label) {
+  S.status = state;
+  const dot  = document.getElementById('status-dot');
+  const text = document.getElementById('status-text');
+  dot.className  = 'status-dot' + (state === 'live' || state === 'routing' ? ' live' : state === 'halted' || state === 'failed' ? ' halted' : state === 'done' ? ' done' : '');
+  text.textContent = label;
+  text.style.color = state === 'live' ? 'var(--amber)' : state === 'halted' || state === 'failed' ? 'var(--red)' : state === 'done' ? 'var(--green)' : 'var(--dim)';
+}
+
+function resetMonitor() {
+  document.getElementById('monitor-box').className     = 'monitor-alert-box ok';
+  document.getElementById('monitor-verdict').className = 'alert-verdict ok';
+  document.getElementById('monitor-verdict').textContent = '● All Clear';
+  document.getElementById('monitor-reason').textContent  = 'No anomalies detected';
+  document.getElementById('monitor-meta').textContent    = '';
+}
+
+// ── Log helpers ───────────────────────────────────────────────────────────────
+const MAX_LOG = 200;
+function log(type, idx, desc, status, durMs) {
+  const body = document.getElementById('log-body');
+  const now = new Date();
+  const ts  = now.toTimeString().slice(0,8) + '.' + String(now.getMilliseconds()).padStart(3,'0');
+  const statusLabel = { ok:'✓ ok', fail:'✕ fail', halt:'■ halt', flag:'▲ flag', active:'◉ …', '':'—' };
+  const statusClass = { ok:'ok', fail:'fail', halt:'halt', flag:'flag', active:'ok', '':'ok' };
+
+  const row = document.createElement('div');
+  row.className = 'log-row';
+  row.innerHTML = `
+    <span class="log-time">${ts}</span>
+    <span class="log-type">${esc(type)}</span>
+    <span class="log-idx">${idx !== '—' && idx !== null ? idx : ''}</span>
+    <span class="log-desc">${esc(desc || '')}</span>
+    <span class="log-status ${statusClass[status] || ''}">${statusLabel[status] || status || ''}</span>
+    <span class="log-dur">${durMs !== null && durMs !== '' ? '<span>' + durMs + 'ms</span>' : ''}</span>
+  `;
+  body.prepend(row);
+  while (body.children.length > MAX_LOG) body.removeChild(body.lastChild);
+}
+
+// ── Replay helpers ────────────────────────────────────────────────────────────
+function loadRuns() {
+  fetch('/api/runs').then(r => r.json()).then(renderRunList).catch(() => {});
+}
+
+function renderRunList(runs) {
+  const list = document.getElementById('run-list');
+  if (!runs || runs.length === 0) {
+    list.innerHTML = '<div class="replay-empty">No past runs yet</div>';
+    return;
+  }
+  list.innerHTML = runs.slice(0, 15).map(r => {
+    const dur = r.ended_at && r.started_at ? Math.round((r.ended_at - r.started_at) * 1000) + 'ms' : '—';
+    return `<div class="run-item" onclick="loadRun('${esc(r.run_id)}')">
+      <div class="run-dot ${r.steps && r.steps.some(s=>s.status==='failed') ? 'failed' : r.steps && r.steps.some(s=>s.status==='halted') ? 'aborted' : 'completed'}"></div>
+      <span class="run-id">${esc(r.run_id)}</span>
+      <span class="run-name">${esc(r.routine_id || '—')}</span>
+      <span class="run-dur">${dur}</span>
+    </div>`;
+  }).join('');
+}
+
+function loadRun(runId) {
+  fetch('/api/runs/' + runId).then(r => r.json()).then(run => {
+    if (run.error) return;
+    document.querySelectorAll('.run-item').forEach(el => el.classList.remove('selected'));
+    const el = document.querySelector(`.run-item[onclick*="${runId}"]`);
+    if (el) el.classList.add('selected');
+
+    // Replay the DAG with this run's step data
+    const steps = run.steps || [];
+    buildDAG(steps.length, steps.map(s => s.action));
+    steps.forEach(s => updateDAGNode(s.index, s.status === 'completed' ? 'done' : s.status === 'failed' ? 'failed' : s.status === 'halted' ? 'halted' : 'done', s.action, s.duration_ms));
+
+    // Show run details in intent panel
+    document.getElementById('intent-raw').textContent = 'Replay: ' + runId;
+    document.getElementById('intent-routine').textContent = run.routine_id || '—';
+    const vc = document.getElementById('intent-vars');
+    vc.innerHTML = '';
+    Object.entries(run.variables || {}).forEach(([k, v]) => {
+      const row = document.createElement('div');
+      row.className = 'var-row';
+      row.innerHTML = `<span class="var-k">${esc(k)}</span><span class="var-v">${esc(v)}</span>`;
+      vc.appendChild(row);
+    });
+  }).catch(() => {});
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "_note": "LOGICAL pyautogui coordinates (physical_px / 2 on Retina). Re-calibrate on demo machine: python -c \"from engine.coords import calibration_helper; calibration_helper()\"",
+  "form_name_field":     { "x": 760, "y": 300, "note": "Full name field in demo form" },
+  "form_email_field":    { "x": 760, "y": 360, "note": "Email field in demo form" },
+  "form_phone_field":    { "x": 760, "y": 420, "note": "Phone field in demo form" },
+  "form_password_field": { "x": 760, "y": 480, "note": "PASSWORD FIELD — monitor trigger step" },
+  "form_submit_btn":     { "x": 760, "y": 540, "note": "Submit button" },
+  "browser_url_bar":     { "x": 760, "y": 60,  "note": "Browser address bar" },
+  "notes_window":        { "x": 760, "y": 400, "note": "TextEdit text area" },
+  "screen_center":       { "x": 760, "y": 440, "note": "Approximate screen center — recalibrate" }
+}
