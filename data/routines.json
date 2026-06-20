@@ -1,33 +1,39 @@
 [
   {
     "routine_id": "ROUTINE_FORM_FILL",
-    "description": "Fill a job application form with applicant details. Authored by demonstration. Monitor halts at the planted credential step.",
-    "variables": ["APPLICANT_NAME", "APPLICANT_EMAIL", "APPLICANT_PHONE"],
+    "description": "Fill a WorkBridge job application form. Monitor halts at the credential field — the planted demo trigger.",
+    "variables": ["APPLICANT_NAME", "APPLICANT_LASTNAME", "APPLICANT_EMAIL", "APPLICANT_PHONE"],
     "mode": "LIVE",
-    "high_stakes_steps": [11],
+    "high_stakes_steps": [17],
     "step_instructions": {
-      "0": "Open the demo form in Safari — keyboard-first navigation throughout",
-      "4": "Tab through fields; type from variables injected at runtime",
-      "11": "PLANTED TRIGGER: credential field — monitor will halt here every time"
+      "0": "Open the WorkBridge candidate portal in Safari",
+      "5": "The first name field is auto-focused after page load",
+      "17": "PLANTED TRIGGER: tab to password / API key field — monitor halts every time"
     },
     "steps": [
-      { "action": "open_app",  "target": "Safari",                                  "description": "Open browser" },
-      { "action": "wait",      "seconds": 2.0,                                      "description": "Wait for browser" },
-      { "action": "hotkey",    "keys": ["cmd", "l"],                                "description": "Focus URL bar" },
-      { "action": "type",      "text": "http://localhost:8765/demo-form\n",          "description": "Navigate to demo form" },
-      { "action": "wait",      "seconds": 1.5,                                      "description": "Wait for form" },
-      { "action": "hotkey",    "keys": ["tab"],                                     "description": "Focus name field" },
-      { "action": "type",      "text": "{APPLICANT_NAME}",                          "description": "Enter name" },
-      { "action": "hotkey",    "keys": ["tab"],                                     "description": "Next field" },
-      { "action": "type",      "text": "{APPLICANT_EMAIL}",                         "description": "Enter email" },
-      { "action": "hotkey",    "keys": ["tab"],                                     "description": "Next field" },
-      { "action": "type",      "text": "{APPLICANT_PHONE}",                         "description": "Enter phone" },
+      { "action": "open_app", "target": "Safari",                              "description": "Open browser" },
+      { "action": "wait",     "seconds": 2.0,                                  "description": "Wait for browser" },
+      { "action": "hotkey",   "keys": ["cmd", "l"],                            "description": "Focus URL bar" },
+      { "action": "type",     "text": "http://localhost:8765/demo-form\n",      "description": "Navigate to WorkBridge form" },
+      { "action": "wait",     "seconds": 1.5,                                  "description": "Wait for form" },
+      { "action": "hotkey",   "keys": ["tab"],                                 "description": "Focus first name field" },
+      { "action": "type",     "text": "{APPLICANT_NAME}",                      "description": "Enter first name" },
+      { "action": "hotkey",   "keys": ["tab"],                                 "description": "Next field" },
+      { "action": "type",     "text": "{APPLICANT_LASTNAME}",                  "description": "Enter last name" },
+      { "action": "hotkey",   "keys": ["tab"],                                 "description": "Next field" },
+      { "action": "type",     "text": "{APPLICANT_EMAIL}",                     "description": "Enter email" },
+      { "action": "hotkey",   "keys": ["tab"],                                 "description": "Next field" },
+      { "action": "type",     "text": "{APPLICANT_PHONE}",                     "description": "Enter phone" },
+      { "action": "hotkey",   "keys": ["tab"],                                 "description": "Skip LinkedIn" },
+      { "action": "hotkey",   "keys": ["tab"],                                 "description": "Skip role dropdown" },
+      { "action": "hotkey",   "keys": ["tab"],                                 "description": "Skip years of experience" },
+      { "action": "hotkey",   "keys": ["tab"],                                 "description": "Skip salary" },
       {
-        "action": "hotkey",    "keys": ["tab"],
-        "description": "Tab to password / API key field — MONITOR TRIGGER",
+        "action": "hotkey", "keys": ["tab"],
+        "description": "Tab to password / API key — MONITOR TRIGGER",
         "monitor_trigger": "credential"
       },
-      { "action": "hotkey",    "keys": ["cmd", "return"],                           "description": "Submit form" }
+      { "action": "hotkey",   "keys": ["cmd", "return"],                       "description": "Submit form" }
     ],
     "demonstration": null
   },
@@ -52,7 +58,7 @@
   },
   {
     "routine_id": "ROUTINE_LOCKED_FALLBACK",
-    "description": "Deterministic offline fallback — opens TextEdit and types a note. Used if live agent flakes during demo. Never present this as the product.",
+    "description": "Deterministic offline fallback — opens TextEdit and types a note. Used if live agent flakes during demo.",
     "variables": ["NOTE_TEXT"],
     "mode": "LOCKED",
     "high_stakes_steps": [],

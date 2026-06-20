@@ -15,11 +15,13 @@ from typing import Optional
 
 import pyautogui
 
+import config as _cfg
 from config import FEATURES, EXECUTION_MODE
 from shepherd_types import ExecutionResult, ResolvedRoutine, RoutineStep, StepRecord
 from engine.coords import get as get_coord
 from engine.routines import get_routine
 from engine.agent_s_adapter import AgentSAdapter
+from engine.task_graph import TaskGraphStore, summarize, milestone_key
 from dashboard.events import event_bus
 
 pyautogui.FAILSAFE = True   # slam mouse to top-left corner to abort
@@ -42,8 +44,12 @@ class ShepherdExecutionEngine:
         self._mode      = mode
         self._agent_s   = agent_s if agent_s is not None else AgentSAdapter()
         self._evolution = evolution  # RoutineEvolution | None — injected by main.py
+        self._graphs    = TaskGraphStore()
+        self._active_graph = None   # task graph loaded as reference for the current run
+        self._step_ms      = {}     # fine-step index → milestone reference for Agent S
         self.last_step_records: list[StepRecord] = []
         self._halt_flag = threading.Event()
+        self._pending_override: str = ""
 
     def request_halt(self) -> None:
         """Set by monitor_agent or spoken 'stop' command. Checked at each step boundary."""
@@ -52,11 +58,40 @@ class ShepherdExecutionEngine:
     def execute(self, resolved: ResolvedRoutine) -> ExecutionResult:
         self._halt_flag.clear()
         self.last_step_records = []
+        # Fresh Agent S trajectory per run — its reflection/trajectory state is
+        # per-task and must not leak across runs.
+        self._agent_s.reset()
         run_id     = str(uuid.uuid4())[:8]
         started_at = time.time()
 
+        # Respect runtime mode switch from dashboard POST /api/mode
+        if _cfg._runtime_mode:
+            self._mode = _cfg._runtime_mode
+
         routine   = get_routine(resolved.routine_id)
         variables = resolved.variables
+
+        # ── Load this task's persistent graph as a reference ────────────────────
+        # The graph is coarse (milestones, not clicks). On a repeat run it tells us
+        # (and Agent S) what's already been done; new milestones get appended below.
+        graph = self._graphs.load(resolved.routine_id, variables)
+        self._active_graph = graph
+        was_known   = self._graphs.is_known(graph)
+        prior_keys  = {n.key for n in graph.nodes}
+        prior_by_key = {n.key: n for n in graph.nodes}
+
+        # Collapse this run's planned steps into milestones for the recall overlay
+        # and Agent S reference. (Executed milestones are re-derived & saved at the end.)
+        planned_ms, step_to_ms = summarize(routine.steps, variables)
+        self._step_ms = {}
+        for idx, mi in step_to_ms.items():
+            m = planned_ms[mi]
+            key = milestone_key(m["kind"], m["value"], m["label"])
+            prior = prior_by_key.get(key)
+            self._step_ms[idx] = {
+                "label":      m["label"],
+                "times_seen": prior.times_seen if prior else 0,
+            }
 
         event_bus.emit("execution.start", {
             "run_id":      run_id,
@@ -75,7 +110,34 @@ class ShepherdExecutionEngine:
             ],
         })
 
+        # Tell the dashboard, per fine step, which milestone it belongs to and whether
+        # that milestone is already in the graph (recalled) or new this run.
+        loaded_steps = []
+        for i, s in enumerate(routine.steps):
+            m = planned_ms[step_to_ms[i]]
+            key = milestone_key(m["kind"], m["value"], m["label"])
+            loaded_steps.append({
+                "index":          i,
+                "milestone":      m["label"],
+                "milestone_known": key in prior_keys,
+                "times_seen":     getattr(prior_by_key.get(key), "times_seen", 0),
+            })
+        event_bus.emit("task.graph.loaded", {
+            "run_id":     run_id,
+            "routine_id": resolved.routine_id,
+            "known":      was_known,
+            "run_count":  graph.run_count,
+            "node_count": len(graph.nodes),
+            "milestones": [
+                {"label": m["label"], "kind": m["kind"],
+                 "known": milestone_key(m["kind"], m["value"], m["label"]) in prior_keys}
+                for m in planned_ms
+            ],
+            "steps": loaded_steps,
+        })
+
         steps_done = 0
+        executed: list[RoutineStep] = []   # actually-performed steps → milestones at end
         error: Optional[str] = None
         status = "completed"
 
@@ -129,7 +191,12 @@ class ShepherdExecutionEngine:
 
                 # In LIVE mode, ask Agent S to plan the action (returns executable code)
                 defined_step = step
-                agent_code   = self._live_execute(defined_step, i, routine)
+                if self._mode == "LIVE" and self._agent_s.available:
+                    event_bus.emit("step.agent_s_thinking", {
+                        "run_id": run_id, "index": i,
+                        "description": step.description or step.action,
+                    })
+                agent_code = self._live_execute(defined_step, i, routine)
 
                 # Deviation detection: compare code action type vs defined step
                 deviation_desc: Optional[str] = (
@@ -157,10 +224,23 @@ class ShepherdExecutionEngine:
                         s.set_attribute("action.target", step.target)
                     try:
                         if agent_code:
-                            self._exec_agent_code(agent_code)
+                            try:
+                                self._exec_agent_code(agent_code)
+                            except Exception as agent_exc:
+                                # Agent S code failed to execute — fall back to the
+                                # deterministic defined step rather than aborting the run.
+                                print(f"[agent_s] exec failed (falling back to defined step): {agent_exc}")
+                                deviation_desc = (
+                                    (deviation_desc or "agent_s") + " → fell back to defined step"
+                                )
+                                event_bus.emit("step.fallback", {
+                                    "run_id": run_id, "index": i, "reason": str(agent_exc),
+                                })
+                                self._dispatch(step, variables)
                         else:
                             self._dispatch(step, variables)
                         steps_done += 1
+                        executed.append(step)
                     except Exception as exc:
                         step_status = "failed"
                         step_error  = str(exc)
@@ -233,12 +313,49 @@ class ShepherdExecutionEngine:
             "steps_completed": steps_done,
             "duration_ms":     result.duration_ms,
         })
+
+        # ── Merge what actually ran into the graph as milestones, then persist ──
+        # Collapse the executed clicks into coarse milestones; match known ones,
+        # append new ones. (Boundary work — never inside the click sequence.)
+        executed_ms, _ = summarize(executed, variables)
+        # Dedupe within this run so times_seen counts runs, not intra-run repeats
+        # (e.g. two "Scan results" in one run = one milestone seen this run).
+        unique_ms: list[dict] = []
+        by_key: dict[str, dict] = {}
+        for m in executed_ms:
+            key = milestone_key(m["kind"], m["value"], m["label"])
+            if key in by_key:
+                by_key[key]["fine"] += m["fine"]
+            else:
+                by_key[key] = dict(m)
+                unique_ms.append(by_key[key])
+        appended = 0
+        for m in unique_ms:
+            kind, _node = self._graphs.record_milestone(
+                graph, m["kind"], m["label"], m["value"], m["fine"], status, run_id)
+            if kind == "appended" and was_known:
+                appended += 1
+        self._graphs.save(graph, intent_text="", variables=variables, run_id=run_id)
+        event_bus.emit("task.graph.saved", {
+            "run_id":      run_id,
+            "routine_id":  resolved.routine_id,
+            "run_count":   graph.run_count,
+            "node_count":  len(graph.nodes),
+            "appended":    appended,
+            "milestones":  [m["label"] for m in unique_ms],
+        })
+        self._active_graph = None
+        self._step_ms = {}
         return result
 
     # ── step dispatcher — SYNCHRONOUS, no async, no network ─────────────────
 
     def _build_instruction(self, step: RoutineStep, index: int, routine) -> str:
         """Compose the per-step instruction string passed to Agent S."""
+        if self._pending_override:
+            inst = self._pending_override
+            self._pending_override = ""
+            return inst
         if routine.step_instructions and index in routine.step_instructions:
             return routine.step_instructions[index]
         return step.description or step.action
@@ -265,6 +382,14 @@ class ShepherdExecutionEngine:
             return None
         instruction = self._build_instruction(step, index, routine)
         demo_ctx    = self._build_demo_context(routine)
+        # Reference the coarse task graph: tell Agent S which milestone this click is
+        # part of and how often that milestone has run before. (Every click still
+        # gets its own plan_action call — only the persistent graph is coarse.)
+        ms = self._step_ms.get(index)
+        if ms and ms["times_seen"] > 0:
+            demo_ctx += (
+                f"\n[task-graph reference] This click is part of milestone "
+                f"'{ms['label']}', performed {ms['times_seen']}x before.")
         return self._agent_s.plan_action(instruction, index, demo_ctx)
 
     def _exec_agent_code(self, code: str) -> None:
@@ -272,7 +397,7 @@ class ShepherdExecutionEngine:
         Execute Agent S-generated Python/pyautogui code in a restricted namespace.
         Agent S returns strings like: "pyautogui.click(760, 300)"
         """
-        exec(code, {"pyautogui": pyautogui, "time": time})  # noqa: S102
+        exec(code, {"__builtins__": {}, "pyautogui": pyautogui, "time": time})  # noqa: S102
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
         def sub(t: Optional[str]) -> Optional[str]:
@@ -362,62 +487,65 @@ class ShepherdExecutionEngine:
         then blocks until the human approves/halts (or 30 s timeout).
         Never called inside a click sequence.
         """
+        # Rule check — can fail gracefully without blocking the demo
         try:
             from services.monitor_agent import check_step
-            from engine.approvals import suggestions_for, request_approval
             result  = check_step(step, {"step_index": index})
             verdict = result.get("verdict", "ok")
             reason  = result.get("reason", "")
-
-            if verdict in ("flag", "halt"):
-                sugg = suggestions_for(step.monitor_trigger)
-
-                # Pull historical stats to enrich the alert message
-                history_note = ""
-                if self._evolution and routine_id:
-                    try:
-                        s = self._evolution.get_stats(routine_id, index)
-                        if s.execution_count >= 2:
-                            history_note = (
-                                f"Step {index} history: "
-                                f"{s.halt_count}× halted, "
-                                f"{s.success_count}× approved"
-                            )
-                    except Exception:
-                        pass
-
-                event_bus.emit("monitor.alert", {
-                    "run_id":             run_id,
-                    "step_index":         index,
-                    "verdict":            verdict,
-                    "reason":             reason,
-                    "trigger":            step.monitor_trigger,
-                    "awaiting_approval":  True,
-                    "suggestions":        sugg,
-                    "history_note":       history_note,
-                })
-
-                # Block for human decision; default conservatively
-                default = "approve" if verdict == "flag" else "halt"
-                decision = request_approval(index, reason, timeout=30.0, default=default)
-
-                event_bus.emit("monitor.decision", {
-                    "run_id": run_id, "step_index": index, "decision": decision,
-                })
-
-                if decision == "halt":
-                    return "halt"
-
-                # Record the approval in evolution stats
-                if self._evolution and routine_id:
-                    try:
-                        self._evolution.record_approval(routine_id, index)
-                    except Exception:
-                        pass
-
-                return "ok"
-
-            return verdict
         except Exception as exc:
-            print(f"[monitor] check failed (non-fatal): {exc}")
+            print(f"[monitor] check_step failed (non-fatal): {exc}")
             return "ok"
+
+        if verdict not in ("flag", "halt"):
+            return verdict
+
+        # Approval gate — separated so exceptions here don't silently return "ok"
+        from engine.approvals import suggestions_for, request_approval, get_override_instruction
+
+        sugg = suggestions_for(step.monitor_trigger)
+
+        history_note = ""
+        if self._evolution and routine_id:
+            try:
+                s = self._evolution.get_stats(routine_id, index)
+                if s.execution_count >= 2:
+                    history_note = (
+                        f"Step {index} history: "
+                        f"{s.halt_count}× halted, "
+                        f"{s.success_count}× approved"
+                    )
+            except Exception:
+                pass
+
+        event_bus.emit("monitor.alert", {
+            "run_id":             run_id,
+            "step_index":         index,
+            "verdict":            verdict,
+            "reason":             reason,
+            "trigger":            step.monitor_trigger,
+            "awaiting_approval":  True,
+            "suggestions":        sugg,
+            "history_note":       history_note,
+        })
+
+        default   = "approve" if verdict == "flag" else "halt"
+        decision  = request_approval(index, reason, timeout=30.0, default=default)
+
+        event_bus.emit("monitor.decision", {
+            "run_id": run_id, "step_index": index, "decision": decision,
+        })
+
+        if decision == "halt":
+            return "halt"
+
+        if decision == "override":
+            self._pending_override = get_override_instruction()
+
+        if self._evolution and routine_id:
+            try:
+                self._evolution.record_approval(routine_id, index)
+            except Exception:
+                pass
+
+        return "ok"

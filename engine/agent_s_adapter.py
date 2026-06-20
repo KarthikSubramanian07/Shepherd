@@ -21,10 +21,26 @@ import os
 from typing import Optional
 
 from config import (
-    AGENT_S_ENGINE_TYPE, AGENT_S_MODEL,
+    AGENT_S_ENGINE_TYPE, AGENT_S_MODEL, AGENT_S_BASE_URL,
     UITARS_BASE_URL, UITARS_MODEL,
     SCREEN_WIDTH, SCREEN_HEIGHT,
 )
+
+# Control tokens Agent S returns instead of pyautogui code. These are NOT
+# executable — exec()'ing them would NameError and (wrongly) fail the step — so
+# the adapter reports "no actionable code" and the engine falls back to the
+# routine's deterministic defined step.
+_TERMINAL_TOKENS = {"DONE", "FAIL", "FAILED", "WAIT"}
+
+
+def _is_actionable(code: str) -> bool:
+    """True only if `code` looks like executable action code, not a control token."""
+    c = (code or "").strip()
+    if not c:
+        return False
+    if c.upper().strip(".") in _TERMINAL_TOKENS:
+        return False
+    return True
 
 
 class AgentSAdapter:
@@ -60,6 +76,8 @@ class AgentSAdapter:
         }
         if api_key:
             engine_params["api_key"] = api_key
+        if AGENT_S_BASE_URL:
+            engine_params["base_url"] = AGENT_S_BASE_URL
 
         # Grounding: UI-TARS endpoint if provided, else fall back to same LLM
         if UITARS_BASE_URL:
@@ -101,6 +119,20 @@ class AgentSAdapter:
     def available(self) -> bool:
         return self._agent is not None
 
+    def reset(self) -> None:
+        """
+        Clear Agent S trajectory / reflection state. Must be called at the start of
+        each run — AgentS3 keeps per-task internal state (max_trajectory_length,
+        enable_reflection) that would otherwise leak across unrelated runs.
+        Safe no-op when Agent S is unavailable.
+        """
+        if self._agent is None:
+            return
+        try:
+            self._agent.reset()
+        except Exception as e:
+            print(f"[agent_s] reset failed (non-fatal): {e}")
+
     def plan_action(
         self,
         instruction: str,
@@ -136,7 +168,14 @@ class AgentSAdapter:
             )
 
             if action and action[0]:
-                return action[0]
+                code = action[0]
+                if _is_actionable(code):
+                    return code
+                # Terminal/control token (DONE / WAIT / FAIL …) — nothing to actuate.
+                print(
+                    f"[agent_s] step {step_index}: non-actionable response "
+                    f"'{code.strip()[:40]}' — using defined step"
+                )
 
         except Exception as e:
             print(f"[agent_s] plan_action step {step_index} failed (using defined step): {e}")

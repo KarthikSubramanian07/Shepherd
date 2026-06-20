@@ -140,6 +140,10 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
   flex-shrink:0;
 }
 .dn-hs { font-size:.57rem; color:rgba(240,165,0,.6); flex-shrink:0; }
+.dn-mem { font-size:.55rem; flex-shrink:0; padding:1px 5px; border-radius:2px; display:none; letter-spacing:.04em; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dn-mem.recalled { display:inline; background:var(--bl-bg); color:var(--bl); border:1px solid rgba(91,164,251,.22); }
+.dn-mem.new      { display:inline; background:rgba(240,165,0,.14); color:var(--am); border:1px solid rgba(240,165,0,.25); }
+.dn.recalled { border-style:dashed; }
 .dn-right { margin-left:auto; display:flex; align-items:center; gap:6px; }
 .dn-mv-badge { font-size:.57rem; letter-spacing:.1em; text-transform:uppercase; padding:1px 6px; border-radius:2px; font-weight:700; display:none; }
 .dn-mv-badge.flag { display:inline; background:rgba(240,165,0,.14); color:var(--am); }
@@ -472,6 +476,8 @@ function handle({type, data}){
     case 'intent.unmatched':   onUnmatched(data); break;
     case 'routine.resolved':   onResolved(data);  break;
     case 'execution.start':    onExecStart(data); break;
+    case 'task.graph.loaded':  onGraphLoaded(data); break;
+    case 'task.graph.saved':   onGraphSaved(data); break;
     case 'step.start':         onStepStart(data); break;
     case 'step.complete':      onStepDone(data);  break;
     case 'step.error':         onStepErr(data);   break;
@@ -479,9 +485,11 @@ function handle({type, data}){
     case 'execution.halted':   onHalted(data);          break;
     case 'monitor.alert':      onMonitor(data);         break;
     case 'monitor.decision':   onMonitorDecision(data); break;
-    case 'step.deviation':     onDeviation(data);       break;
-    case 'vision.update':      onVision(data);          break;
-    case 'vision.offline':     onVisionOff();           break;
+    case 'step.deviation':        onDeviation(data);       break;
+    case 'step.agent_s_thinking': onAgentSThinking(data); break;
+    case 'vision.update':         onVision(data);          break;
+    case 'vision.offline':        onVisionOff();           break;
+    case 'mode.changed':          onModeChanged(data);     break;
   }
 }
 
@@ -563,6 +571,49 @@ function onExecStart(d){
   log('EXEC', '—', 'Started · ' + d.routine_id, 'ok', '');
   // Fetch evolution stats to show historical confidence on nodes
   if(d.routine_id) fetchStats(d.routine_id);
+}
+
+// Task-graph memory (milestone level): badge each fine click with the milestone
+// it belongs to, and whether that milestone was recalled from the graph or is new.
+function onGraphLoaded(d){
+  (d.steps || []).forEach(s => {
+    const el = document.getElementById('dnm-' + s.index);
+    const node = document.getElementById('dn-' + s.index);
+    if(!el) return;
+    const lab = s.milestone || '';
+    if(s.milestone_known){
+      el.className = 'dn-mem recalled';
+      el.textContent = '↺ ' + lab + (s.times_seen ? ' ·' + s.times_seen + '×' : '');
+      if(node) node.classList.add('recalled');
+    } else if(d.known){
+      el.className = 'dn-mem new';
+      el.textContent = '＋ ' + lab;
+    } else {
+      el.className = 'dn-mem'; el.textContent = '';
+    }
+  });
+
+  const ms = d.milestones || [];
+  const recalled = ms.filter(m => m.known).length;
+  if(d.known){
+    $t('dag-count', S.stepsTotal + ' steps · ' + ms.length + ' milestones (run #' + (d.run_count + 1) + ')');
+    log('GRAPH', '—',
+      'Recalled task graph · ' + ms.map(m => m.label).join(' → ') +
+      '  [' + recalled + ' recalled' + (ms.length - recalled ? ', ' + (ms.length - recalled) + ' new' : '') + ']',
+      'ok', '');
+  } else {
+    log('GRAPH', '—',
+      'New task — graph: ' + ms.map(m => m.label).join(' → '), '', '');
+  }
+}
+
+function onGraphSaved(d){
+  const ms = d.milestones || [];
+  log('GRAPH', '—',
+    'Saved graph · ' + d.node_count + ' milestones' +
+    (d.appended ? ' (+' + d.appended + ' new)' : '') + ' · run #' + d.run_count +
+    (ms.length ? ' · ' + ms.join(' → ') : ''),
+    'ok', '');
 }
 
 function onStepStart(d){
@@ -671,6 +722,19 @@ function onVisionOff(){
   $t('vcur', 'vision audit offline');
 }
 
+function onAgentSThinking(d){
+  const n = document.getElementById('dn-' + d.index);
+  if(n) n.className = 'dn active';
+  log('AGENT S', d.index, 'planning: ' + (d.description || ''), 'act', '');
+}
+
+function onModeChanged(d){
+  const b = $('mbadge');
+  b.textContent = d.mode || '—';
+  b.className = 'mbadge ' + (d.mode === 'LIVE' ? 'live' : d.mode === 'LOCKED' ? 'locked' : '');
+  log('MODE', '—', 'Switched to ' + d.mode, 'ok', '');
+}
+
 // ── DAG ────────────────────────────────────────────────────────────────────
 function buildDAG(total){
   $('dag-empty').style.display = 'none';
@@ -696,6 +760,7 @@ function buildDAG(total){
         ${hs  ? `<span class="dn-hs">⚑ monitored</span>` : ''}
         <span class="dn-mv-badge" id="dnb-${i}"></span>
         <span id="dnrisk-${i}"></span>
+        <span class="dn-mem" id="dnm-${i}"></span>
         <span class="dn-right">
           <span class="dn-status-icon" id="dni-${i}">·</span>
         </span>
@@ -852,7 +917,7 @@ function log(type, idx, desc, status, dur){
     <span class="lty">${x(type)}</span>
     <span class="li">${idx !== '—' && idx !== null ? String(idx) : ''}</span>
     <span class="ld">${x(desc || '')}</span>
-    <span class="ls ${scls[status] || ''}">${slbl[status] || status || ''}</span>
+    <span class="ls ${scls[status] || ''}">${slbl[status] || x(status) || ''}</span>
     <span class="ldur">${dur ? '<span>' + dur + 'ms</span>' : ''}</span>`;
   body.prepend(row);
   while(body.children.length > LOG_MAX) body.removeChild(body.lastChild);
@@ -873,6 +938,7 @@ function startApprovalTimer(defaultAct){
     if(_approvalCount <= 0){
       clearInterval(_approvalTimer);
       $t('approval-countdown', 'Auto-' + _approvalDefault + 'ing…');
+      sendDecision(_approvalDefault);
       setTimeout(hideApproval, 800);
     } else {
       _updateCountdown();
@@ -976,7 +1042,7 @@ setInterval(() => {
 function $(id)        { return document.getElementById(id); }
 function $t(id, text) { const el = document.getElementById(id); if(el) el.textContent = text; }
 function mk(tag, cls) { const e = document.createElement(tag); if(cls) e.className = cls; return e; }
-function x(s){ return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function x(s){ return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 </script>
 </body>
 </html>

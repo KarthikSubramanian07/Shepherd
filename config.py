@@ -15,6 +15,8 @@ load_dotenv()
 
 _ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
 
+# Runtime mode override — set via POST /api/mode; overrides EXECUTION_MODE for the next run.
+_runtime_mode: str = ""
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -56,8 +58,11 @@ class Settings(BaseSettings):
     events_db_path: str = "data/events.db"
 
     # ── Agent S (gui-agents package) ───────────────────────────────────────
-    agent_s_engine_type: str = "openai"      # "openai" | "anthropic"
-    agent_s_model: str = "gpt-4o"
+    agent_s_engine_type: str = "anthropic"   # "anthropic" | "openai"
+    agent_s_model: str = "claude-opus-4-8"
+    agent_s_base_url: str = ""                # custom base URL (e.g. Ollama)
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
     uitars_base_url: str = ""                 # empty = use LLM for grounding
     uitars_model: str = "ui-tars-1.5-7b"
     screen_width: int = 1920
@@ -107,6 +112,9 @@ EVENTS_DB_PATH = settings.events_db_path
 
 AGENT_S_ENGINE_TYPE = settings.agent_s_engine_type
 AGENT_S_MODEL       = settings.agent_s_model
+AGENT_S_BASE_URL    = settings.agent_s_base_url
+ANTHROPIC_API_KEY   = settings.anthropic_api_key
+OPENAI_API_KEY      = settings.openai_api_key
 UITARS_BASE_URL     = settings.uitars_base_url
 UITARS_MODEL        = settings.uitars_model
 SCREEN_WIDTH        = settings.screen_width

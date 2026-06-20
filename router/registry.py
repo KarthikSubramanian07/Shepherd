@@ -14,13 +14,14 @@ REGISTRY: dict[str, dict] = {
         ],
         "description": "Fill a form with applicant details",
         "variable_patterns": {
-            "APPLICANT_NAME":  r"for\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)",
+            "APPLICANT_NAME":  r"for\s+([A-Z][a-z]+)",
             "APPLICANT_EMAIL": r"email[:\s]+(\S+@\S+\.\S+)",
         },
         "variable_defaults": {
-            "APPLICANT_NAME":  "Alex Johnson",
-            "APPLICANT_EMAIL": "alex@example.com",
-            "APPLICANT_PHONE": "555-0100",
+            "APPLICANT_NAME":     "Alex",
+            "APPLICANT_LASTNAME": "Johnson",
+            "APPLICANT_EMAIL":    "alex@example.com",
+            "APPLICANT_PHONE":    "555-0100",
         },
     },
     "ROUTINE_BROWSER_SHOWPIECE": {

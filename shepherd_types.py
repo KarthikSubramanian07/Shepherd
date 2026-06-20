@@ -102,3 +102,39 @@ class ReplayRecord:
     variables: dict[str, str]
     confidence: float
     sentry_event_id: Optional[str] = None
+
+
+@dataclass
+class TaskGraphNode:
+    """
+    One coarse milestone the task has performed (e.g. "Search: AI agent safety",
+    "Scan results", "Submit") — NOT a single click. Many fine clicks collapse into
+    one node. Accumulates across runs.
+    """
+    key: str                          # stable signature: kind::value::label
+    kind: str                         # open|navigate|search|scan|fill|submit|interact
+    label: str                        # human label, e.g. "Search: AI agent safety"
+    value: Optional[str] = None       # captured payload (search term, URL host, …)
+    times_seen: int = 0
+    last_status: Optional[str] = None
+    fine_steps: int = 0               # # of clicks that collapsed into this milestone
+    first_run_id: str = ""
+    last_run_id: str = ""
+
+
+@dataclass
+class TaskGraph:
+    """
+    Durable per-task memory at MILESTONE granularity. A new run loads this as a
+    reference, executes against it, and appends any milestone it performs that
+    isn't already a node. (Per-click detail is still fed to Agent S separately.)
+    """
+    task_key: str                     # currently the resolved routine_id
+    routine_id: str
+    nodes: list[TaskGraphNode] = field(default_factory=list)
+    run_count: int = 0
+    intents: list[str] = field(default_factory=list)
+    variables: dict[str, str] = field(default_factory=dict)
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    last_run_id: str = ""
