@@ -1,44 +1,115 @@
-import os
-from dotenv import load_dotenv
+"""
+Central configuration — pydantic-settings backed.
 
+All env vars are loaded from .env into a single typed `settings` object.
+Module-level UPPER_CASE aliases are preserved for backward compatibility with
+existing `from config import DEEPGRAM_API_KEY` style imports.
+"""
+import os
+
+from dotenv import load_dotenv
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Keep os.environ populated too, so any direct os.getenv() callers still work.
 load_dotenv()
 
-ARIZE_PROJECT_NAME       = os.getenv("ARIZE_PROJECT_NAME", "shepherd")
-PHOENIX_COLLECTOR_ENDPOINT = os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006")
-SENTRY_DSN        = os.getenv("SENTRY_DSN", "")
-REDIS_URL         = os.getenv("REDIS_URL", "redis://localhost:6379")
-BROWSERBASE_API_KEY = os.getenv("BROWSERBASE_API_KEY", "")
-DEEPGRAM_API_KEY  = os.getenv("DEEPGRAM_API_KEY", "")
-OVERSHOOT_API_KEY = os.getenv("OVERSHOOT_API_KEY", "")
-BAND_API_KEY      = os.getenv("BAND_API_KEY", "")
-BAND_ROOM_KEY     = os.getenv("BAND_ROOM_KEY", "")
-ORKES_SERVER_URL  = os.getenv("ORKES_SERVER_URL", "")
-ORKES_API_KEY     = os.getenv("ORKES_API_KEY", "")
+_ENV_FILE = os.path.join(os.path.dirname(__file__), ".env")
 
-# "LIVE" = Agent S against demonstration  |  "LOCKED" = deterministic verbatim replay
-EXECUTION_MODE = os.getenv("EXECUTION_MODE", "LIVE")
 
-DASHBOARD_PORT  = int(os.getenv("DASHBOARD_PORT", "8765"))
-EVENTS_DB_PATH  = os.getenv("EVENTS_DB_PATH", "data/events.db")
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=_ENV_FILE,
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
-# Agent S configuration (gui-agents package)
-AGENT_S_ENGINE_TYPE = os.getenv("AGENT_S_ENGINE_TYPE", "openai")   # "openai" | "anthropic"
-AGENT_S_MODEL       = os.getenv("AGENT_S_MODEL", "gpt-4o")
-UITARS_BASE_URL     = os.getenv("UITARS_BASE_URL", "")              # empty = use LLM for grounding
-UITARS_MODEL        = os.getenv("UITARS_MODEL", "ui-tars-1.5-7b")
-SCREEN_WIDTH        = int(os.getenv("SCREEN_WIDTH",  "1920"))
-SCREEN_HEIGHT       = int(os.getenv("SCREEN_HEIGHT", "1080"))
+    # ── Arize Phoenix (local) ──────────────────────────────────────────────
+    arize_project_name: str = "shepherd"
+    phoenix_collector_endpoint: str = "http://localhost:6006"
 
-FEATURES: dict[str, bool] = {
-    "deepgram":    bool(DEEPGRAM_API_KEY),
-    "arize":       True,
-    "sentry":      bool(SENTRY_DSN),
-    "redis":       True,
-    "browserbase": bool(BROWSERBASE_API_KEY),
-    "band":        bool(BAND_API_KEY and BAND_ROOM_KEY),
-    "overshoot":   bool(OVERSHOOT_API_KEY),
-    "orkes":       bool(ORKES_SERVER_URL and ORKES_API_KEY),
-    "context":     False,   # criteria unpublished — check Saturday
-    "fieldguide":  False,   # criteria unpublished — check Saturday
-    "agent_s":     True,
-}
+    # ── Sentry ─────────────────────────────────────────────────────────────
+    sentry_dsn: str = ""
+
+    # ── Redis ──────────────────────────────────────────────────────────────
+    redis_url: str = "redis://localhost:6379"
+
+    # ── External service keys ──────────────────────────────────────────────
+    browserbase_api_key: str = ""
+    deepgram_api_key: str = ""
+    overshoot_api_key: str = ""
+    band_api_key: str = ""
+    band_room_key: str = ""
+    orkes_server_url: str = ""
+    orkes_api_key: str = ""
+
+    # ── Deepgram STT tuning ────────────────────────────────────────────────
+    deepgram_model: str = "nova-2"
+    deepgram_language: str = "en-US"
+
+    # ── Engine ─────────────────────────────────────────────────────────────
+    # "LIVE" = Agent S against demonstration | "LOCKED" = deterministic replay
+    execution_mode: str = "LIVE"
+
+    # ── Dashboard ──────────────────────────────────────────────────────────
+    dashboard_port: int = 8765
+    events_db_path: str = "data/events.db"
+
+    # ── Agent S (gui-agents package) ───────────────────────────────────────
+    agent_s_engine_type: str = "openai"      # "openai" | "anthropic"
+    agent_s_model: str = "gpt-4o"
+    uitars_base_url: str = ""                 # empty = use LLM for grounding
+    uitars_model: str = "ui-tars-1.5-7b"
+    screen_width: int = 1920
+    screen_height: int = 1080
+
+    @property
+    def features(self) -> dict[str, bool]:
+        """Feature flags derived from which credentials are present."""
+        return {
+            "deepgram":    bool(self.deepgram_api_key),
+            "arize":       True,
+            "sentry":      bool(self.sentry_dsn),
+            "redis":       True,
+            "browserbase": bool(self.browserbase_api_key),
+            "band":        bool(self.band_api_key and self.band_room_key),
+            "overshoot":   bool(self.overshoot_api_key),
+            "orkes":       bool(self.orkes_server_url and self.orkes_api_key),
+            "context":     False,   # criteria unpublished — check Saturday
+            "fieldguide":  False,   # criteria unpublished — check Saturday
+            "agent_s":     True,
+        }
+
+
+settings = Settings()
+
+
+# ── Backward-compatible module-level aliases ───────────────────────────────────
+# Existing code imports these UPPER_CASE names directly from `config`.
+ARIZE_PROJECT_NAME         = settings.arize_project_name
+PHOENIX_COLLECTOR_ENDPOINT = settings.phoenix_collector_endpoint
+SENTRY_DSN                 = settings.sentry_dsn
+REDIS_URL                  = settings.redis_url
+BROWSERBASE_API_KEY        = settings.browserbase_api_key
+DEEPGRAM_API_KEY           = settings.deepgram_api_key
+DEEPGRAM_MODEL             = settings.deepgram_model
+DEEPGRAM_LANGUAGE          = settings.deepgram_language
+OVERSHOOT_API_KEY          = settings.overshoot_api_key
+BAND_API_KEY               = settings.band_api_key
+BAND_ROOM_KEY              = settings.band_room_key
+ORKES_SERVER_URL           = settings.orkes_server_url
+ORKES_API_KEY              = settings.orkes_api_key
+
+EXECUTION_MODE = settings.execution_mode
+
+DASHBOARD_PORT = settings.dashboard_port
+EVENTS_DB_PATH = settings.events_db_path
+
+AGENT_S_ENGINE_TYPE = settings.agent_s_engine_type
+AGENT_S_MODEL       = settings.agent_s_model
+UITARS_BASE_URL     = settings.uitars_base_url
+UITARS_MODEL        = settings.uitars_model
+SCREEN_WIDTH        = settings.screen_width
+SCREEN_HEIGHT       = settings.screen_height
+
+FEATURES: dict[str, bool] = settings.features

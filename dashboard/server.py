@@ -13,8 +13,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from config import DASHBOARD_PORT
 from dashboard.events import event_bus
+from dashboard.deepgram_routes import router as deepgram_router
 
 app = FastAPI(title="Shepherd Control Hub", docs_url=None, redoc_url=None)
+app.include_router(deepgram_router)
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
