@@ -21,7 +21,7 @@ import os
 from typing import Optional
 
 from config import (
-    AGENT_S_ENGINE_TYPE, AGENT_S_MODEL,
+    AGENT_S_ENGINE_TYPE, AGENT_S_MODEL, AGENT_S_BASE_URL,
     UITARS_BASE_URL, UITARS_MODEL,
     SCREEN_WIDTH, SCREEN_HEIGHT,
 )
@@ -60,6 +60,8 @@ class AgentSAdapter:
         }
         if api_key:
             engine_params["api_key"] = api_key
+        if AGENT_S_BASE_URL:
+            engine_params["base_url"] = AGENT_S_BASE_URL
 
         # Grounding: UI-TARS endpoint if provided, else fall back to same LLM
         if UITARS_BASE_URL:

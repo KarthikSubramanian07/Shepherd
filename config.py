@@ -25,6 +25,7 @@ EVENTS_DB_PATH  = os.getenv("EVENTS_DB_PATH", "data/events.db")
 # Agent S configuration (gui-agents package)
 AGENT_S_ENGINE_TYPE = os.getenv("AGENT_S_ENGINE_TYPE", "openai")   # "openai" | "anthropic"
 AGENT_S_MODEL       = os.getenv("AGENT_S_MODEL", "gpt-4o")
+AGENT_S_BASE_URL    = os.getenv("AGENT_S_BASE_URL", "")            # custom base URL (e.g. Ollama)
 UITARS_BASE_URL     = os.getenv("UITARS_BASE_URL", "")              # empty = use LLM for grounding
 UITARS_MODEL        = os.getenv("UITARS_MODEL", "ui-tars-1.5-7b")
 SCREEN_WIDTH        = int(os.getenv("SCREEN_WIDTH",  "1920"))

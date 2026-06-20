@@ -53,6 +53,34 @@ uv sync --extra agent_s   # Agent S LIVE planner (gui-agents)
 uv run playwright install # Browserbase cloud browser steps
 ```
 
+### Agent S — free local setup (Ollama)
+
+Agent S requires a vision LLM. The free path uses Ollama + Qwen2.5-VL locally — no API key, works offline.
+
+```bash
+# Install Ollama
+brew install ollama
+
+# Pull the vision model (~4 GB, do this before the venue)
+ollama pull qwen2.5-vl:7b
+
+# Install Agent S dependencies
+uv sync --extra agent_s
+
+# Install Tesseract OCR (required by Agent S)
+brew install tesseract
+```
+
+Then in `.env`:
+```
+AGENT_S_ENGINE_TYPE=openai
+AGENT_S_MODEL=qwen2.5-vl:7b
+AGENT_S_BASE_URL=http://localhost:11434/v1
+OPENAI_API_KEY=ollama
+```
+
+Ollama must be running (`ollama serve`) before starting Shepherd.
+
 ---
 
 ## Local Arize Phoenix (tracing)
@@ -193,5 +221,5 @@ Dashboard WebSocket → Control Hub  http://localhost:8765
 - [ ] Spoken "stop" halts at next step boundary
 - [ ] Replay panel loads past runs from Redis
 - [ ] Control Hub screenshot panel shows live screen
-- [ ] LIVE mode: Agent S initialized with API key
+- [ ] LIVE mode: `ollama serve` running, `qwen2.5-vl:7b` pulled, Agent S initialized
 - [ ] 5-minute run-of-show rehearsed twice
