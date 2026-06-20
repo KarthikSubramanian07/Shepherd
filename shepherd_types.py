@@ -19,8 +19,16 @@ class ResolvedRoutine:
 
 
 @dataclass
+class BatchField:
+    """One sub-step inside a batch_fill action."""
+    tabs: int = 1          # how many Tab presses before typing
+    text: Optional[str] = None    # text to type (None = tab-only, e.g. to skip a field)
+    description: Optional[str] = None   # field label for Agent S prompt
+
+
+@dataclass
 class RoutineStep:
-    action: str  # "move"|"click"|"double_click"|"type"|"hotkey"|"open_app"|"wait"|"browser"
+    action: str  # "move"|"click"|"double_click"|"type"|"hotkey"|"open_app"|"wait"|"browser"|"batch_fill"
     target: Optional[str] = None
     text: Optional[str] = None
     keys: Optional[list[str]] = None
@@ -28,6 +36,7 @@ class RoutineStep:
     browser_step: Optional[dict] = None
     monitor_trigger: Optional[str] = None  # planted: "credential"|"captcha"|"phishing"|"stuck"
     description: Optional[str] = None
+    fields: Optional[list[BatchField]] = None  # used by batch_fill
 
 
 @dataclass

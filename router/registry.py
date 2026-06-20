@@ -18,10 +18,12 @@ REGISTRY: dict[str, dict] = {
             "APPLICANT_EMAIL": r"email[:\s]+(\S+@\S+\.\S+)",
         },
         "variable_defaults": {
-            "APPLICANT_NAME":     "Alex",
-            "APPLICANT_LASTNAME": "Johnson",
-            "APPLICANT_EMAIL":    "alex@example.com",
-            "APPLICANT_PHONE":    "555-0100",
+            "APPLICANT_NAME":       "Alex",
+            "APPLICANT_LASTNAME":   "Johnson",
+            "APPLICANT_EMAIL":      "alex@example.com",
+            "APPLICANT_PHONE":      "555-0100",
+            "APPLICANT_EXPERIENCE": "3",
+            "APPLICANT_SALARY":     "95000",
         },
     },
     "ROUTINE_BROWSER_SHOWPIECE": {

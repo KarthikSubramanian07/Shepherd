@@ -183,3 +183,54 @@ class AgentSAdapter:
             print(f"[agent_s] plan_action step {step_index} failed (using defined step): {e}")
 
         return None
+
+    def plan_batch_action(
+        self,
+        fields: list,   # list of BatchField
+        step_index: int,
+        demonstration_context: str = "",
+    ) -> Optional[str]:
+        """
+        Single Agent S call to fill multiple form fields at once.
+        Returns one multi-line pyautogui code block covering all fields,
+        or None to fall back to deterministic _dispatch(batch_fill).
+        """
+        if not self._agent:
+            return None
+        try:
+            import pyautogui
+            screenshot = pyautogui.screenshot()
+            buf = io.BytesIO()
+            screenshot.save(buf, format="PNG")
+
+            field_lines = []
+            for i, bf in enumerate(fields):
+                label = bf.description or f"field {i + 1}"
+                value = bf.text or "(skip)"
+                field_lines.append(f"  {i + 1}. {label}: {value}")
+            fields_desc = "\n".join(field_lines)
+
+            instruction = (
+                f"Fill these form fields using Tab to navigate between them:\n"
+                f"{fields_desc}\n\n"
+                f"Generate a single Python/pyautogui code block that fills ALL fields "
+                f"in order. Use Tab to move between fields and clipboard paste for each value."
+            )
+            if demonstration_context:
+                instruction += f"\n\nReference demonstration:\n{demonstration_context}"
+
+            _, action = self._agent.predict(
+                instruction=instruction,
+                observation={"screenshot": buf.getvalue()},
+            )
+
+            if action and action[0]:
+                code = action[0]
+                if _is_actionable(code):
+                    print(f"[agent_s] batch_fill step {step_index}: planned {len(fields)} fields in one call")
+                    return code
+
+        except Exception as e:
+            print(f"[agent_s] plan_batch_action step {step_index} failed (using defined steps): {e}")
+
+        return None

@@ -378,19 +378,23 @@ class ShepherdExecutionEngine:
         """
         Ask Agent S to plan this step. Returns executable Python/pyautogui code,
         or None to fall back to _dispatch(defined step).
+
+        batch_fill steps use plan_batch_action — one API call for all fields.
+        All other steps use plan_action — one API call per step.
         """
         if self._mode != "LIVE" or not self._agent_s.available:
             return None
-        instruction = self._build_instruction(step, index, routine)
-        demo_ctx    = self._build_demo_context(routine)
-        # Reference the coarse task graph: tell Agent S which milestone this click is
-        # part of and how often that milestone has run before. (Every click still
-        # gets its own plan_action call — only the persistent graph is coarse.)
+        demo_ctx = self._build_demo_context(routine)
         ms = self._step_ms.get(index)
         if ms and ms["times_seen"] > 0:
             demo_ctx += (
                 f"\n[task-graph reference] This click is part of milestone "
                 f"'{ms['label']}', performed {ms['times_seen']}x before.")
+
+        if step.action == "batch_fill" and step.fields:
+            return self._agent_s.plan_batch_action(step.fields, index, demo_ctx)
+
+        instruction = self._build_instruction(step, index, routine)
         return self._agent_s.plan_action(instruction, index, demo_ctx)
 
     def _exec_agent_code(self, code: str) -> None:
@@ -453,6 +457,19 @@ class ShepherdExecutionEngine:
 
         elif a == "wait":
             time.sleep(step.seconds or 1.0)
+
+        elif a == "batch_fill":
+            # Execute all sub-fields in one code block — no per-field Agent S call.
+            import subprocess as _sp
+            for bf in (step.fields or []):
+                for _ in range(bf.tabs):
+                    pyautogui.hotkey("tab")
+                    time.sleep(0.05)
+                if bf.text:
+                    text_val = sub(bf.text) or ""
+                    _sp.run(["pbcopy"], input=text_val.encode(), check=False)
+                    pyautogui.hotkey("cmd", "v")
+                    time.sleep(0.05)
 
         elif a == "browser":
             # Invoked only at routine boundaries, never mid-sequence

@@ -10,7 +10,7 @@
     ],
     "mode": "LIVE",
     "high_stakes_steps": [
-      17
+      6
     ],
     "step_instructions": {
       "0": "Open the WorkBridge candidate portal in Safari",
@@ -45,80 +45,44 @@
         "description": "Wait for form"
       },
       {
-        "action": "hotkey",
-        "keys": [
-          "tab"
-        ],
-        "description": "Focus first name field"
-      },
-      {
-        "action": "type",
-        "text": "{APPLICANT_NAME}",
-        "description": "Enter first name"
-      },
-      {
-        "action": "hotkey",
-        "keys": [
-          "tab"
-        ],
-        "description": "Next field"
-      },
-      {
-        "action": "type",
-        "text": "{APPLICANT_LASTNAME}",
-        "description": "Enter last name"
-      },
-      {
-        "action": "hotkey",
-        "keys": [
-          "tab"
-        ],
-        "description": "Next field"
-      },
-      {
-        "action": "type",
-        "text": "{APPLICANT_EMAIL}",
-        "description": "Enter email"
-      },
-      {
-        "action": "hotkey",
-        "keys": [
-          "tab"
-        ],
-        "description": "Next field"
-      },
-      {
-        "action": "type",
-        "text": "{APPLICANT_PHONE}",
-        "description": "Enter phone"
-      },
-      {
-        "action": "hotkey",
-        "keys": [
-          "tab"
-        ],
-        "description": "Skip LinkedIn"
-      },
-      {
-        "action": "hotkey",
-        "keys": [
-          "tab"
-        ],
-        "description": "Skip role dropdown"
-      },
-      {
-        "action": "hotkey",
-        "keys": [
-          "tab"
-        ],
-        "description": "Skip years of experience"
-      },
-      {
-        "action": "hotkey",
-        "keys": [
-          "tab"
-        ],
-        "description": "Skip salary"
+        "action": "batch_fill",
+        "description": "Fill applicant form fields",
+        "fields": [
+          {
+            "tabs": 1,
+            "text": "{APPLICANT_NAME}",
+            "description": "First name"
+          },
+          {
+            "tabs": 1,
+            "text": "{APPLICANT_LASTNAME}",
+            "description": "Last name"
+          },
+          {
+            "tabs": 1,
+            "text": "{APPLICANT_EMAIL}",
+            "description": "Email"
+          },
+          {
+            "tabs": 1,
+            "text": "{APPLICANT_PHONE}",
+            "description": "Phone"
+          },
+          {
+            "tabs": 1,
+            "text": "{APPLICANT_EXPERIENCE}",
+            "description": "Years of experience"
+          },
+          {
+            "tabs": 1,
+            "text": "{APPLICANT_SALARY}",
+            "description": "Expected salary"
+          },
+          {
+            "tabs": 2,
+            "description": "Skip to password section"
+          }
+        ]
       },
       {
         "action": "hotkey",
