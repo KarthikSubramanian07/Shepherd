@@ -9,6 +9,7 @@ import {
   GitBranch,
   LayoutDashboard,
   Mic,
+  Radio,
   ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/primitives";
 
 const NAV = [
   { href: "/command-center", label: "Command Center", icon: LayoutDashboard },
+  { href: "/remote", label: "Remote Control", icon: Radio },
   { href: "/routines", label: "Routines", icon: GitBranch },
   { href: "/runs", label: "Runs", icon: Activity },
   { href: "/interventions", label: "Interventions", icon: ShieldAlert },
