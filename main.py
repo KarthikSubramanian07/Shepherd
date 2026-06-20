@@ -5,14 +5,15 @@ Voice/typed intent → router → engine → telemetry + memory + dashboard.
 
 Usage:
   python main.py
-  python main.py --mode LOCKED   # force deterministic fallback
+  python main.py --mode LOCKED      # force deterministic fallback
+  python main.py --mode AUTONOMOUS  # free-form Agent S goals (no routine required)
 """
 import os
 import sys
 import time
 import threading
 
-from config import FEATURES, EXECUTION_MODE, DASHBOARD_PORT
+from config import FEATURES, EXECUTION_MODE, DASHBOARD_PORT, AUTONOMOUS_ON_UNMATCHED
 from shepherd_types import Intent
 from router.router import ShepherdIntentRouter
 from engine.engine import ShepherdExecutionEngine
@@ -162,7 +163,14 @@ def main() -> None:
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     print("Speak an intent or type it. Ctrl-C to quit.")
-    print("Routines: 'fill form', 'open browser', 'demo'\n")
+    if mode == "AUTONOMOUS":
+        print("Mode AUTONOMOUS — any intent runs as a free-form Agent S goal.\n")
+    else:
+        print("Routines: 'fill form', 'open browser', 'demo'")
+        if AUTONOMOUS_ON_UNMATCHED:
+            print("Unmatched intents fall back to autonomous Agent S.\n")
+        else:
+            print("Set AUTONOMOUS_ON_UNMATCHED=true or --mode AUTONOMOUS for free-form goals.\n")
 
     while True:
         try:
@@ -173,8 +181,38 @@ def main() -> None:
             intent = Intent(raw_text=raw, timestamp=time.time())
             event_bus.emit("intent.received", {"raw_text": intent.raw_text, "source": intent.source})
 
+            effective_mode = engine.effective_mode()
+
+            if effective_mode == "AUTONOMOUS":
+                if not engine._agent_s.available:
+                    print("[autonomous] Agent S unavailable — set AGENT_S_* keys in .env\n")
+                    event_bus.emit("intent.unmatched", {"raw_text": intent.raw_text, "reason": "agent_s_unavailable"})
+                    continue
+                print(f"[autonomous] goal: {raw}")
+                event_bus.emit("routine.resolved", {
+                    "routine_id":      "AUTONOMOUS",
+                    "confidence":      1.0,
+                    "matched_keywords": [],
+                    "variables":       {"GOAL": raw},
+                })
+                result = engine.execute_autonomous(raw)
+                _after_run(engine, telemetry, memory, result, confidence=1.0)
+                continue
+
             resolved = router.resolve(intent)
             if resolved is None:
+                if AUTONOMOUS_ON_UNMATCHED and engine._agent_s.available:
+                    print(f"[router] No routine matched — autonomous fallback for: {raw}")
+                    event_bus.emit("intent.autonomous_fallback", {"raw_text": intent.raw_text})
+                    event_bus.emit("routine.resolved", {
+                        "routine_id":      "AUTONOMOUS",
+                        "confidence":      0.0,
+                        "matched_keywords": [],
+                        "variables":       {"GOAL": raw},
+                    })
+                    result = engine.execute_autonomous(raw)
+                    _after_run(engine, telemetry, memory, result, confidence=0.0)
+                    continue
                 print("[router] No routine matched. Try: 'fill form', 'open browser', or 'demo'\n")
                 event_bus.emit("intent.unmatched", {"raw_text": intent.raw_text})
                 continue
@@ -195,24 +233,7 @@ def main() -> None:
 
             # ── Execute (synchronous, blocking) ───────────────────────────────
             result = engine.execute(resolved)
-
-            # ── Post-execution (all outside the click path) ───────────────────
-            if FEATURES["deepgram"]:
-                try:
-                    from services.deepgram_input import stop_listener
-                    stop_listener()
-                except Exception:
-                    pass
-
-            if FEATURES["band"]:
-                threading.Thread(
-                    target=_band_complete, args=(result,), daemon=True
-                ).start()
-
-            telemetry.record(result, engine.last_step_records)
-            memory.store(result, engine.last_step_records, confidence=resolved.confidence)
-
-            print(f"[shepherd] {result.status.upper()} — {result.steps_completed} steps in {result.duration_ms}ms\n")
+            _after_run(engine, telemetry, memory, result, confidence=resolved.confidence)
 
         except KeyboardInterrupt:
             print("\n[shepherd] Bye.")
@@ -222,6 +243,25 @@ def main() -> None:
             if FEATURES["sentry"]:
                 import sentry_sdk
                 sentry_sdk.capture_exception(e)
+
+
+def _after_run(engine, telemetry, memory, result, confidence: float) -> None:
+    """Post-execution bookkeeping — always outside the click path."""
+    if FEATURES["deepgram"]:
+        try:
+            from services.deepgram_input import stop_listener
+            stop_listener()
+        except Exception:
+            pass
+
+    if FEATURES["band"]:
+        threading.Thread(
+            target=_band_complete, args=(result,), daemon=True
+        ).start()
+
+    telemetry.record(result, engine.last_step_records)
+    memory.store(result, engine.last_step_records, confidence=confidence)
+    print(f"[shepherd] {result.status.upper()} — {result.steps_completed} steps in {result.duration_ms}ms\n")
 
 
 def _band_start(resolved) -> None:

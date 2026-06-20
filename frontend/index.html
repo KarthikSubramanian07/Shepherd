@@ -61,6 +61,7 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
 }
 .mbadge.live   { border-color:var(--am); color:var(--am); }
 .mbadge.locked { border-color:var(--bl); color:var(--bl); }
+.mbadge.autonomous { border-color:var(--gr); color:var(--gr); }
 #clock { margin-left:auto; font-size:.7rem; color:var(--dim2); letter-spacing:.04em; }
 
 /* ── Body ── */
@@ -629,7 +630,7 @@ function onExecStart(d){
   $t('runid', 'run ' + d.run_id + ' · ');
   const b = $('mbadge');
   b.textContent = d.mode || '—';
-  b.className = 'mbadge ' + (d.mode === 'LIVE' ? 'live' : d.mode === 'LOCKED' ? 'locked' : '');
+  b.className = 'mbadge ' + (d.mode === 'LIVE' ? 'live' : d.mode === 'LOCKED' ? 'locked' : d.mode === 'AUTONOMOUS' ? 'autonomous' : '');
 
   setStatus('live', 'Running');
   resetMon();
@@ -800,7 +801,7 @@ function onAgentSThinking(d){
 function onModeChanged(d){
   const b = $('mbadge');
   b.textContent = d.mode || '—';
-  b.className = 'mbadge ' + (d.mode === 'LIVE' ? 'live' : d.mode === 'LOCKED' ? 'locked' : '');
+  b.className = 'mbadge ' + (d.mode === 'LIVE' ? 'live' : d.mode === 'LOCKED' ? 'locked' : d.mode === 'AUTONOMOUS' ? 'autonomous' : '');
   log('MODE', '—', 'Switched to ' + d.mode, 'ok', '');
 }
 

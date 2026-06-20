@@ -1,8 +1,9 @@
 """
 ShepherdExecutionEngine
 
-LIVE mode  — Agent S plans actions against the recorded demonstration; pyautogui actuates.
-LOCKED mode — Deterministic verbatim replay of pre-mapped steps (offline demo floor).
+LIVE mode       — Agent S plans actions against the recorded demonstration; pyautogui actuates.
+LOCKED mode     — Deterministic verbatim replay of pre-mapped steps (offline demo floor).
+AUTONOMOUS mode — Agent S receives the raw user goal and loops until DONE/FAIL/max steps.
 
 The click path is synchronous and sacred.
 Nothing async, networked, or ML-based runs inside a routine's step sequence.
@@ -16,8 +17,14 @@ from typing import Optional
 import pyautogui
 
 import config as _cfg
-from config import FEATURES, EXECUTION_MODE
-from shepherd_types import ExecutionResult, ResolvedRoutine, RoutineStep, StepRecord
+from config import FEATURES, EXECUTION_MODE, AUTONOMOUS_MAX_STEPS
+from shepherd_types import (
+    AUTONOMOUS_ROUTINE_ID,
+    ExecutionResult,
+    ResolvedRoutine,
+    RoutineStep,
+    StepRecord,
+)
 from engine.coords import get as get_coord
 from engine.routines import get_routine
 from engine.agent_s_adapter import AgentSAdapter
@@ -55,6 +62,186 @@ class ShepherdExecutionEngine:
         """Set by monitor_agent or spoken 'stop' command. Checked at each step boundary."""
         self._halt_flag.set()
 
+    def effective_mode(self) -> str:
+        if _cfg._runtime_mode:
+            return _cfg._runtime_mode.upper()
+        return self._mode.upper()
+
+    def execute_autonomous(self, goal: str) -> ExecutionResult:
+        """
+        Free-form goal execution — Agent S plans each action from the full intent
+        and current screenshot until DONE, FAIL, halt, or step budget exhausted.
+        """
+        self._halt_flag.clear()
+        self.last_step_records = []
+        self._agent_s.reset_autonomous()
+        run_id = str(uuid.uuid4())[:8]
+        started_at = time.time()
+        max_steps = AUTONOMOUS_MAX_STEPS
+        variables = {"GOAL": goal}
+
+        event_bus.emit("execution.start", {
+            "run_id":      run_id,
+            "routine_id":  AUTONOMOUS_ROUTINE_ID,
+            "mode":        "AUTONOMOUS",
+            "total_steps": max_steps,
+            "variables":   variables,
+            "goal":        goal,
+            "steps":       [],
+        })
+
+        steps_done = 0
+        error: Optional[str] = None
+        status = "completed"
+        monitor_step = RoutineStep(action="agent_s", description=goal)
+
+        with self._telemetry.span("routine.execute") as span:
+            span.set_attribute("routine.id", AUTONOMOUS_ROUTINE_ID)
+            span.set_attribute("routine.mode", "AUTONOMOUS")
+            span.set_attribute("routine.goal", goal)
+
+            for i in range(max_steps):
+                if self._halt_flag.is_set():
+                    status = "aborted"
+                    event_bus.emit("execution.halted", {
+                        "run_id": run_id, "step_index": i, "reason": "halt_requested",
+                    })
+                    break
+
+                verdict = self._check_monitor(monitor_step, i, run_id, AUTONOMOUS_ROUTINE_ID)
+                if verdict == "halt":
+                    status = "aborted"
+                    event_bus.emit("execution.halted", {
+                        "run_id": run_id, "step_index": i, "reason": "monitor_halt",
+                    })
+                    break
+
+                step_t0 = time.time()
+                event_bus.emit("step.start", {
+                    "run_id":      run_id,
+                    "index":       i,
+                    "action":      "agent_s",
+                    "description": goal,
+                    "total":       max_steps,
+                })
+                event_bus.emit("step.agent_s_thinking", {
+                    "run_id": run_id, "index": i, "description": goal,
+                })
+
+                result = self._agent_s.predict_autonomous(goal, i)
+                step_status = "completed"
+                step_error: Optional[str] = None
+
+                if result.outcome == "done":
+                    steps_done += 1
+                    dur_ms = int((time.time() - step_t0) * 1000)
+                    self.last_step_records.append(StepRecord(
+                        index=i, action="agent_s", target=None,
+                        status="completed", started_at=step_t0, duration_ms=dur_ms,
+                    ))
+                    event_bus.emit("step.complete", {
+                        "run_id": run_id, "index": i, "status": "completed", "duration_ms": dur_ms,
+                    })
+                    break
+
+                if result.outcome == "fail":
+                    status = "failed"
+                    error = result.raw or "Agent S reported failure"
+                    step_status = "failed"
+                    step_error = error
+                    dur_ms = int((time.time() - step_t0) * 1000)
+                    self.last_step_records.append(StepRecord(
+                        index=i, action="agent_s", target=None,
+                        status="failed", started_at=step_t0, duration_ms=dur_ms, error=error,
+                    ))
+                    event_bus.emit("step.error", {
+                        "run_id": run_id, "index": i, "error": error,
+                    })
+                    break
+
+                if result.outcome == "wait":
+                    dur_ms = int((time.time() - step_t0) * 1000)
+                    self.last_step_records.append(StepRecord(
+                        index=i, action="agent_s", target=None,
+                        status="completed", started_at=step_t0, duration_ms=dur_ms,
+                        deviation="wait",
+                    ))
+                    event_bus.emit("step.complete", {
+                        "run_id": run_id, "index": i, "status": "completed",
+                        "duration_ms": dur_ms, "deviation": "wait",
+                    })
+                    continue
+
+                if result.outcome != "action" or not result.code:
+                    status = "failed"
+                    error = "Agent S unavailable or returned no actionable code"
+                    step_status = "failed"
+                    step_error = error
+                    dur_ms = int((time.time() - step_t0) * 1000)
+                    self.last_step_records.append(StepRecord(
+                        index=i, action="agent_s", target=None,
+                        status="failed", started_at=step_t0, duration_ms=dur_ms, error=error,
+                    ))
+                    event_bus.emit("step.error", {
+                        "run_id": run_id, "index": i, "error": error,
+                    })
+                    break
+
+                with self._telemetry.span("action.agent_s") as s:
+                    s.set_attribute("action.type", "agent_s")
+                    s.set_attribute("action.index", i)
+                    s.set_attribute("action.agent_s", True)
+                    try:
+                        self._exec_agent_code(result.code)
+                        steps_done += 1
+                    except Exception as exc:
+                        step_status = "failed"
+                        step_error = str(exc)
+                        error = step_error
+                        status = "failed"
+                        print(f"[engine] autonomous step {i} failed: {step_error}")
+                        if FEATURES["sentry"]:
+                            import sentry_sdk
+                            sentry_sdk.capture_exception(exc)
+                        s.set_attribute("error.message", step_error)
+                        event_bus.emit("step.error", {
+                            "run_id": run_id, "index": i, "error": step_error,
+                        })
+                        break
+
+                dur_ms = int((time.time() - step_t0) * 1000)
+                self.last_step_records.append(StepRecord(
+                    index=i, action="agent_s", target=None,
+                    status=step_status, started_at=step_t0, duration_ms=dur_ms, error=step_error,
+                ))
+                event_bus.emit("step.complete", {
+                    "run_id": run_id, "index": i, "status": step_status, "duration_ms": dur_ms,
+                })
+
+            else:
+                status = "failed"
+                error = f"Step budget exhausted ({max_steps} steps)"
+
+        ended_at = time.time()
+        result = ExecutionResult(
+            routine_id=AUTONOMOUS_ROUTINE_ID,
+            status=status,
+            steps_completed=steps_done,
+            error=error,
+            duration_ms=int((ended_at - started_at) * 1000),
+            variables=variables,
+            started_at=started_at,
+            ended_at=ended_at,
+            run_id=run_id,
+        )
+        event_bus.emit("execution.complete", {
+            "run_id":          run_id,
+            "status":          status,
+            "steps_completed": steps_done,
+            "duration_ms":     result.duration_ms,
+        })
+        return result
+
     def execute(self, resolved: ResolvedRoutine) -> ExecutionResult:
         self._halt_flag.clear()
         self.last_step_records = []
@@ -66,7 +253,7 @@ class ShepherdExecutionEngine:
 
         # Respect runtime mode switch from dashboard POST /api/mode
         if _cfg._runtime_mode:
-            self._mode = _cfg._runtime_mode
+            self._mode = _cfg._runtime_mode.upper()
 
         routine   = get_routine(resolved.routine_id)
         variables = resolved.variables

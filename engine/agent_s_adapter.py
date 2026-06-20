@@ -25,6 +25,7 @@ from config import (
     UITARS_BASE_URL, UITARS_MODEL,
     SCREEN_WIDTH, SCREEN_HEIGHT,
 )
+from shepherd_types import AutonomousStepResult
 
 # Control tokens Agent S returns instead of pyautogui code. These are NOT
 # executable — exec()'ing them would NameError and (wrongly) fail the step — so
@@ -43,6 +44,23 @@ def _is_actionable(code: str) -> bool:
     return True
 
 
+def _terminal_outcome(code: str) -> Optional[str]:
+    """Map Agent S control tokens to autonomous outcomes, or None if actionable code."""
+    c = (code or "").strip()
+    if not c:
+        return "unavailable"
+    upper = c.upper().strip(".")
+    if upper == "DONE":
+        return "done"
+    if upper in ("FAIL", "FAILED"):
+        return "fail"
+    if upper == "WAIT":
+        return "wait"
+    if _is_actionable(code):
+        return "action"
+    return "unavailable"
+
+
 class AgentSAdapter:
     """
     Thin wrapper around Simular AgentS3.
@@ -52,6 +70,7 @@ class AgentSAdapter:
 
     def __init__(self) -> None:
         self._agent = None
+        self._autonomous_agent = None
         try:
             self._init_agent()
         except ImportError as e:
@@ -112,6 +131,14 @@ class AgentSAdapter:
             max_trajectory_length=3,
             enable_reflection=False,
         )
+        # Longer trajectory + reflection for multi-step free-form goals
+        self._autonomous_agent = AgentS3(
+            engine_params,
+            grounding_agent,
+            platform="darwin",
+            max_trajectory_length=8,
+            enable_reflection=True,
+        )
         print(
             f"[agent_s] Ready — {AGENT_S_ENGINE_TYPE}/{AGENT_S_MODEL} "
             f"+ {grounding_tag}"
@@ -132,8 +159,19 @@ class AgentSAdapter:
             return
         try:
             self._agent.reset()
+            if self._autonomous_agent:
+                self._autonomous_agent.reset()
         except Exception as e:
             print(f"[agent_s] reset failed (non-fatal): {e}")
+
+    def reset_autonomous(self) -> None:
+        """Reset only the long-trajectory agent used for free-form goals."""
+        if self._autonomous_agent is None:
+            return
+        try:
+            self._autonomous_agent.reset()
+        except Exception as e:
+            print(f"[agent_s] autonomous reset failed (non-fatal): {e}")
 
     def plan_action(
         self,
@@ -183,6 +221,38 @@ class AgentSAdapter:
             print(f"[agent_s] plan_action step {step_index} failed (using defined step): {e}")
 
         return None
+
+    def predict_autonomous(self, goal: str, step_index: int) -> AutonomousStepResult:
+        """
+        One turn of free-form planning: screenshot + full goal instruction.
+        Agent S returns pyautogui code, or control tokens DONE / FAIL / WAIT.
+        """
+        agent = self._autonomous_agent or self._agent
+        if not agent:
+            return AutonomousStepResult(outcome="unavailable")
+
+        try:
+            import pyautogui
+            screenshot = pyautogui.screenshot()
+            buf = io.BytesIO()
+            screenshot.save(buf, format="PNG")
+
+            _, action = agent.predict(
+                instruction=goal,
+                observation={"screenshot": buf.getvalue()},
+            )
+
+            raw = (action[0] if action else "") or ""
+            outcome = _terminal_outcome(raw)
+            if outcome == "action":
+                return AutonomousStepResult(outcome="action", code=raw, raw=raw)
+            if outcome != "unavailable":
+                print(f"[agent_s] autonomous step {step_index}: {outcome.upper()} — {raw.strip()[:60]}")
+            return AutonomousStepResult(outcome=outcome, raw=raw or None)
+
+        except Exception as e:
+            print(f"[agent_s] predict_autonomous step {step_index} failed: {e}")
+            return AutonomousStepResult(outcome="unavailable")
 
     def plan_batch_action(
         self,

@@ -198,8 +198,10 @@ async def get_status() -> JSONResponse:
 @app.post("/api/mode/{mode}")
 async def set_mode(mode: str) -> JSONResponse:
     mode = mode.upper()
-    if mode not in ("LIVE", "LOCKED"):
-        return JSONResponse({"error": "mode must be LIVE or LOCKED"}, status_code=400)
+    if mode not in ("LIVE", "LOCKED", "AUTONOMOUS"):
+        return JSONResponse(
+            {"error": "mode must be LIVE, LOCKED, or AUTONOMOUS"}, status_code=400
+        )
     _cfg._runtime_mode = mode
     _state["mode"] = mode
     event_bus.emit("mode.changed", {"mode": mode})

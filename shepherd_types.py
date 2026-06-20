@@ -89,6 +89,18 @@ class NodeStats:
     execution_count: int = 0
 
 
+# Synthetic routine id for free-form Agent S runs (no routines.json entry required).
+AUTONOMOUS_ROUTINE_ID = "AUTONOMOUS"
+
+
+@dataclass
+class AutonomousStepResult:
+    """One Agent S turn in AUTONOMOUS mode."""
+    outcome: str  # "action" | "done" | "fail" | "wait" | "unavailable"
+    code: Optional[str] = None
+    raw: Optional[str] = None
+
+
 @dataclass
 class ExecutionResult:
     routine_id: str

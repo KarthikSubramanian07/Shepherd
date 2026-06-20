@@ -50,8 +50,12 @@ class Settings(BaseSettings):
     deepgram_language: str = "en-US"
 
     # ── Engine ─────────────────────────────────────────────────────────────
-    # "LIVE" = Agent S against demonstration | "LOCKED" = deterministic replay
+    # LIVE = Agent S per routine step | LOCKED = deterministic replay
+    # AUTONOMOUS = Agent S plans freely from raw intent (no routines.json steps)
     execution_mode: str = "LIVE"
+    # When LIVE/LOCKED and router finds no match, run autonomous if Agent S is up
+    autonomous_on_unmatched: bool = True
+    autonomous_max_steps: int = 30
 
     # ── Dashboard ──────────────────────────────────────────────────────────
     dashboard_port: int = 8765
@@ -106,6 +110,8 @@ ORKES_SERVER_URL           = settings.orkes_server_url
 ORKES_API_KEY              = settings.orkes_api_key
 
 EXECUTION_MODE = settings.execution_mode
+AUTONOMOUS_ON_UNMATCHED = settings.autonomous_on_unmatched
+AUTONOMOUS_MAX_STEPS = settings.autonomous_max_steps
 
 DASHBOARD_PORT = settings.dashboard_port
 EVENTS_DB_PATH = settings.events_db_path
