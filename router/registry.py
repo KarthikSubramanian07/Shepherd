@@ -22,6 +22,7 @@ REGISTRY: dict[str, dict] = {
             "APPLICANT_LASTNAME":   "Johnson",
             "APPLICANT_EMAIL":      "alex@example.com",
             "APPLICANT_PHONE":      "555-0100",
+            "APPLICANT_LINKEDIN":   "linkedin.com/in/alexjohnson",
             "APPLICANT_EXPERIENCE": "3",
             "APPLICANT_SALARY":     "95000",
         },

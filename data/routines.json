@@ -60,6 +60,15 @@
           },
           {
             "tabs": 1,
+            "text": "{APPLICANT_LINKEDIN}",
+            "description": "LinkedIn"
+          },
+          {
+            "tabs": 1,
+            "description": "Skip role select (keep default)"
+          },
+          {
+            "tabs": 1,
             "text": "{APPLICANT_EXPERIENCE}",
             "description": "Years of experience"
           },
@@ -67,10 +76,6 @@
             "tabs": 1,
             "text": "{APPLICANT_SALARY}",
             "description": "Expected salary"
-          },
-          {
-            "tabs": 2,
-            "description": "Skip to password section"
           }
         ]
       },
