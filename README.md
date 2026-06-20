@@ -203,11 +203,56 @@ MonitorAgent  — OCR scans for credential / captcha / phishing / stuck
   ↓ FLAG / HALT → blocks engine; human approves or halts via Control Hub
 RoutineEvolution  — tracks per-step stats; auto-promotes risky steps to monitored
   ↓
+TaskGraphStore — loads this task's persistent graph as a reference, then
+                 collapses executed clicks into milestones and merges them
+                 back in (matched vs appended). Per-click detail → Agent S.
+  ↓
 ShepherdTelemetry → Arize Phoenix (per-step spans with deviation + timing)
 ExecutionMemory   → Redis (Replay panel)
   ↓
 Dashboard WebSocket → Control Hub  http://localhost:8765
 ```
+
+---
+
+## Task Graph Memory
+
+Every task keeps **one durable graph** that accumulates across runs (stored in
+`data/task_graphs.json`, keyed by resolved routine — so the same or a similar
+request reuses the same graph).
+
+The graph is **coarse on purpose**: it records *milestones* — the level a human
+reasons about — not individual clicks. Many fine actions collapse into one node,
+e.g. the 13 clicks of `ROUTINE_FORM_FILL` become:
+
+```
+Open Safari → Scan results → Navigate to localhost:8765 → Enter details → Submit
+```
+
+Milestone kinds: `open · navigate · search · scan · fill · submit · interact`
+(search/navigate nodes capture their payload — e.g. `Search: AI agent safety`).
+
+- On each run the engine **loads the prior graph as a reference**, so it knows
+  what's already been done at the milestone level.
+- As the task runs, the executed clicks are **collapsed into milestones at the
+  routine boundary** and merged back in: a milestone the graph has seen is
+  *matched* (`times_seen` ticks up, once per run); a milestone the task performs
+  that the graph doesn't have yet is *appended*. The graph grows to cover whatever
+  the task actually does.
+- **Per-click detail is still fed to Agent S** — every click gets its own
+  `plan_action` call (enriched with which milestone it belongs to and how often
+  that milestone has run before). Only the persisted graph is coarse.
+- The Control Hub badges each click live with its milestone — `↺ <milestone> ·N×`
+  when recalled, `＋ <milestone>` when new — and the log shows the milestone chain
+  (`Recalled task graph · Open Safari → … → Submit`).
+
+Inspect a task's accumulated graph any time:
+
+```bash
+curl http://localhost:8765/api/task-graph/ROUTINE_FORM_FILL
+```
+
+Graph reads/writes happen only at routine boundaries — never inside the click sequence.
 
 ---
 

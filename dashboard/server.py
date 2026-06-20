@@ -219,6 +219,19 @@ async def get_routine_stats(routine_id: str) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.get("/api/task-graph/{routine_id}")
+async def get_task_graph(routine_id: str) -> JSONResponse:
+    """The accumulated graph for a task — milestones learned across all runs."""
+    try:
+        from engine.task_graph import TaskGraphStore, _serialize
+        graph = TaskGraphStore().load(routine_id, {})
+        if graph.run_count == 0 and not graph.nodes:
+            return JSONResponse({"error": "no graph yet"}, status_code=404)
+        return JSONResponse(_serialize(graph))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/runs/{run_id}")
 async def get_run(run_id: str) -> JSONResponse:
     try:
