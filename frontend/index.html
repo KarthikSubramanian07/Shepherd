@@ -479,9 +479,11 @@ function handle({type, data}){
     case 'execution.halted':   onHalted(data);          break;
     case 'monitor.alert':      onMonitor(data);         break;
     case 'monitor.decision':   onMonitorDecision(data); break;
-    case 'step.deviation':     onDeviation(data);       break;
-    case 'vision.update':      onVision(data);          break;
-    case 'vision.offline':     onVisionOff();           break;
+    case 'step.deviation':        onDeviation(data);       break;
+    case 'step.agent_s_thinking': onAgentSThinking(data); break;
+    case 'vision.update':         onVision(data);          break;
+    case 'vision.offline':        onVisionOff();           break;
+    case 'mode.changed':          onModeChanged(data);     break;
   }
 }
 
@@ -671,6 +673,19 @@ function onVisionOff(){
   $t('vcur', 'vision audit offline');
 }
 
+function onAgentSThinking(d){
+  const n = document.getElementById('dn-' + d.index);
+  if(n) n.className = 'dn active';
+  log('AGENT S', d.index, 'planning: ' + (d.description || ''), 'act', '');
+}
+
+function onModeChanged(d){
+  const b = $('mbadge');
+  b.textContent = d.mode || '—';
+  b.className = 'mbadge ' + (d.mode === 'LIVE' ? 'live' : d.mode === 'LOCKED' ? 'locked' : '');
+  log('MODE', '—', 'Switched to ' + d.mode, 'ok', '');
+}
+
 // ── DAG ────────────────────────────────────────────────────────────────────
 function buildDAG(total){
   $('dag-empty').style.display = 'none';
@@ -852,7 +867,7 @@ function log(type, idx, desc, status, dur){
     <span class="lty">${x(type)}</span>
     <span class="li">${idx !== '—' && idx !== null ? String(idx) : ''}</span>
     <span class="ld">${x(desc || '')}</span>
-    <span class="ls ${scls[status] || ''}">${slbl[status] || status || ''}</span>
+    <span class="ls ${scls[status] || ''}">${slbl[status] || x(status) || ''}</span>
     <span class="ldur">${dur ? '<span>' + dur + 'ms</span>' : ''}</span>`;
   body.prepend(row);
   while(body.children.length > LOG_MAX) body.removeChild(body.lastChild);
@@ -873,6 +888,7 @@ function startApprovalTimer(defaultAct){
     if(_approvalCount <= 0){
       clearInterval(_approvalTimer);
       $t('approval-countdown', 'Auto-' + _approvalDefault + 'ing…');
+      sendDecision(_approvalDefault);
       setTimeout(hideApproval, 800);
     } else {
       _updateCountdown();
@@ -976,7 +992,7 @@ setInterval(() => {
 function $(id)        { return document.getElementById(id); }
 function $t(id, text) { const el = document.getElementById(id); if(el) el.textContent = text; }
 function mk(tag, cls) { const e = document.createElement(tag); if(cls) e.className = cls; return e; }
-function x(s){ return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function x(s){ return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 </script>
 </body>
 </html>

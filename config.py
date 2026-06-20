@@ -16,7 +16,8 @@ ORKES_SERVER_URL  = os.getenv("ORKES_SERVER_URL", "")
 ORKES_API_KEY     = os.getenv("ORKES_API_KEY", "")
 
 # "LIVE" = Agent S against demonstration  |  "LOCKED" = deterministic verbatim replay
-EXECUTION_MODE = os.getenv("EXECUTION_MODE", "LIVE")
+EXECUTION_MODE  = os.getenv("EXECUTION_MODE", "LIVE")
+_runtime_mode: str = ""   # set via POST /api/mode; overrides EXECUTION_MODE for next run
 
 DASHBOARD_PORT  = int(os.getenv("DASHBOARD_PORT", "8765"))
 EVENTS_DB_PATH  = os.getenv("EVENTS_DB_PATH", "data/events.db")

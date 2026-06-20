@@ -7,16 +7,19 @@ Usage (engine side):
     decision = request_approval(step_index, reason, timeout=30.0, default="halt")
 
 Usage (server side):
-    from engine.approvals import set_decision
-    set_decision("approve")  # or "halt" or "override:<instruction>"
+    from engine.approvals import set_decision, set_override
+    set_decision("approve")           # approve or halt
+    set_override("use test creds")    # custom instruction → engine passes to Agent S
 """
+import queue
 import threading
 
-_pending = threading.Event()
-_decision: str = "approve"
+# (decision, override_instruction) — queue is race-free vs Event+global pattern
+_q: queue.SimpleQueue = queue.SimpleQueue()
+_last_instruction: str = ""
+_instr_lock = threading.Lock()
 
 # Context-specific suggestions surfaced in the dashboard intervention panel.
-# Each entry: (label shown on the chip, decision sent to engine).
 _SUGGESTIONS: dict[str, list[tuple[str, str]]] = {
     "credential": [
         ("Use test credentials", "approve"),
@@ -31,8 +34,8 @@ _SUGGESTIONS: dict[str, list[tuple[str, str]]] = {
         ("Halt — safety risk", "halt"),
     ],
     "stuck": [
-        ("Retry this step",     "approve"),
-        ("Skip and continue",   "approve"),
+        ("Retry this step",   "approve"),
+        ("Skip and continue", "approve"),
     ],
 }
 
@@ -54,19 +57,38 @@ def request_approval(
     """
     Block the calling (engine) thread until a human decision arrives or
     `timeout` seconds elapse. Returns the decision string.
-
-    default — what to return on timeout: "approve" for FLAG steps,
-              "halt" for HALT steps (so silence = conservative choice).
+    Drains any stale decisions left from a previous cycle first.
     """
-    global _decision
-    _decision = default
-    _pending.clear()
-    _pending.wait(timeout=timeout)
-    return _decision
+    while not _q.empty():
+        try:
+            _q.get_nowait()
+        except queue.Empty:
+            break
+
+    try:
+        decision, instruction = _q.get(timeout=timeout)
+        with _instr_lock:
+            global _last_instruction
+            _last_instruction = instruction
+        return decision
+    except queue.Empty:
+        return default
 
 
 def set_decision(decision: str) -> None:
-    """Called by the HTTP handler when the user clicks a button in the dashboard."""
-    global _decision
-    _decision = decision
-    _pending.set()
+    """Called by the HTTP handler when the user clicks Approve or Halt."""
+    _q.put((decision, ""))
+
+
+def set_override(instruction: str) -> None:
+    """Called when human submits a custom override instruction."""
+    _q.put(("override", instruction))
+
+
+def get_override_instruction() -> str:
+    """Consume the pending override instruction (returns it once, then clears)."""
+    global _last_instruction
+    with _instr_lock:
+        inst = _last_instruction
+        _last_instruction = ""
+    return inst

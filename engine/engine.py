@@ -15,6 +15,7 @@ from typing import Optional
 
 import pyautogui
 
+import config as _cfg
 from config import FEATURES, EXECUTION_MODE
 from shepherd_types import ExecutionResult, ResolvedRoutine, RoutineStep, StepRecord
 from engine.coords import get as get_coord
@@ -44,6 +45,7 @@ class ShepherdExecutionEngine:
         self._evolution = evolution  # RoutineEvolution | None — injected by main.py
         self.last_step_records: list[StepRecord] = []
         self._halt_flag = threading.Event()
+        self._pending_override: str = ""
 
     def request_halt(self) -> None:
         """Set by monitor_agent or spoken 'stop' command. Checked at each step boundary."""
@@ -54,6 +56,10 @@ class ShepherdExecutionEngine:
         self.last_step_records = []
         run_id     = str(uuid.uuid4())[:8]
         started_at = time.time()
+
+        # Respect runtime mode switch from dashboard POST /api/mode
+        if _cfg._runtime_mode:
+            self._mode = _cfg._runtime_mode
 
         routine   = get_routine(resolved.routine_id)
         variables = resolved.variables
@@ -129,7 +135,12 @@ class ShepherdExecutionEngine:
 
                 # In LIVE mode, ask Agent S to plan the action (returns executable code)
                 defined_step = step
-                agent_code   = self._live_execute(defined_step, i, routine)
+                if self._mode == "LIVE" and self._agent_s.available:
+                    event_bus.emit("step.agent_s_thinking", {
+                        "run_id": run_id, "index": i,
+                        "description": step.description or step.action,
+                    })
+                agent_code = self._live_execute(defined_step, i, routine)
 
                 # Deviation detection: compare code action type vs defined step
                 deviation_desc: Optional[str] = (
@@ -239,6 +250,10 @@ class ShepherdExecutionEngine:
 
     def _build_instruction(self, step: RoutineStep, index: int, routine) -> str:
         """Compose the per-step instruction string passed to Agent S."""
+        if self._pending_override:
+            inst = self._pending_override
+            self._pending_override = ""
+            return inst
         if routine.step_instructions and index in routine.step_instructions:
             return routine.step_instructions[index]
         return step.description or step.action
@@ -272,7 +287,7 @@ class ShepherdExecutionEngine:
         Execute Agent S-generated Python/pyautogui code in a restricted namespace.
         Agent S returns strings like: "pyautogui.click(760, 300)"
         """
-        exec(code, {"pyautogui": pyautogui, "time": time})  # noqa: S102
+        exec(code, {"__builtins__": {}, "pyautogui": pyautogui, "time": time})  # noqa: S102
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
         def sub(t: Optional[str]) -> Optional[str]:
@@ -362,62 +377,65 @@ class ShepherdExecutionEngine:
         then blocks until the human approves/halts (or 30 s timeout).
         Never called inside a click sequence.
         """
+        # Rule check — can fail gracefully without blocking the demo
         try:
             from services.monitor_agent import check_step
-            from engine.approvals import suggestions_for, request_approval
             result  = check_step(step, {"step_index": index})
             verdict = result.get("verdict", "ok")
             reason  = result.get("reason", "")
-
-            if verdict in ("flag", "halt"):
-                sugg = suggestions_for(step.monitor_trigger)
-
-                # Pull historical stats to enrich the alert message
-                history_note = ""
-                if self._evolution and routine_id:
-                    try:
-                        s = self._evolution.get_stats(routine_id, index)
-                        if s.execution_count >= 2:
-                            history_note = (
-                                f"Step {index} history: "
-                                f"{s.halt_count}× halted, "
-                                f"{s.success_count}× approved"
-                            )
-                    except Exception:
-                        pass
-
-                event_bus.emit("monitor.alert", {
-                    "run_id":             run_id,
-                    "step_index":         index,
-                    "verdict":            verdict,
-                    "reason":             reason,
-                    "trigger":            step.monitor_trigger,
-                    "awaiting_approval":  True,
-                    "suggestions":        sugg,
-                    "history_note":       history_note,
-                })
-
-                # Block for human decision; default conservatively
-                default = "approve" if verdict == "flag" else "halt"
-                decision = request_approval(index, reason, timeout=30.0, default=default)
-
-                event_bus.emit("monitor.decision", {
-                    "run_id": run_id, "step_index": index, "decision": decision,
-                })
-
-                if decision == "halt":
-                    return "halt"
-
-                # Record the approval in evolution stats
-                if self._evolution and routine_id:
-                    try:
-                        self._evolution.record_approval(routine_id, index)
-                    except Exception:
-                        pass
-
-                return "ok"
-
-            return verdict
         except Exception as exc:
-            print(f"[monitor] check failed (non-fatal): {exc}")
+            print(f"[monitor] check_step failed (non-fatal): {exc}")
             return "ok"
+
+        if verdict not in ("flag", "halt"):
+            return verdict
+
+        # Approval gate — separated so exceptions here don't silently return "ok"
+        from engine.approvals import suggestions_for, request_approval, get_override_instruction
+
+        sugg = suggestions_for(step.monitor_trigger)
+
+        history_note = ""
+        if self._evolution and routine_id:
+            try:
+                s = self._evolution.get_stats(routine_id, index)
+                if s.execution_count >= 2:
+                    history_note = (
+                        f"Step {index} history: "
+                        f"{s.halt_count}× halted, "
+                        f"{s.success_count}× approved"
+                    )
+            except Exception:
+                pass
+
+        event_bus.emit("monitor.alert", {
+            "run_id":             run_id,
+            "step_index":         index,
+            "verdict":            verdict,
+            "reason":             reason,
+            "trigger":            step.monitor_trigger,
+            "awaiting_approval":  True,
+            "suggestions":        sugg,
+            "history_note":       history_note,
+        })
+
+        default   = "approve" if verdict == "flag" else "halt"
+        decision  = request_approval(index, reason, timeout=30.0, default=default)
+
+        event_bus.emit("monitor.decision", {
+            "run_id": run_id, "step_index": index, "decision": decision,
+        })
+
+        if decision == "halt":
+            return "halt"
+
+        if decision == "override":
+            self._pending_override = get_override_instruction()
+
+        if self._evolution and routine_id:
+            try:
+                self._evolution.record_approval(routine_id, index)
+            except Exception:
+                pass
+
+        return "ok"

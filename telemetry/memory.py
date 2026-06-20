@@ -96,6 +96,7 @@ def _serialize(r: ReplayRecord) -> dict:
                 "duration_ms":     s.duration_ms,
                 "error":           s.error,
                 "monitor_verdict": s.monitor_verdict,
+                "deviation":       s.deviation,
             }
             for s in r.steps
         ],

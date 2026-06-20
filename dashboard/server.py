@@ -5,14 +5,25 @@ This file: routing, WebSocket broadcast, replay API, static serving.
 """
 import asyncio
 import json
+import time
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 
+import config as _cfg
 from config import DASHBOARD_PORT
 from dashboard.events import event_bus
+
+_started_at = time.time()
+_state: dict = {
+    "status": "idle",
+    "mode":   _cfg.EXECUTION_MODE,
+    "routine_id": None,
+    "run_id":     None,
+    "step_index": None,
+}
 
 app = FastAPI(title="Shepherd Control Hub", docs_url=None, redoc_url=None)
 
@@ -29,6 +40,7 @@ async def _startup() -> None:
 
     async def _broadcast(message: dict) -> None:
         payload = json.dumps(message)
+        _track_state(message)
         async with _ws_lock:
             dead = []
             for ws in _sockets:
@@ -40,6 +52,24 @@ async def _startup() -> None:
                 _sockets.remove(ws)
 
     event_bus.subscribe(_broadcast)
+
+
+def _track_state(message: dict) -> None:
+    t = message.get("type", "")
+    d = message.get("data", {})
+    if t == "execution.start":
+        _state.update(status="running", routine_id=d.get("routine_id"),
+                      run_id=d.get("run_id"), mode=d.get("mode", _state["mode"]))
+    elif t == "step.start":
+        _state["step_index"] = d.get("index")
+    elif t in ("execution.complete", "execution.halted"):
+        _state.update(status="halted" if t == "execution.halted" else "idle",
+                      step_index=None)
+    elif t == "monitor.alert":
+        _state["status"] = "halted"
+    elif t == "monitor.decision":
+        if d.get("decision") != "halt":
+            _state["status"] = "running"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -79,14 +109,14 @@ async def demo_web() -> HTMLResponse:
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
     await ws.accept()
-    async with _ws_lock:
-        _sockets.append(ws)
-    # Replay event history so late-joining clients catch up
+    # Replay history before joining broadcast list so live events don't interleave
     for event in event_bus.get_history():
         try:
             await ws.send_text(json.dumps(event))
         except Exception:
-            break
+            return
+    async with _ws_lock:
+        _sockets.append(ws)
     try:
         while True:
             await ws.receive_text()
@@ -134,17 +164,44 @@ async def get_routine_info(routine_id: str) -> JSONResponse:
 
 
 @app.post("/api/control/{decision}")
-async def control_decision(decision: str) -> JSONResponse:
-    """
-    Receive a human intervention decision from the dashboard.
-    decision: "approve" | "halt" | "override"
-    For override, pass {"instruction": "..."} in the JSON body.
-    """
-    from engine.approvals import set_decision
-    if decision not in ("approve", "halt", "override"):
+async def control_decision(decision: str, request: Request) -> JSONResponse:
+    """approve | halt | override — override body: {"instruction": "..."}"""
+    from engine.approvals import set_decision, set_override
+    if decision == "override":
+        try:
+            body = await request.json()
+            instruction = (body.get("instruction") or "").strip()
+        except Exception:
+            instruction = ""
+        if instruction:
+            set_override(instruction)
+        else:
+            set_decision("approve")
+    elif decision in ("approve", "halt"):
+        set_decision(decision)
+    else:
         return JSONResponse({"error": "invalid decision"}, status_code=400)
-    set_decision(decision)
     return JSONResponse({"ok": True, "decision": decision})
+
+
+@app.get("/api/status")
+async def get_status() -> JSONResponse:
+    return JSONResponse({
+        **_state,
+        "uptime_s": round(time.time() - _started_at),
+        "dashboard_port": DASHBOARD_PORT,
+    })
+
+
+@app.post("/api/mode/{mode}")
+async def set_mode(mode: str) -> JSONResponse:
+    mode = mode.upper()
+    if mode not in ("LIVE", "LOCKED"):
+        return JSONResponse({"error": "mode must be LIVE or LOCKED"}, status_code=400)
+    _cfg._runtime_mode = mode
+    _state["mode"] = mode
+    event_bus.emit("mode.changed", {"mode": mode})
+    return JSONResponse({"ok": True, "mode": mode})
 
 
 @app.get("/api/routines/{routine_id}/stats")

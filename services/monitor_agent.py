@@ -106,6 +106,7 @@ def _rules(text: str, screenshot=None) -> Optional[dict]:
             h = hash(screenshot.tobytes())
             now = time.time()
             if h == _last_hash and (now - _last_hash_time) > _STUCK_THRESHOLD:
+                _last_hash_time = now  # reset so it doesn't flood on every subsequent boundary
                 return {"verdict": "flag", "reason": "Stuck state: screen unchanged too long"}
             if h != _last_hash:
                 _last_hash = h
