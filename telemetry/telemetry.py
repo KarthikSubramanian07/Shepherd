@@ -68,5 +68,18 @@ class ShepherdTelemetry:
                     span.set_attribute(f"routine.variable.{k}", v)
                 if result.error:
                     span.set_attribute("error.message", result.error)
+
+                for step in (steps or []):
+                    with self._tracer.start_as_current_span(f"step.{step.index}") as s:
+                        s.set_attribute("step.index",       step.index)
+                        s.set_attribute("step.action",      step.action or "")
+                        s.set_attribute("step.status",      step.status)
+                        s.set_attribute("step.duration_ms", step.duration_ms)
+                        if step.target:
+                            s.set_attribute("step.target", step.target)
+                        if step.deviation:
+                            s.set_attribute("step.deviation", step.deviation)
+                        if step.error:
+                            s.set_attribute("step.error", step.error)
         except Exception as e:
             print(f"[arize] record failed (non-fatal): {e}")

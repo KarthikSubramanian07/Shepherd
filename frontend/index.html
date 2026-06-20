@@ -114,6 +114,8 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
 .vcur { color:var(--th); font-size:.72rem; font-style:italic; line-height:1.5; }
 .vhist { margin-top:8px; }
 .vhe { font-size:.64rem; color:var(--dim2); padding:3px 0; border-top:1px solid var(--b); line-height:1.45; }
+.vscreen { margin-top:10px; border:1px solid var(--b2); border-radius:3px; overflow:hidden; }
+.vscreen img { width:100%; display:block; opacity:.85; }
 
 /* ── DAG ── */
 #dag-panel { background:var(--s); display:flex; flex-direction:column; overflow:hidden; }
@@ -365,6 +367,9 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
           <div class="vcur" id="vcur">Waiting for stream…</div>
         </div>
         <div class="vhist" id="vhist"></div>
+        <div class="vscreen">
+          <img id="vscreen-img" src="/api/screenshot" alt="live screen">
+        </div>
       </div>
     </div>
   </div>
@@ -960,6 +965,12 @@ function applyNodeStats(s){
     updateNodeDeviation(i, `deviated ${s.deviation_count}× in history`);
   }
 }
+
+// ── Live screen refresh (Vision panel) ────────────────────────────────────
+setInterval(() => {
+  const img = document.getElementById('vscreen-img');
+  if(img) img.src = '/api/screenshot?' + Date.now();
+}, 3000);
 
 // ── Utils ──────────────────────────────────────────────────────────────────
 function $(id)        { return document.getElementById(id); }

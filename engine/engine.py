@@ -312,7 +312,7 @@ class ShepherdExecutionEngine:
         elif a == "browser":
             # Invoked only at routine boundaries, never mid-sequence
             if FEATURES["browserbase"] and step.browser_step:
-                from integrations.browserbase_routine import run_browser_step
+                from services.browserbase_routine import run_browser_step
                 run_browser_step(step.browser_step)
             else:
                 import webbrowser
@@ -363,7 +363,7 @@ class ShepherdExecutionEngine:
         Never called inside a click sequence.
         """
         try:
-            from integrations.monitor_agent import check_step
+            from services.monitor_agent import check_step
             from engine.approvals import suggestions_for, request_approval
             result  = check_step(step, {"step_index": index})
             verdict = result.get("verdict", "ok")

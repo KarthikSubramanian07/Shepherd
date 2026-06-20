@@ -6,7 +6,12 @@ A wrong match here moves the real mouse.
 
 REGISTRY: dict[str, dict] = {
     "ROUTINE_FORM_FILL": {
-        "keywords": ["fill form", "fill", "form", "apply", "application", "job", "submit", "intake"],
+        "keywords": [
+            "fill form", "fill out", "fill in", "fill",
+            "form", "apply", "application", "job", "submit", "intake",
+            "complete the form", "enter details", "onboard", "register",
+            "sign up", "hiring", "candidate",
+        ],
         "description": "Fill a form with applicant details",
         "variable_patterns": {
             "APPLICANT_NAME":  r"for\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)",
@@ -19,7 +24,11 @@ REGISTRY: dict[str, dict] = {
         },
     },
     "ROUTINE_BROWSER_SHOWPIECE": {
-        "keywords": ["open browser", "browser", "web", "search", "open", "website", "navigate", "lookup"],
+        "keywords": [
+            "open browser", "browser", "web", "search", "open", "website",
+            "navigate", "lookup", "look up", "pull up", "show me", "find",
+            "google", "browse", "visit", "go to",
+        ],
         "description": "Open a browser and perform a live web action via Browserbase",
         "variable_patterns": {
             "SEARCH_QUERY": r"search\s+(?:for\s+)?(.+)",
@@ -29,7 +38,10 @@ REGISTRY: dict[str, dict] = {
         },
     },
     "ROUTINE_LOCKED_FALLBACK": {
-        "keywords": ["locked", "safe", "fallback", "demo", "test"],
+        "keywords": [
+            "locked", "safe", "fallback", "demo", "test",
+            "demonstrate", "run demo", "offline", "safe mode",
+        ],
         "description": "Deterministic offline fallback routine",
         "variable_patterns": {},
         "variable_defaults": {

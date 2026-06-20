@@ -11,6 +11,8 @@ import threading
 import wave
 from config import DEEPGRAM_API_KEY
 
+_stop_listener = threading.Event()
+
 
 def listen_and_transcribe(duration_seconds: float = 5.0) -> str:
     """
@@ -28,9 +30,12 @@ def listen_for_stop_command(halt_callback, poll_seconds: float = 2.0) -> threadi
     Background daemon: continuously listens for spoken 'stop'.
     Calls halt_callback() once on detection, then exits.
     Start this before engine.execute(); it self-terminates on halt.
+    Call stop_listener() after execution completes to clean up.
     """
+    _stop_listener.clear()
+
     def _loop():
-        while True:
+        while not _stop_listener.is_set():
             try:
                 t = listen_and_transcribe(duration_seconds=poll_seconds)
                 if "stop" in t.lower():
@@ -43,6 +48,11 @@ def listen_for_stop_command(halt_callback, poll_seconds: float = 2.0) -> threadi
     th = threading.Thread(target=_loop, daemon=True)
     th.start()
     return th
+
+
+def stop_listener() -> None:
+    """Signal the stop-command listener to exit cleanly after execution completes."""
+    _stop_listener.set()
 
 
 def _record_mic(duration: float) -> bytes:

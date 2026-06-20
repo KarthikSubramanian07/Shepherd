@@ -10,17 +10,13 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from config import DASHBOARD_PORT
 from dashboard.events import event_bus
 
 app = FastAPI(title="Shepherd Control Hub", docs_url=None, redoc_url=None)
 
-STATIC_DIR = Path(__file__).parent / "static"
-STATIC_DIR.mkdir(exist_ok=True)
-
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
 _sockets: list[WebSocket] = []
 _ws_lock = asyncio.Lock()
@@ -48,7 +44,20 @@ async def _startup() -> None:
 
 @app.get("/", response_class=HTMLResponse)
 async def root() -> HTMLResponse:
-    return (STATIC_DIR / "index.html").read_text()
+    return (FRONTEND_DIR / "index.html").read_text()
+
+
+@app.get("/api/screenshot")
+async def get_screenshot():
+    try:
+        import io
+        import pyautogui
+        from fastapi.responses import Response
+        buf = io.BytesIO()
+        pyautogui.screenshot().save(buf, format="PNG")
+        return Response(content=buf.getvalue(), media_type="image/png")
+    except Exception:
+        return Response(status_code=204)
 
 
 @app.get("/demo-form", response_class=HTMLResponse)

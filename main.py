@@ -32,7 +32,7 @@ def _get_intent_text(engine: ShepherdExecutionEngine) -> str:
     """
     if FEATURES["deepgram"]:
         try:
-            from integrations.deepgram_input import listen_and_transcribe, listen_for_stop_command
+            from services.deepgram_input import listen_and_transcribe, listen_for_stop_command
             listen_for_stop_command(halt_callback=engine.request_halt)
             transcript = listen_and_transcribe()
             if transcript:
@@ -58,7 +58,7 @@ def _record_mode(routine_id: str) -> None:
     narration_fn = None
     if FEATURES["deepgram"]:
         try:
-            from integrations.deepgram_input import listen_and_transcribe
+            from services.deepgram_input import listen_and_transcribe
             narration_fn = lambda: listen_and_transcribe(4.0)
             print("[record] Deepgram active — speak step instructions after each Cmd+Shift+M\n")
         except Exception as e:
@@ -155,7 +155,7 @@ def main() -> None:
     # ── Start Overshoot vision stream (parallel, never blocks engine) ─────────
     if FEATURES["overshoot"]:
         try:
-            from integrations.overshoot_vision import start_vision_stream
+            from services.overshoot_vision import start_vision_stream
             threading.Thread(target=start_vision_stream, daemon=True).start()
         except Exception as e:
             event_bus.emit("vision.offline", {"reason": str(e)})
@@ -219,7 +219,7 @@ def main() -> None:
 
 def _band_start(resolved) -> None:
     try:
-        from integrations.band_boundary import publish_routine_start
+        from services.band_boundary import publish_routine_start
         publish_routine_start(resolved)
     except Exception as e:
         print(f"[band] start non-fatal: {e}")
@@ -227,7 +227,7 @@ def _band_start(resolved) -> None:
 
 def _band_complete(result) -> None:
     try:
-        from integrations.band_boundary import publish_routine_complete
+        from services.band_boundary import publish_routine_complete
         publish_routine_complete(result)
     except Exception as e:
         print(f"[band] complete non-fatal: {e}")

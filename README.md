@@ -1,10 +1,22 @@
 # The Shepherd
 
-Local oversight and governance layer for AI desktop agents.
+**Local oversight and governance layer for AI desktop agents.**
 
-**The agent is the part you can't trust. The Shepherd is the layer that lets you trust it anyway.**
+> *The agent is the part you can't trust. The Shepherd is the layer that lets you trust it anyway.*
 
-Author a task by demonstrating it once → watch the agent execute live → catch dangerous steps and halt → replay any past run.
+Author a task by demonstrating it once → watch the agent execute live → catch dangerous steps before they happen → replay any past run.
+
+---
+
+## What it does
+
+An AI agent operating your desktop can click, type, and submit forms without supervision. The Shepherd runs alongside it and:
+
+- **Intercepts high-stakes steps** — credential fields, payment forms, irreversible actions — and blocks for human approval
+- **Detects deviation** — if the agent does something different from the recorded demonstration, it flags or halts
+- **Learns over time** — steps that deviate or halt repeatedly are automatically added to the monitored set
+- **Never blocks the click path** — monitoring runs at step *boundaries*, not inside sequences
+- **Falls back gracefully** — if Agent S is unavailable, LOCKED mode replays pre-mapped steps deterministically
 
 ---
 
@@ -16,14 +28,14 @@ Requires [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/inst
 # 1. Clone & enter
 cd shepherd
 
-# 2. Create venv and install dependencies
+# 2. Install dependencies
 uv sync
 
 # 3. Configure
 cp .env.example .env
-# Edit .env — at minimum add DEEPGRAM_API_KEY if using voice
+# Edit .env — set OPENAI_API_KEY at minimum for LIVE mode
 
-# 4. Start Redis (for Replay panel)
+# 4. Start Redis
 brew install redis && brew services start redis
 
 # 5. Run
@@ -36,68 +48,49 @@ open http://localhost:8765
 ### Optional extras
 
 ```bash
-uv sync --extra voice     # mic recording for Deepgram (pyaudio)
-uv run playwright install # Browserbase browser steps
+uv sync --extra voice     # Deepgram mic input (pyaudio)
+uv sync --extra agent_s   # Agent S LIVE planner (gui-agents)
+uv run playwright install # Browserbase cloud browser steps
 ```
 
 ---
 
 ## Local Arize Phoenix (tracing)
 
-No account or API key required. Phoenix runs locally and receives OpenTelemetry spans from Shepherd.
-
-**Terminal 1 — start Phoenix:**
+No account needed. Phoenix runs locally and receives OpenTelemetry spans — one per step, with deviation and timing attributes.
 
 ```bash
-./scripts/serve_phoenix.sh
-# UI → http://localhost:6006
-```
+# Terminal 1
+./scripts/serve_phoenix.sh       # → http://localhost:6006
 
-**Terminal 2 — start Shepherd:**
-
-```bash
-cp .env.example .env   # includes PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006
+# Terminal 2
 uv run python main.py
 ```
 
-Run a routine (`demo`, `fill form`, etc.), then open **http://localhost:6006** → project **shepherd** → **Traces**.
-
-You should see nested spans: `routine.execute` → `action.*` → `routine.summary`.
-
-Startup log should show:
-
-```
-[arize] Phoenix tracer active — project: shepherd → http://localhost:6006/v1/traces
-```
-
-If traces don't appear, confirm Phoenix is running in Terminal 1 before starting Shepherd.
+Run a routine, then open **http://localhost:6006** → project **shepherd** → **Traces** to see `routine.execute` → `step.N` → `routine.summary`.
 
 ---
 
-## macOS Permissions Required
+## macOS Permissions
 
-Grant these in **System Settings → Privacy & Security** for the terminal/IDE running Shepherd:
+Grant in **System Settings → Privacy & Security** for the terminal running Shepherd:
 
 | Permission | Required for |
 |---|---|
-| **Accessibility** | pyautogui mouse + keyboard control |
-| **Screen Recording** | pyautogui screenshot (monitor + Overshoot) |
+| **Accessibility** | pyautogui mouse + keyboard |
+| **Screen Recording** | screenshots for monitor + Agent S |
 | **Microphone** | Deepgram voice input |
-
-Without Accessibility + Screen Recording, pyautogui calls will **silently fail**.
 
 ---
 
-## Coordinate Calibration
-
-Coordinate maps are display-specific. After moving to a new monitor, re-calibrate:
+## Recording a Demonstration
 
 ```bash
-python -c "from engine.coords import calibration_helper; calibration_helper()"
+python main.py --record ROUTINE_FORM_FILL
+# Controls: Cmd+Shift+M = mark step  |  Cmd+Shift+Q = stop
 ```
 
-Move the mouse to each UI target. The script prints logical coordinates (physical_px / 2 on Retina).  
-Update `data/coords.demo.json` with the printed values.
+Saves the recorded steps into `data/routines.json`. In LIVE mode, Agent S plans against this recording.
 
 ---
 
@@ -105,123 +98,100 @@ Update `data/coords.demo.json` with the printed values.
 
 | Mode | Description |
 |---|---|
-| `LIVE` | Agent S plans actions against the recorded demonstration |
-| `LOCKED` | Deterministic verbatim replay — offline floor / demo fallback |
+| `LIVE` | Agent S plans each action from a screenshot against the recorded demo |
+| `LOCKED` | Deterministic verbatim replay — works fully offline |
 
 ```bash
-python main.py --mode LOCKED   # force LOCKED mode
+python main.py --mode LOCKED
 ```
 
 ---
 
 ## Demo Routines
 
-| Routine ID | Description |
-|---|---|
-| `ROUTINE_FORM_FILL` | Fill a job application form; monitor halts at credential step |
-| `ROUTINE_BROWSER_SHOWPIECE` | Browserbase cloud browser web action |
-| `ROUTINE_LOCKED_FALLBACK` | Deterministic TextEdit routine — offline floor |
-
-Trigger phrases:
-- **"fill form"** → `ROUTINE_FORM_FILL`
-- **"open browser"** or **"search"** → `ROUTINE_BROWSER_SHOWPIECE`
-- **"demo"** → `ROUTINE_LOCKED_FALLBACK`
+| Routine | Trigger phrases | What happens |
+|---|---|---|
+| `ROUTINE_FORM_FILL` | *"fill form"*, *"apply"*, *"fill out"* | Fills a credential form; Shepherd halts at the password field |
+| `ROUTINE_BROWSER_SHOWPIECE` | *"open browser"*, *"search"*, *"look up"* | Browserbase cloud browser action |
+| `ROUTINE_LOCKED_FALLBACK` | *"demo"*, *"safe mode"* | Deterministic TextEdit routine — offline floor |
 
 ---
 
-## Recording a Demonstration
+## Coordinate Calibration
+
+Coordinates are display-specific. After moving to a new monitor:
 
 ```bash
-python -c "
-from engine.recorder import DemonstrationRecorder
-r = DemonstrationRecorder()
-r.start()
-# perform the task now...
-# press Cmd+Shift+M to mark each step boundary
-# press Cmd+Shift+Q to stop
-"
+python -c "from engine.coords import calibration_helper; calibration_helper()"
 ```
 
-The resulting `list[RecordedStep]` goes into the routine's `demonstration` field in `data/routines.json`.
+Update `data/coords.demo.json` with the printed values.
+
+---
+
+## Project Layout
+
+```
+frontend/       Control Hub UI (HTML/CSS/JS)
+engine/         Execution engine — LIVE + LOCKED modes, Agent S adapter
+router/         Deterministic keyword intent router
+services/       Deepgram, Browserbase, Monitor, Overshoot, Band — first-class runtime services
+telemetry/      Arize Phoenix spans, Redis replay memory, routine evolution tracking
+dashboard/      FastAPI WebSocket server — streams events to Control Hub
+data/           Routines JSON, coordinate maps, demo form, screenshots
+```
 
 ---
 
 ## Feature Flags
 
-All integrations are feature-flagged in `.env`. With all flags off, core automation + dashboard runs fully offline.
+All services are feature-flagged. With all flags off, core automation + dashboard runs fully offline.
 
 | Flag | Enabled when |
 |---|---|
 | `deepgram` | `DEEPGRAM_API_KEY` set |
-| `arize` | always (local Phoenix via `PHOENIX_COLLECTOR_ENDPOINT`) |
+| `arize` | always (local Phoenix) |
 | `sentry` | `SENTRY_DSN` set |
 | `redis` | always (local Redis) |
 | `browserbase` | `BROWSERBASE_API_KEY` set |
 | `band` | `BAND_API_KEY` + `BAND_ROOM_KEY` set |
 | `overshoot` | `OVERSHOOT_API_KEY` set |
-| `orkes` | `ORKES_SERVER_URL` + `ORKES_API_KEY` set — VERIFY Saturday |
-| `context` | disabled — VERIFY criteria Saturday |
-| `fieldguide` | disabled — VERIFY criteria Saturday |
+| `orkes` | `ORKES_SERVER_URL` + `ORKES_API_KEY` set |
 
 ---
 
 ## Architecture
 
 ```
-Voice (Deepgram STT)
+Voice (Deepgram STT)  OR  typed input
   ↓
 ShepherdIntentRouter  — deterministic keyword matching → routine_id
   ↓
 ShepherdExecutionEngine
-  ├── LIVE: Agent S plans against recorded demonstration; pyautogui actuates
-  └── LOCKED: deterministic verbatim replay
-  ↓ (parallel, boundary-only)
-MonitorAgent  — captcha / credential / phishing / stuck → flag or halt
+  ├── LIVE:   Agent S screenshots + plans → pyautogui actuates
+  └── LOCKED: pre-mapped steps → pyautogui actuates
+  ↓  (at step boundaries only — never mid-click)
+MonitorAgent  — OCR scans for credential / captcha / phishing / stuck
+  ↓ FLAG / HALT → blocks engine; human approves or halts via Control Hub
+RoutineEvolution  — tracks per-step stats; auto-promotes risky steps to monitored
   ↓
-ShepherdTelemetry → Arize Phoenix (dev dashboard, separate window)
+ShepherdTelemetry → Arize Phoenix (per-step spans with deviation + timing)
+ExecutionMemory   → Redis (Replay panel)
   ↓
-ExecutionMemory → Redis (Replay panel)
-  ↓
-Dashboard WebSocket → Control Hub (http://localhost:8765)
+Dashboard WebSocket → Control Hub  http://localhost:8765
 ```
-
----
-
-## Lane Owners
-
-| Lane | Owner | Files |
-|---|---|---|
-| A — Engine | Jean | `engine/`, `integrations/monitor_agent.py`, `data/` |
-| B — Dashboard | Karthik | `dashboard/` |
-| C — Telemetry | Rohan | `telemetry/`, `integrations/overshoot_vision.py`, `integrations/band_boundary.py` |
-| D — Integrations + Pitch | Leon | `integrations/deepgram_input.py`, `integrations/browserbase_routine.py`, `main.py` |
-
-**Cross-lane rule:** Nobody's code runs inside `engine.execute()`'s click sequence except Lane A.
-
----
-
-## VERIFY at Event
-
-These integrations use placeholder API calls — confirm the real SDK/endpoint before implementing:
-
-- **Band** — no confirmed public Python SDK; check hackathon materials
-- **Browserbase** — verify current SDK + Playwright pairing
-- **Overshoot** — JS SDK only; confirm REST API at docs.overshoot.ai
-- **Deepgram** — check developers.deepgram.com for current mic streaming API
-- **Orkes** — track judged on Agentspan, NOT Conductor; VERIFY Saturday before touching
 
 ---
 
 ## Day-Of Checklist
 
 - [ ] `ROUTINE_LOCKED_FALLBACK` runs flawlessly offline
-- [ ] Coordinates re-calibrated on demo display at venue resolution
+- [ ] Coordinates re-calibrated on venue display
 - [ ] Accessibility + Screen Recording permissions granted
-- [ ] Arize Phoenix running in separate browser window
-- [ ] Sentry initialized and verified (trigger one test error)
-- [ ] Browserbase beat works; local fallback confirmed
-- [ ] Deepgram voice input tested; typed fallback confirmed
-- [ ] Monitor halts on planted credential step (step 11 in ROUTINE_FORM_FILL)
-- [ ] Spoken "stop" halts at next boundary
+- [ ] Arize Phoenix running in separate browser tab
+- [ ] Monitor halts on planted credential step (step 11 in `ROUTINE_FORM_FILL`)
+- [ ] Spoken "stop" halts at next step boundary
 - [ ] Replay panel loads past runs from Redis
+- [ ] Control Hub screenshot panel shows live screen
+- [ ] LIVE mode: Agent S initialized with API key
 - [ ] 5-minute run-of-show rehearsed twice
