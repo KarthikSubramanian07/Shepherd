@@ -1,7 +1,7 @@
 """Pure data loader — reads routines.json into RoutineDefinition objects. No control logic."""
 import json
 import os
-from shepherd_types import RoutineDefinition, RoutineStep, RecordedStep
+from shepherd_types import BatchField, RoutineDefinition, RoutineStep, RecordedStep
 
 _ROUTINES_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "routines.json")
 _cache: dict[str, RoutineDefinition] | None = None
@@ -17,7 +17,13 @@ def load_routines(path: str = _ROUTINES_PATH) -> dict[str, RoutineDefinition]:
 
     result: dict[str, RoutineDefinition] = {}
     for entry in raw:
-        steps = [RoutineStep(**s) for s in entry["steps"]]
+        steps = []
+        for s in entry["steps"]:
+            raw_fields = s.pop("fields", None)
+            step = RoutineStep(**s)
+            if raw_fields:
+                step.fields = [BatchField(**f) for f in raw_fields]
+            steps.append(step)
         demonstration = None
         if entry.get("demonstration"):
             demonstration = [RecordedStep(**r) for r in entry["demonstration"]]
