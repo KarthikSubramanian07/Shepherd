@@ -7,11 +7,14 @@ Flow: user presses Cmd+Shift+M to mark a step boundary, optionally speaks a narr
 Lane A owns this module. Lane D wires Deepgram narration via get_narration_fn.
 """
 import json
+import os
 import time
 import threading
 from typing import Callable, Optional
 from pynput import mouse as _mouse, keyboard as _keyboard
 from shepherd_types import RecordedStep
+
+_SCREENSHOT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "screenshots")
 
 MARK_HOTKEY = {_keyboard.Key.cmd, _keyboard.Key.shift, _keyboard.KeyCode.from_char('m')}
 STOP_HOTKEY = {_keyboard.Key.cmd, _keyboard.Key.shift, _keyboard.KeyCode.from_char('q')}
@@ -55,6 +58,18 @@ class DemonstrationRecorder:
     def _mark_step(self) -> None:
         with self._lock:
             action, target, text = self._pending_action or ("mark", None, None)
+
+            # Capture screenshot at this step boundary
+            screenshot_path: Optional[str] = None
+            try:
+                import pyautogui
+                os.makedirs(_SCREENSHOT_DIR, exist_ok=True)
+                shot_path = os.path.join(_SCREENSHOT_DIR, f"step_{self._index:03d}.png")
+                pyautogui.screenshot(shot_path)
+                screenshot_path = shot_path
+            except Exception as e:
+                print(f"[recorder] Screenshot failed (non-fatal): {e}")
+
             instruction = None
             if self._get_narration:
                 print("[recorder] Speak step instruction now...")
@@ -63,6 +78,7 @@ class DemonstrationRecorder:
                     print(f"[recorder] Instruction: {instruction!r}")
                 except Exception:
                     pass
+
             step = RecordedStep(
                 index=self._index,
                 action=action,
@@ -70,6 +86,7 @@ class DemonstrationRecorder:
                 text=text,
                 timestamp=time.time(),
                 instruction=instruction,
+                screenshot_path=screenshot_path,
             )
             self._steps.append(step)
             print(f"[recorder] Step {self._index}: {action} @ {target}")

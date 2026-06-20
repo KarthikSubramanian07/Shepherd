@@ -37,7 +37,8 @@ class RecordedStep:
     target: Optional[str]
     text: Optional[str]
     timestamp: float
-    instruction: Optional[str] = None  # spoken narration attached at this step
+    instruction: Optional[str] = None      # spoken narration attached at this step
+    screenshot_path: Optional[str] = None  # captured at step boundary by recorder
 
 
 @dataclass

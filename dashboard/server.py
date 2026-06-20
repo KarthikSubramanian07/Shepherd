@@ -98,6 +98,32 @@ async def get_runs() -> JSONResponse:
         return JSONResponse([])
 
 
+@app.get("/api/routines/{routine_id}")
+async def get_routine_info(routine_id: str) -> JSONResponse:
+    try:
+        from engine.routines import get_routine
+        r = get_routine(routine_id)
+        return JSONResponse({
+            "routine_id":       r.routine_id,
+            "description":      r.description,
+            "mode":             r.mode,
+            "high_stakes_steps": r.high_stakes_steps,
+            "steps": [
+                {
+                    "index":       i,
+                    "action":      s.action,
+                    "description": s.description or s.action,
+                    "high_stakes": i in r.high_stakes_steps,
+                }
+                for i, s in enumerate(r.steps)
+            ],
+        })
+    except KeyError:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/runs/{run_id}")
 async def get_run(run_id: str) -> JSONResponse:
     try:

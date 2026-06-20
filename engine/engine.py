@@ -19,6 +19,7 @@ from config import FEATURES, EXECUTION_MODE
 from shepherd_types import ExecutionResult, ResolvedRoutine, RoutineStep, StepRecord
 from engine.coords import get as get_coord
 from engine.routines import get_routine
+from engine.agent_s_adapter import AgentSAdapter
 from dashboard.events import event_bus
 
 pyautogui.FAILSAFE = True   # slam mouse to top-left corner to abort
@@ -29,10 +30,10 @@ _APP_SETTLE = 2.0           # seconds to wait after open_app
 
 class ShepherdExecutionEngine:
     def __init__(self, coords: dict, telemetry, mode: str = EXECUTION_MODE, agent_s=None) -> None:
-        self._coords   = coords
+        self._coords    = coords
         self._telemetry = telemetry
-        self._mode     = mode
-        self._agent_s  = agent_s          # AgentSAdapter instance or None
+        self._mode      = mode
+        self._agent_s   = agent_s if agent_s is not None else AgentSAdapter()
         self.last_step_records: list[StepRecord] = []
         self._halt_flag = threading.Event()
 
@@ -50,11 +51,20 @@ class ShepherdExecutionEngine:
         variables = resolved.variables
 
         event_bus.emit("execution.start", {
-            "run_id":       run_id,
-            "routine_id":   resolved.routine_id,
-            "mode":         self._mode,
-            "total_steps":  len(routine.steps),
-            "variables":    variables,
+            "run_id":      run_id,
+            "routine_id":  resolved.routine_id,
+            "mode":        self._mode,
+            "total_steps": len(routine.steps),
+            "variables":   variables,
+            "steps": [
+                {
+                    "index":       i,
+                    "action":      s.action,
+                    "description": s.description or s.action,
+                    "high_stakes": i in routine.high_stakes_steps,
+                }
+                for i, s in enumerate(routine.steps)
+            ],
         })
 
         steps_done = 0
@@ -95,6 +105,9 @@ class ShepherdExecutionEngine:
                     "description": step.description or step.action,
                     "total":       len(routine.steps),
                 })
+
+                # In LIVE mode, let Agent S plan the action (falls back to defined step)
+                step = self._live_step(step, i, routine)
 
                 step_status = "completed"
                 step_error: Optional[str] = None
@@ -153,6 +166,31 @@ class ShepherdExecutionEngine:
         return result
 
     # ── step dispatcher — SYNCHRONOUS, no async, no network ─────────────────
+
+    def _live_step(self, step: RoutineStep, index: int, routine) -> RoutineStep:
+        """
+        In LIVE mode, ask Agent S to plan the action for this step.
+        Falls back to the routine's defined step if Agent S is unavailable or returns None.
+        Agent S uses the demonstration + per-step instruction as context.
+        """
+        if self._mode != "LIVE" or not self._agent_s.available:
+            return step
+        instruction = ""
+        if routine.step_instructions and index in routine.step_instructions:
+            instruction = routine.step_instructions[index]
+        elif step.description:
+            instruction = step.description
+        demo_ctx = str(routine.demonstration) if routine.demonstration else ""
+        planned = self._agent_s.plan_action(instruction, index, demo_ctx)
+        if planned is None:
+            return step
+        # Merge planned fields onto a copy of the defined step (defined step is fallback)
+        from dataclasses import replace as dc_replace
+        overrides = {k: v for k, v in planned.items() if v is not None}
+        try:
+            return dc_replace(step, **overrides)
+        except Exception:
+            return step
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
         def sub(t: Optional[str]) -> Optional[str]:
