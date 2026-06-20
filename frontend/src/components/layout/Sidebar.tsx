@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
+  AudioLines,
   Boxes,
   GitBranch,
   LayoutDashboard,
@@ -18,6 +19,7 @@ const NAV = [
   { href: "/routines", label: "Routines", icon: GitBranch },
   { href: "/runs", label: "Runs", icon: Activity },
   { href: "/interventions", label: "Interventions", icon: ShieldAlert },
+  { href: "/voice-lab", label: "Voice Lab", icon: AudioLines },
   { href: "/kit", label: "Components", icon: Boxes },
 ];
 
