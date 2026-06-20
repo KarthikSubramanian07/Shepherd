@@ -3,7 +3,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ARIZE_PROJECT_NAME = os.getenv("ARIZE_PROJECT_NAME", "shepherd")
+ARIZE_PROJECT_NAME       = os.getenv("ARIZE_PROJECT_NAME", "shepherd")
+PHOENIX_COLLECTOR_ENDPOINT = os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006")
 SENTRY_DSN        = os.getenv("SENTRY_DSN", "")
 REDIS_URL         = os.getenv("REDIS_URL", "redis://localhost:6379")
 BROWSERBASE_API_KEY = os.getenv("BROWSERBASE_API_KEY", "")

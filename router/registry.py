@@ -6,7 +6,7 @@ A wrong match here moves the real mouse.
 
 REGISTRY: dict[str, dict] = {
     "ROUTINE_FORM_FILL": {
-        "keywords": ["fill", "form", "apply", "application", "job", "submit", "intake"],
+        "keywords": ["fill form", "fill", "form", "apply", "application", "job", "submit", "intake"],
         "description": "Fill a form with applicant details",
         "variable_patterns": {
             "APPLICANT_NAME":  r"for\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)",
@@ -19,7 +19,7 @@ REGISTRY: dict[str, dict] = {
         },
     },
     "ROUTINE_BROWSER_SHOWPIECE": {
-        "keywords": ["browser", "web", "search", "open", "website", "navigate", "lookup"],
+        "keywords": ["open browser", "browser", "web", "search", "open", "website", "navigate", "lookup"],
         "description": "Open a browser and perform a live web action via Browserbase",
         "variable_patterns": {
             "SEARCH_QUERY": r"search\s+(?:for\s+)?(.+)",

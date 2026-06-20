@@ -2,9 +2,14 @@
 ShepherdTelemetry — Arize Phoenix OpenTelemetry spans.
 Never crashes the demo: all Phoenix calls wrapped in try/except.
 Phoenix is a DEV instrument — open it in a separate browser window, not embedded in the Control Hub.
+
+Local setup:
+  1. Terminal 1: ./scripts/serve_phoenix.sh
+  2. Terminal 2: uv run python main.py
+  3. Open http://localhost:6006 → project "shepherd" → Traces
 """
 import contextlib
-from config import FEATURES, ARIZE_PROJECT_NAME
+from config import FEATURES, ARIZE_PROJECT_NAME, PHOENIX_COLLECTOR_ENDPOINT
 from shepherd_types import ExecutionResult, StepRecord
 
 
@@ -14,15 +19,28 @@ class _Noop:
     def __exit__(self, *a): pass
 
 
+def _traces_endpoint(base: str) -> str:
+    base = base.rstrip("/")
+    if base.endswith("/v1/traces"):
+        return base
+    return f"{base}/v1/traces"
+
+
 class ShepherdTelemetry:
     def __init__(self) -> None:
         self._tracer = None
         if FEATURES["arize"]:
             try:
                 from phoenix.otel import register
-                tp = register(project_name=ARIZE_PROJECT_NAME, auto_instrument=True)
+                endpoint = _traces_endpoint(PHOENIX_COLLECTOR_ENDPOINT)
+                tp = register(
+                    project_name=ARIZE_PROJECT_NAME,
+                    endpoint=endpoint,
+                    protocol="http/protobuf",
+                    auto_instrument=True,
+                )
                 self._tracer = tp.get_tracer("shepherd")
-                print(f"[arize] Phoenix tracer active — project: {ARIZE_PROJECT_NAME}")
+                print(f"[arize] Phoenix tracer active — project: {ARIZE_PROJECT_NAME} → {endpoint}")
             except Exception as e:
                 print(f"[arize] Phoenix unavailable (non-fatal): {e}")
 

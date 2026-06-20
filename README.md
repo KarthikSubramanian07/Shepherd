@@ -37,9 +37,40 @@ open http://localhost:8765
 
 ```bash
 uv sync --extra voice     # mic recording for Deepgram (pyaudio)
-uv sync --extra phoenix   # local Phoenix dashboard (`phoenix serve`)
 uv run playwright install # Browserbase browser steps
 ```
+
+---
+
+## Local Arize Phoenix (tracing)
+
+No account or API key required. Phoenix runs locally and receives OpenTelemetry spans from Shepherd.
+
+**Terminal 1 — start Phoenix:**
+
+```bash
+./scripts/serve_phoenix.sh
+# UI → http://localhost:6006
+```
+
+**Terminal 2 — start Shepherd:**
+
+```bash
+cp .env.example .env   # includes PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006
+uv run python main.py
+```
+
+Run a routine (`demo`, `fill form`, etc.), then open **http://localhost:6006** → project **shepherd** → **Traces**.
+
+You should see nested spans: `routine.execute` → `action.*` → `routine.summary`.
+
+Startup log should show:
+
+```
+[arize] Phoenix tracer active — project: shepherd → http://localhost:6006/v1/traces
+```
+
+If traces don't appear, confirm Phoenix is running in Terminal 1 before starting Shepherd.
 
 ---
 
@@ -122,6 +153,7 @@ All integrations are feature-flagged in `.env`. With all flags off, core automat
 | Flag | Enabled when |
 |---|---|
 | `deepgram` | `DEEPGRAM_API_KEY` set |
+| `arize` | always (local Phoenix via `PHOENIX_COLLECTOR_ENDPOINT`) |
 | `sentry` | `SENTRY_DSN` set |
 | `redis` | always (local Redis) |
 | `browserbase` | `BROWSERBASE_API_KEY` set |
