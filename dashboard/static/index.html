@@ -257,6 +257,69 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
   animation:vgpulse 1.4s ease-in-out infinite;
 }
 @keyframes vgpulse { 0%,100%{box-shadow:inset 0 0 80px rgba(244,63,94,.12)} 50%{box-shadow:inset 0 0 80px rgba(244,63,94,.28)} }
+
+/* ── Deviation badge on DAG nodes ── */
+.dn-mv-badge.dev { display:inline; background:rgba(168,85,247,.14); color:#c084fc; border:1px solid rgba(168,85,247,.25); }
+
+/* ── Risky node badge ── */
+.dn-risky {
+  font-size:.55rem; color:var(--am); flex-shrink:0;
+  background:var(--am-bg); border:1px solid rgba(240,165,0,.22);
+  padding:1px 5px; border-radius:2px; letter-spacing:.06em;
+}
+
+/* ── Confidence bar under node ── */
+.conf-bar-wrap {
+  height:2px; background:var(--b2); border-radius:1px;
+  overflow:hidden; flex:1; margin-left:6px; min-width:40px;
+}
+.conf-bar { height:100%; border-radius:1px; transition:width .6s cubic-bezier(.4,0,.2,1); }
+.conf-bar.good  { background:var(--gr); }
+.conf-bar.warn  { background:var(--am); }
+.conf-bar.risky { background:var(--rd); }
+
+/* ── Approval panel inside monitor box ── */
+.approval { margin-top:11px; display:none; }
+.approval.show { display:block; }
+.sugg-row { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:9px; }
+.sugg-chip {
+  font-size:.6rem; padding:3px 9px; border-radius:2px; cursor:pointer;
+  border:1px solid rgba(91,164,251,.28); background:var(--bl-bg); color:var(--bl);
+  font-family:var(--fn); transition:background .12s, border-color .12s;
+}
+.sugg-chip:hover { background:rgba(91,164,251,.18); border-color:var(--bl); }
+.approval-btns { display:flex; gap:6px; }
+.btn-approve {
+  flex:1; padding:5px 0; border:1px solid rgba(31,201,94,.4);
+  background:rgba(31,201,94,.08); color:var(--gr); font-size:.63rem; cursor:pointer;
+  border-radius:3px; font-family:var(--fn); text-transform:uppercase; letter-spacing:.1em;
+  transition:background .12s;
+}
+.btn-approve:hover { background:rgba(31,201,94,.18); }
+.btn-halt-confirm {
+  flex:1; padding:5px 0; border:1px solid rgba(244,63,94,.4);
+  background:var(--rd-bg); color:var(--rd); font-size:.63rem; cursor:pointer;
+  border-radius:3px; font-family:var(--fn); text-transform:uppercase; letter-spacing:.1em;
+  transition:background .12s;
+}
+.btn-halt-confirm:hover { background:var(--rd-hi); }
+.approval-countdown {
+  font-size:.6rem; color:var(--dim2); margin-top:7px; text-align:center; letter-spacing:.04em;
+}
+.override-row { display:none; margin-top:7px; gap:5px; }
+.override-row.show { display:flex; }
+.override-input {
+  flex:1; background:var(--b2); border:1px solid var(--b2); color:var(--th);
+  font-size:.65rem; padding:4px 8px; border-radius:3px; font-family:var(--fn);
+  transition:border-color .15s;
+}
+.override-input:focus { outline:none; border-color:var(--bl); }
+.btn-send {
+  padding:4px 10px; border:1px solid rgba(91,164,251,.35);
+  background:var(--bl-bg); color:var(--bl); font-size:.6rem; cursor:pointer;
+  border-radius:3px; font-family:var(--fn); text-transform:uppercase; letter-spacing:.08em;
+}
+.mhist { font-size:.6rem; color:var(--am); margin-top:6px; line-height:1.5; }
 </style>
 </head>
 <body>
@@ -331,6 +394,21 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
           <div class="mv ok" id="mv">● All Clear</div>
           <div class="mr" id="mr">No anomalies detected</div>
           <div class="mm" id="mm"></div>
+          <div class="mhist" id="mhist"></div>
+          <!-- Intervention panel: shown when awaiting human decision -->
+          <div class="approval" id="approval">
+            <div class="sugg-row" id="sugg-row"></div>
+            <div class="approval-btns">
+              <button class="btn-approve" onclick="sendDecision('approve')">✓ Approve</button>
+              <button class="btn-halt-confirm" onclick="sendDecision('halt')">■ Halt</button>
+              <button class="sugg-chip" onclick="toggleOverride()">Custom…</button>
+            </div>
+            <div class="override-row" id="override-row">
+              <input class="override-input" id="override-input" placeholder="Enter override instruction…">
+              <button class="btn-send" onclick="sendOverride()">Send</button>
+            </div>
+            <div class="approval-countdown" id="approval-countdown"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -357,7 +435,7 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 const S = {
-  runId: null, stepsTotal: 0, nodeStates: {},
+  runId: null, routineId: null, stepsTotal: 0, nodeStates: {},
   routineSteps: {},   // index → {action, description, high_stakes}
   highStakes: new Set(),
   vhist: [], status: 'idle',
@@ -392,11 +470,13 @@ function handle({type, data}){
     case 'step.start':         onStepStart(data); break;
     case 'step.complete':      onStepDone(data);  break;
     case 'step.error':         onStepErr(data);   break;
-    case 'execution.complete': onExecDone(data);  break;
-    case 'execution.halted':   onHalted(data);    break;
-    case 'monitor.alert':      onMonitor(data);   break;
-    case 'vision.update':      onVision(data);    break;
-    case 'vision.offline':     onVisionOff();     break;
+    case 'execution.complete': onExecDone(data);        break;
+    case 'execution.halted':   onHalted(data);          break;
+    case 'monitor.alert':      onMonitor(data);         break;
+    case 'monitor.decision':   onMonitorDecision(data); break;
+    case 'step.deviation':     onDeviation(data);       break;
+    case 'vision.update':      onVision(data);          break;
+    case 'vision.offline':     onVisionOff();           break;
   }
 }
 
@@ -454,6 +534,7 @@ function onExecStart(d){
   S.runId      = d.run_id;
   S.stepsTotal = d.total_steps;
   S.nodeStates = {};
+  S.routineId  = d.routine_id;
   // Use step descriptions sent inline with execution.start (beats async API fetch)
   if(d.steps && d.steps.length){
     S.routineSteps = {};
@@ -475,6 +556,8 @@ function onExecStart(d){
   buildDAG(d.total_steps);
   $t('dag-count', d.total_steps + ' steps');
   log('EXEC', '—', 'Started · ' + d.routine_id, 'ok', '');
+  // Fetch evolution stats to show historical confidence on nodes
+  if(d.routine_id) fetchStats(d.routine_id);
 }
 
 function onStepStart(d){
@@ -504,6 +587,8 @@ function onExecDone(d){
     d.status === 'completed' ? 'ok' : 'fail', d.duration_ms);
   if(d.status !== 'aborted') vignette(false);
   setTimeout(loadRuns, 1200);
+  // Refresh evolution stats after the run so confidence bars reflect latest data
+  if(S.routineId) setTimeout(() => fetchStats(S.routineId), 1500);
 }
 
 function onHalted(d){
@@ -518,17 +603,52 @@ function onMonitor(d){
   box.className = 'mbox ' + d.verdict;
   const mv = $('mv'); mv.className = 'mv ' + d.verdict;
   if(d.verdict === 'halt'){
-    mv.textContent = '■ HALT';
+    mv.textContent = '■ HALT — Awaiting Decision';
     setStatus('halted', 'HALTED');
     vignette(true);
     updateNode(d.step_index, 'halted', null, null, 'halt');
   } else {
-    mv.textContent = '▲ FLAG';
+    mv.textContent = '▲ FLAG — Review Required';
     updateNode(d.step_index, 'flagged', null, null, 'flag');
   }
   $t('mr', d.reason || '');
   $t('mm', (d.trigger ? 'trigger: ' + d.trigger + ' · ' : '') + 'step ' + d.step_index);
+  $t('mhist', d.history_note || '');
+
+  if(d.awaiting_approval){
+    // Populate suggestion chips
+    const sr = $('sugg-row'); sr.innerHTML = '';
+    (d.suggestions || []).forEach(s => {
+      const chip = document.createElement('button');
+      chip.className = 'sugg-chip';
+      chip.textContent = s.label;
+      chip.onclick = () => sendDecision(s.action);
+      sr.appendChild(chip);
+    });
+    $('approval').classList.add('show');
+    const defaultAct = d.verdict === 'halt' ? 'halt' : 'approve';
+    startApprovalTimer(defaultAct);
+  }
+
   log('MON', d.step_index, d.reason, d.verdict === 'halt' ? 'halt' : 'flag', '');
+}
+
+function onMonitorDecision(d){
+  hideApproval();
+  if(d.decision === 'approve'){
+    $('mbox').className = 'mbox ok';
+    $('mv').className = 'mv ok';
+    $t('mv', '● Approved — Continuing');
+    $t('mr', 'Human approved this step');
+    vignette(false);
+  }
+  log('MON', d.step_index, 'decision: ' + d.decision,
+      d.decision === 'halt' ? 'halt' : 'ok', '');
+}
+
+function onDeviation(d){
+  updateNodeDeviation(d.step_index, d.reason);
+  log('DEV', d.step_index, d.reason || 'deviation detected', 'flag', '');
 }
 
 function onVision(d){
@@ -569,8 +689,9 @@ function buildDAG(total){
         <span class="dn-idx">${String(i).padStart(2, '0')}</span>
         ${act ? `<span class="dn-act-badge">${x(act)}</span>` : ''}
         ${hs  ? `<span class="dn-hs">⚑ monitored</span>` : ''}
+        <span class="dn-mv-badge" id="dnb-${i}"></span>
+        <span id="dnrisk-${i}"></span>
         <span class="dn-right">
-          <span class="dn-mv-badge" id="dnb-${i}"></span>
           <span class="dn-status-icon" id="dni-${i}">·</span>
         </span>
       </div>
@@ -578,6 +699,9 @@ function buildDAG(total){
       <div class="dn-bot">
         <span class="dn-dur" id="dndu-${i}"></span>
         <span class="dn-err" id="dner-${i}"></span>
+        <span class="conf-bar-wrap" id="dnconf-wrap-${i}" style="display:none">
+          <div class="conf-bar" id="dnconf-${i}"></div>
+        </span>
       </div>`;
     w.appendChild(n);
     c.appendChild(w);
@@ -690,6 +814,8 @@ function resetMon(){
   $t('mv', '● All Clear');
   $t('mr', 'No anomalies detected');
   $t('mm', '');
+  $t('mhist', '');
+  hideApproval();
 }
 
 function vignette(on){
@@ -725,6 +851,114 @@ function log(type, idx, desc, status, dur){
     <span class="ldur">${dur ? '<span>' + dur + 'ms</span>' : ''}</span>`;
   body.prepend(row);
   while(body.children.length > LOG_MAX) body.removeChild(body.lastChild);
+}
+
+// ── Approval timer ─────────────────────────────────────────────────────────
+let _approvalTimer   = null;
+let _approvalCount   = 30;
+let _approvalDefault = 'approve';
+
+function startApprovalTimer(defaultAct){
+  _approvalDefault = defaultAct;
+  _approvalCount   = 30;
+  clearInterval(_approvalTimer);
+  _updateCountdown();
+  _approvalTimer = setInterval(() => {
+    _approvalCount--;
+    if(_approvalCount <= 0){
+      clearInterval(_approvalTimer);
+      $t('approval-countdown', 'Auto-' + _approvalDefault + 'ing…');
+      setTimeout(hideApproval, 800);
+    } else {
+      _updateCountdown();
+    }
+  }, 1000);
+}
+
+function _updateCountdown(){
+  $t('approval-countdown',
+    'Auto-' + _approvalDefault + ' in ' + _approvalCount + 's  ·  or choose:');
+}
+
+function hideApproval(){
+  clearInterval(_approvalTimer);
+  $('approval').classList.remove('show');
+  $('override-row').classList.remove('show');
+  $t('approval-countdown', '');
+}
+
+function sendDecision(decision){
+  hideApproval();
+  fetch('/api/control/' + decision, {method: 'POST'}).catch(() => {});
+}
+
+function toggleOverride(){
+  const r = $('override-row');
+  r.classList.toggle('show');
+  if(r.classList.contains('show')) $('override-input').focus();
+}
+
+function sendOverride(){
+  const instr = ($('override-input').value || '').trim();
+  if(!instr) return;
+  $('override-input').value = '';
+  hideApproval();
+  fetch('/api/control/override', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({instruction: instr}),
+  }).catch(() => {});
+}
+
+// ── Deviation badge ─────────────────────────────────────────────────────────
+function updateNodeDeviation(i, reason){
+  const badge = document.getElementById('dnb-' + i);
+  if(!badge) return;
+  badge.className = 'dn-mv-badge dev';
+  badge.textContent = '⊘ deviated';
+  badge.title = reason || 'deviated from recorded demonstration';
+}
+
+// ── Evolution stats / confidence bars ──────────────────────────────────────
+async function fetchStats(rid){
+  try {
+    const res = await fetch('/api/routines/' + encodeURIComponent(rid) + '/stats');
+    if(!res.ok) return;
+    const stats = await res.json();
+    (stats || []).forEach(applyNodeStats);
+  } catch(_){}
+}
+
+function applyNodeStats(s){
+  const i = s.step_index;
+  if(s.execution_count < 2) return;   // not enough data to show
+
+  // Confidence bar
+  const wrap = document.getElementById('dnconf-wrap-' + i);
+  const bar  = document.getElementById('dnconf-' + i);
+  if(wrap && bar){
+    wrap.style.display = '';
+    const pct = Math.round(s.confidence * 100);
+    bar.style.width = pct + '%';
+    bar.className = 'conf-bar ' +
+      (s.is_risky ? 'risky' : pct >= 80 ? 'good' : 'warn');
+  }
+
+  // Risky badge (replaces empty span)
+  const riskEl = document.getElementById('dnrisk-' + i);
+  if(riskEl){
+    if(s.is_risky){
+      riskEl.className  = 'dn-risky';
+      riskEl.textContent = '⚠ risky';
+    } else {
+      riskEl.textContent = '';
+    }
+  }
+
+  // Historical deviation badge
+  if(s.deviation_count > 0){
+    updateNodeDeviation(i, `deviated ${s.deviation_count}× in history`);
+  }
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────

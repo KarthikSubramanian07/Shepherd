@@ -63,6 +63,20 @@ class StepRecord:
     duration_ms: int
     error: Optional[str] = None
     monitor_verdict: Optional[str] = None
+    deviation: Optional[str] = None  # description if agent diverged from recorded demonstration
+
+
+@dataclass
+class NodeStats:
+    routine_id: str
+    step_index: int
+    success_count: int = 0
+    failure_count: int = 0
+    halt_count: int = 0
+    deviation_count: int = 0
+    approval_count: int = 0
+    total_duration_ms: int = 0
+    execution_count: int = 0
 
 
 @dataclass

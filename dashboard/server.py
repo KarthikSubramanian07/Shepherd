@@ -124,6 +124,35 @@ async def get_routine_info(routine_id: str) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.post("/api/control/{decision}")
+async def control_decision(decision: str) -> JSONResponse:
+    """
+    Receive a human intervention decision from the dashboard.
+    decision: "approve" | "halt" | "override"
+    For override, pass {"instruction": "..."} in the JSON body.
+    """
+    from engine.approvals import set_decision
+    if decision not in ("approve", "halt", "override"):
+        return JSONResponse({"error": "invalid decision"}, status_code=400)
+    set_decision(decision)
+    return JSONResponse({"ok": True, "decision": decision})
+
+
+@app.get("/api/routines/{routine_id}/stats")
+async def get_routine_stats(routine_id: str) -> JSONResponse:
+    """Return per-node evolution stats for a routine (confidence, deviation counts, etc.)."""
+    try:
+        from engine.routines import get_routine
+        from telemetry.evolution import RoutineEvolution
+        r = get_routine(routine_id)
+        ev = RoutineEvolution()
+        return JSONResponse(ev.all_stats(routine_id, len(r.steps)))
+    except KeyError:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/runs/{run_id}")
 async def get_run(run_id: str) -> JSONResponse:
     try:

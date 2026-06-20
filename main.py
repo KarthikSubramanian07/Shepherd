@@ -20,6 +20,7 @@ from engine.routines import load_routines
 from telemetry.telemetry import ShepherdTelemetry
 from telemetry.sentry_init import init_sentry
 from telemetry.memory import ExecutionMemory
+from telemetry.evolution import RoutineEvolution
 from dashboard.events import event_bus
 
 
@@ -59,7 +60,8 @@ def main() -> None:
     load_routines()          # pre-warm cache
     coords    = load_coords()
     router    = ShepherdIntentRouter()
-    engine    = ShepherdExecutionEngine(coords=coords, telemetry=telemetry, mode=mode)
+    evolution = RoutineEvolution()
+    engine    = ShepherdExecutionEngine(coords=coords, telemetry=telemetry, mode=mode, evolution=evolution)
 
     # ── Start dashboard ───────────────────────────────────────────────────────
     try:

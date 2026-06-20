@@ -29,11 +29,19 @@ _APP_SETTLE = 2.0           # seconds to wait after open_app
 
 
 class ShepherdExecutionEngine:
-    def __init__(self, coords: dict, telemetry, mode: str = EXECUTION_MODE, agent_s=None) -> None:
+    def __init__(
+        self,
+        coords: dict,
+        telemetry,
+        mode: str = EXECUTION_MODE,
+        agent_s=None,
+        evolution=None,
+    ) -> None:
         self._coords    = coords
         self._telemetry = telemetry
         self._mode      = mode
         self._agent_s   = agent_s if agent_s is not None else AgentSAdapter()
+        self._evolution = evolution  # RoutineEvolution | None — injected by main.py
         self.last_step_records: list[StepRecord] = []
         self._halt_flag = threading.Event()
 
@@ -71,6 +79,17 @@ class ShepherdExecutionEngine:
         error: Optional[str] = None
         status = "completed"
 
+        # Dynamically extend monitored steps with evolution-flagged risky ones
+        dynamic_risky: set[int] = set()
+        if self._evolution:
+            try:
+                dynamic_risky = self._evolution.risky_steps(
+                    resolved.routine_id, len(routine.steps)
+                )
+            except Exception:
+                pass
+        monitored = set(routine.high_stakes_steps) | dynamic_risky
+
         with self._telemetry.span("routine.execute") as span:
             span.set_attribute("routine.id",   resolved.routine_id)
             span.set_attribute("routine.mode", self._mode)
@@ -86,9 +105,11 @@ class ShepherdExecutionEngine:
                     })
                     break
 
-                # ── monitor check at high-stakes boundaries ──────────────────
-                if i in routine.high_stakes_steps:
-                    verdict = self._check_monitor(step, i, run_id)
+                # ── monitor check at high-stakes + dynamically risky boundaries ─
+                if i in monitored:
+                    verdict = self._check_monitor(
+                        step, i, run_id, resolved.routine_id
+                    )
                     if verdict == "halt":
                         status = "aborted"
                         event_bus.emit("execution.halted", {
@@ -107,7 +128,19 @@ class ShepherdExecutionEngine:
                 })
 
                 # In LIVE mode, let Agent S plan the action (falls back to defined step)
+                defined_step = step
                 step = self._live_step(step, i, routine)
+
+                # Deviation detection: compare Agent S output vs recorded demonstration
+                deviation_desc: Optional[str] = self._detect_deviation(defined_step, step)
+                if deviation_desc:
+                    event_bus.emit("step.deviation", {
+                        "run_id":     run_id,
+                        "step_index": i,
+                        "expected":   defined_step.action,
+                        "actual":     step.action,
+                        "reason":     deviation_desc,
+                    })
 
                 step_status = "completed"
                 step_error: Optional[str] = None
@@ -135,14 +168,43 @@ class ShepherdExecutionEngine:
                         break
 
                 dur_ms = int((time.time() - step_t0) * 1000)
-                self.last_step_records.append(StepRecord(
+
+                # Timing deviation: step took >3× the historical average (≥2 s)
+                if self._evolution and deviation_desc is None:
+                    try:
+                        hist = self._evolution.get_stats(resolved.routine_id, i)
+                        avg = hist.avg_duration_ms
+                        if avg > 0 and dur_ms > avg * 3 and dur_ms > 2000:
+                            timing_dev = f"timing: {dur_ms}ms vs avg {avg}ms"
+                            deviation_desc = timing_dev
+                            event_bus.emit("step.deviation", {
+                                "run_id": run_id, "step_index": i,
+                                "reason": timing_dev, "type": "timing",
+                            })
+                    except Exception:
+                        pass
+
+                record = StepRecord(
                     index=i, action=step.action, target=step.target,
                     status=step_status, started_at=step_t0,
                     duration_ms=dur_ms, error=step_error,
-                ))
+                    deviation=deviation_desc,
+                )
+                self.last_step_records.append(record)
+
+                # Update evolution stats (non-blocking, best-effort)
+                if self._evolution:
+                    try:
+                        self._evolution.record_step(resolved.routine_id, record)
+                    except Exception:
+                        pass
+
                 event_bus.emit("step.complete", {
-                    "run_id": run_id, "index": i,
-                    "status": step_status, "duration_ms": dur_ms,
+                    "run_id":     run_id,
+                    "index":      i,
+                    "status":     step_status,
+                    "duration_ms": dur_ms,
+                    "deviation":  deviation_desc,
                 })
 
         ended_at = time.time()
@@ -240,19 +302,93 @@ class ShepherdExecutionEngine:
         else:
             raise ValueError(f"Unknown action: '{a}'")
 
-    def _check_monitor(self, step: RoutineStep, index: int, run_id: str) -> str:
-        """Calls monitor at boundary. Returns 'ok', 'flag', or 'halt'. Never inside click."""
+    def _detect_deviation(
+        self, defined: RoutineStep, planned: RoutineStep
+    ) -> Optional[str]:
+        """
+        Compare the Agent S-planned step against the routine's recorded step.
+        Returns a human-readable description if they differ, else None.
+        Only meaningful in LIVE mode with Agent S available.
+        """
+        if self._mode != "LIVE" or not self._agent_s.available:
+            return None
+        parts: list[str] = []
+        if planned.action != defined.action:
+            parts.append(f"action {defined.action}→{planned.action}")
+        if defined.target and planned.target != defined.target:
+            parts.append("target changed")
+        if defined.text and planned.text != defined.text:
+            parts.append("text changed")
+        return "; ".join(parts) if parts else None
+
+    def _check_monitor(
+        self,
+        step: RoutineStep,
+        index: int,
+        run_id: str,
+        routine_id: str = "",
+    ) -> str:
+        """
+        Calls monitor at step boundary. Returns 'ok' or 'halt'.
+        On FLAG or HALT: emits monitor.alert with suggestion chips,
+        then blocks until the human approves/halts (or 30 s timeout).
+        Never called inside a click sequence.
+        """
         try:
             from integrations.monitor_agent import check_step
-            result = check_step(step, {"step_index": index})
+            from engine.approvals import suggestions_for, request_approval
+            result  = check_step(step, {"step_index": index})
             verdict = result.get("verdict", "ok")
             reason  = result.get("reason", "")
+
             if verdict in ("flag", "halt"):
+                sugg = suggestions_for(step.monitor_trigger)
+
+                # Pull historical stats to enrich the alert message
+                history_note = ""
+                if self._evolution and routine_id:
+                    try:
+                        s = self._evolution.get_stats(routine_id, index)
+                        if s.execution_count >= 2:
+                            history_note = (
+                                f"Step {index} history: "
+                                f"{s.halt_count}× halted, "
+                                f"{s.success_count}× approved"
+                            )
+                    except Exception:
+                        pass
+
                 event_bus.emit("monitor.alert", {
-                    "run_id": run_id, "step_index": index,
-                    "verdict": verdict, "reason": reason,
-                    "trigger": step.monitor_trigger,
+                    "run_id":             run_id,
+                    "step_index":         index,
+                    "verdict":            verdict,
+                    "reason":             reason,
+                    "trigger":            step.monitor_trigger,
+                    "awaiting_approval":  True,
+                    "suggestions":        sugg,
+                    "history_note":       history_note,
                 })
+
+                # Block for human decision; default conservatively
+                default = "approve" if verdict == "flag" else "halt"
+                decision = request_approval(index, reason, timeout=30.0, default=default)
+
+                event_bus.emit("monitor.decision", {
+                    "run_id": run_id, "step_index": index, "decision": decision,
+                })
+
+                if decision == "halt":
+                    return "halt"
+
+                # Record the approval in evolution stats
+                if self._evolution and routine_id:
+                    try:
+                        self._evolution.record_approval(routine_id, index)
+                    except Exception:
+                        pass
+
+                return "ok"
+
             return verdict
         except Exception as exc:
             print(f"[monitor] check failed (non-fatal): {exc}")
