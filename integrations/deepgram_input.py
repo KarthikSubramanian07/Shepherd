@@ -64,7 +64,7 @@ def _record_mic(duration: float) -> bytes:
         wf.close()
         return buf.getvalue()
     except ImportError:
-        raise RuntimeError("pyaudio not installed — run: pip install pyaudio")
+        raise RuntimeError("pyaudio not installed — run: uv sync --extra voice")
 
 
 def _transcribe(audio_bytes: bytes) -> str:

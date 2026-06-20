@@ -10,12 +10,14 @@ Author a task by demonstrating it once → watch the agent execute live → catc
 
 ## Quick Start
 
+Requires [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`).
+
 ```bash
 # 1. Clone & enter
 cd shepherd
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# 2. Create venv and install dependencies
+uv sync
 
 # 3. Configure
 cp .env.example .env
@@ -25,10 +27,18 @@ cp .env.example .env
 brew install redis && brew services start redis
 
 # 5. Run
-python main.py
+uv run python main.py
 
 # 6. Open Control Hub
 open http://localhost:8765
+```
+
+### Optional extras
+
+```bash
+uv sync --extra voice     # mic recording for Deepgram (pyaudio)
+uv sync --extra phoenix   # local Phoenix dashboard (`phoenix serve`)
+uv run playwright install # Browserbase browser steps
 ```
 
 ---
