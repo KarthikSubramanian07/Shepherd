@@ -26,8 +26,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-voice = ["pyaudio==0.2.14"]
+voice   = ["pyaudio==0.2.14"]
 phoenix = ["arize-phoenix"]
+agent_s = ["gui-agents"]
 
 [tool.uv]
 package = false

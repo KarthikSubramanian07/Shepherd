@@ -127,31 +127,39 @@ class ShepherdExecutionEngine:
                     "total":       len(routine.steps),
                 })
 
-                # In LIVE mode, let Agent S plan the action (falls back to defined step)
+                # In LIVE mode, ask Agent S to plan the action (returns executable code)
                 defined_step = step
-                step = self._live_step(step, i, routine)
+                agent_code   = self._live_execute(defined_step, i, routine)
 
-                # Deviation detection: compare Agent S output vs recorded demonstration
-                deviation_desc: Optional[str] = self._detect_deviation(defined_step, step)
+                # Deviation detection: compare code action type vs defined step
+                deviation_desc: Optional[str] = (
+                    self._detect_code_deviation(defined_step, agent_code)
+                    if agent_code else None
+                )
                 if deviation_desc:
                     event_bus.emit("step.deviation", {
                         "run_id":     run_id,
                         "step_index": i,
                         "expected":   defined_step.action,
-                        "actual":     step.action,
+                        "actual":     "agent_s",
                         "reason":     deviation_desc,
                     })
 
                 step_status = "completed"
                 step_error: Optional[str] = None
 
-                with self._telemetry.span(f"action.{step.action}") as s:
-                    s.set_attribute("action.type",   step.action)
-                    s.set_attribute("action.index",  i)
+                span_name = "action.agent_s" if agent_code else f"action.{step.action}"
+                with self._telemetry.span(span_name) as s:
+                    s.set_attribute("action.type",    "agent_s" if agent_code else step.action)
+                    s.set_attribute("action.index",   i)
+                    s.set_attribute("action.agent_s", bool(agent_code))
                     if step.target:
                         s.set_attribute("action.target", step.target)
                     try:
-                        self._dispatch(step, variables)
+                        if agent_code:
+                            self._exec_agent_code(agent_code)
+                        else:
+                            self._dispatch(step, variables)
                         steps_done += 1
                     except Exception as exc:
                         step_status = "failed"
@@ -229,30 +237,42 @@ class ShepherdExecutionEngine:
 
     # ── step dispatcher — SYNCHRONOUS, no async, no network ─────────────────
 
-    def _live_step(self, step: RoutineStep, index: int, routine) -> RoutineStep:
+    def _build_instruction(self, step: RoutineStep, index: int, routine) -> str:
+        """Compose the per-step instruction string passed to Agent S."""
+        if routine.step_instructions and index in routine.step_instructions:
+            return routine.step_instructions[index]
+        return step.description or step.action
+
+    def _build_demo_context(self, routine) -> str:
+        """Format the recorded demonstration as a readable context string for Agent S."""
+        if not routine.demonstration:
+            return ""
+        lines = []
+        for s in routine.demonstration:
+            instr = getattr(s, "instruction", None) or getattr(s, "action", "")
+            idx   = getattr(s, "index", "?")
+            lines.append(f"  step {idx}: {instr}")
+        return "Recorded demonstration:\n" + "\n".join(lines)
+
+    def _live_execute(
+        self, step: RoutineStep, index: int, routine
+    ) -> Optional[str]:
         """
-        In LIVE mode, ask Agent S to plan the action for this step.
-        Falls back to the routine's defined step if Agent S is unavailable or returns None.
-        Agent S uses the demonstration + per-step instruction as context.
+        Ask Agent S to plan this step. Returns executable Python/pyautogui code,
+        or None to fall back to _dispatch(defined step).
         """
         if self._mode != "LIVE" or not self._agent_s.available:
-            return step
-        instruction = ""
-        if routine.step_instructions and index in routine.step_instructions:
-            instruction = routine.step_instructions[index]
-        elif step.description:
-            instruction = step.description
-        demo_ctx = str(routine.demonstration) if routine.demonstration else ""
-        planned = self._agent_s.plan_action(instruction, index, demo_ctx)
-        if planned is None:
-            return step
-        # Merge planned fields onto a copy of the defined step (defined step is fallback)
-        from dataclasses import replace as dc_replace
-        overrides = {k: v for k, v in planned.items() if v is not None}
-        try:
-            return dc_replace(step, **overrides)
-        except Exception:
-            return step
+            return None
+        instruction = self._build_instruction(step, index, routine)
+        demo_ctx    = self._build_demo_context(routine)
+        return self._agent_s.plan_action(instruction, index, demo_ctx)
+
+    def _exec_agent_code(self, code: str) -> None:
+        """
+        Execute Agent S-generated Python/pyautogui code in a restricted namespace.
+        Agent S returns strings like: "pyautogui.click(760, 300)"
+        """
+        exec(code, {"pyautogui": pyautogui, "time": time})  # noqa: S102
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
         def sub(t: Optional[str]) -> Optional[str]:
@@ -302,24 +322,32 @@ class ShepherdExecutionEngine:
         else:
             raise ValueError(f"Unknown action: '{a}'")
 
-    def _detect_deviation(
-        self, defined: RoutineStep, planned: RoutineStep
+    def _detect_code_deviation(
+        self, defined: RoutineStep, code: str
     ) -> Optional[str]:
         """
-        Compare the Agent S-planned step against the routine's recorded step.
-        Returns a human-readable description if they differ, else None.
-        Only meaningful in LIVE mode with Agent S available.
+        Compare Agent S-generated code against the defined step's expected action type.
+        Returns a description when the action type diverges, else None.
         """
-        if self._mode != "LIVE" or not self._agent_s.available:
+        # Signals that indicate each action type is present in the code
+        _SIGNALS: dict[str, list[str]] = {
+            "click":        ["click("],
+            "double_click": ["doubleClick("],
+            "type":         ["typewrite(", "write("],
+            "hotkey":       ["hotkey(", "press("],
+            "move":         ["moveTo(", "moveRel("],
+            "wait":         ["sleep("],
+        }
+        expected_sigs = _SIGNALS.get(defined.action, [])
+        if not expected_sigs:
             return None
-        parts: list[str] = []
-        if planned.action != defined.action:
-            parts.append(f"action {defined.action}→{planned.action}")
-        if defined.target and planned.target != defined.target:
-            parts.append("target changed")
-        if defined.text and planned.text != defined.text:
-            parts.append("text changed")
-        return "; ".join(parts) if parts else None
+        if any(sig in code for sig in expected_sigs):
+            return None  # matches expected action type — no deviation
+        # Find what action Agent S actually used
+        for act, sigs in _SIGNALS.items():
+            if any(sig in code for sig in sigs):
+                return f"action {defined.action}→{act}"
+        return f"action {defined.action}→unknown"
 
     def _check_monitor(
         self,

@@ -20,6 +20,14 @@ EXECUTION_MODE = os.getenv("EXECUTION_MODE", "LIVE")
 DASHBOARD_PORT  = int(os.getenv("DASHBOARD_PORT", "8765"))
 EVENTS_DB_PATH  = os.getenv("EVENTS_DB_PATH", "data/events.db")
 
+# Agent S configuration (gui-agents package)
+AGENT_S_ENGINE_TYPE = os.getenv("AGENT_S_ENGINE_TYPE", "openai")   # "openai" | "anthropic"
+AGENT_S_MODEL       = os.getenv("AGENT_S_MODEL", "gpt-4o")
+UITARS_BASE_URL     = os.getenv("UITARS_BASE_URL", "")              # empty = use LLM for grounding
+UITARS_MODEL        = os.getenv("UITARS_MODEL", "ui-tars-1.5-7b")
+SCREEN_WIDTH        = int(os.getenv("SCREEN_WIDTH",  "1920"))
+SCREEN_HEIGHT       = int(os.getenv("SCREEN_HEIGHT", "1080"))
+
 FEATURES: dict[str, bool] = {
     "deepgram":    bool(DEEPGRAM_API_KEY),
     "arize":       True,

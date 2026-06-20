@@ -7,6 +7,7 @@ Usage:
   python main.py
   python main.py --mode LOCKED   # force deterministic fallback
 """
+import os
 import sys
 import time
 import threading
@@ -42,8 +43,88 @@ def _get_intent_text(engine: ShepherdExecutionEngine) -> str:
     return input("Intent → ").strip()
 
 
+def _record_mode(routine_id: str) -> None:
+    """
+    Record a human demonstration for a routine and save it to data/routines.json.
+    Usage: python main.py --record ROUTINE_FORM_FILL
+    Controls: Cmd+Shift+M = mark step boundary  |  Cmd+Shift+Q = stop
+    """
+    import json
+    from engine.recorder import DemonstrationRecorder
+
+    print(f"\n[record] Demonstration mode — routine: {routine_id}")
+    print("[record] Cmd+Shift+M = mark step  |  Cmd+Shift+Q = stop\n")
+
+    narration_fn = None
+    if FEATURES["deepgram"]:
+        try:
+            from integrations.deepgram_input import listen_and_transcribe
+            narration_fn = lambda: listen_and_transcribe(4.0)
+            print("[record] Deepgram active — speak step instructions after each Cmd+Shift+M\n")
+        except Exception as e:
+            print(f"[record] Deepgram unavailable ({e}) — no narration this session\n")
+
+    recorder = DemonstrationRecorder(get_narration_fn=narration_fn)
+    recorder.start()
+
+    try:
+        while recorder._running:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+
+    steps = recorder.stop()
+    if not steps:
+        print("[record] No steps recorded — exiting.")
+        return
+
+    print(f"\n[record] {len(steps)} steps captured. Saving to routines.json…")
+
+    steps_data = [
+        {
+            "index":           s.index,
+            "action":          s.action,
+            "target":          s.target,
+            "text":            s.text,
+            "timestamp":       s.timestamp,
+            "instruction":     s.instruction,
+            "screenshot_path": s.screenshot_path,
+        }
+        for s in steps
+    ]
+
+    routines_path = os.path.join(os.path.dirname(__file__), "data", "routines.json")
+    with open(routines_path) as f:
+        routines = json.load(f)
+
+    matched = False
+    for r in routines:
+        if r["routine_id"] == routine_id:
+            r["demonstration"] = steps_data
+            matched = True
+            break
+
+    if not matched:
+        print(f"[record] Routine '{routine_id}' not found. Available: "
+              f"{[r['routine_id'] for r in routines]}")
+        return
+
+    with open(routines_path, "w") as f:
+        json.dump(routines, f, indent=2)
+
+    print(f"[record] ✓ Saved {len(steps)} steps → {routine_id}.demonstration")
+    print(f"[record]   Screenshots: data/screenshots/step_NNN.png")
+    print(f"[record]   Run 'python main.py' to execute with Agent S against this recording.\n")
+
+
 def main() -> None:
     # ── Parse args ────────────────────────────────────────────────────────────
+    if "--record" in sys.argv:
+        idx = sys.argv.index("--record")
+        rid = sys.argv[idx + 1] if idx + 1 < len(sys.argv) else "ROUTINE_FORM_FILL"
+        _record_mode(rid)
+        sys.exit(0)
+
     mode = EXECUTION_MODE
     if "--mode" in sys.argv:
         idx = sys.argv.index("--mode")
