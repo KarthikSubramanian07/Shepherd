@@ -14,7 +14,7 @@ Setup:
     OPENAI_API_KEY / ANTHROPIC_API_KEY
     UITARS_BASE_URL     = http://host:port      (optional — UI-TARS grounding endpoint)
                           leave empty to use the LLM for grounding (less accurate)
-    SCREEN_WIDTH / SCREEN_HEIGHT               (default: 1920 × 1080)
+    SCREEN_WIDTH / SCREEN_HEIGHT               (from .env — match your display)
 """
 import io
 import os
@@ -302,5 +302,85 @@ class AgentSAdapter:
 
         except Exception as e:
             print(f"[agent_s] plan_batch_action step {step_index} failed (using defined steps): {e}")
+
+        return None
+
+    def plan_batch_fill_mapping(
+        self,
+        fields: list,            # list of BatchField (with .description, resolved .text, .html_name)
+        screenshot_png: bytes,
+    ) -> Optional[list]:
+        """
+        LIVE-mode vision planning. Claude looks at the actual form screenshot and
+        returns which value goes in which field — as structured JSON. The engine
+        then actuates the plan via reliable JS injection (no keyboard focus needed).
+
+        Returns: [{"html_name": str, "value": str}, ...]  or None to fall back to
+        the routine's hardcoded field mapping.
+        """
+        try:
+            import base64
+            import json
+            from anthropic import Anthropic
+            from config import AGENT_S_MODEL, ANTHROPIC_API_KEY
+
+            if not ANTHROPIC_API_KEY:
+                return None
+
+            spec = []
+            for bf in fields:
+                if not getattr(bf, "html_name", None) or not bf.text:
+                    continue
+                spec.append({
+                    "field": bf.description or bf.html_name,
+                    "html_name": bf.html_name,
+                    "value": bf.text,
+                })
+            if not spec:
+                return None
+
+            b64 = base64.standard_b64encode(screenshot_png).decode()
+            prompt = (
+                "You are an oversight agent planning how to fill a web form you can see in "
+                "the screenshot. Below is the intended data. Look at the form, match each "
+                "value to the correct field, and return ONLY a JSON array of "
+                '{"html_name": ..., "value": ...} objects in the order the fields appear on '
+                "the form. Omit any field that is not actually present on the form. "
+                "Do not include password or credential fields even if present.\n\n"
+                f"Intended data:\n{json.dumps(spec, indent=2)}\n\n"
+                "Return only the JSON array, no prose."
+            )
+
+            client = Anthropic(api_key=ANTHROPIC_API_KEY)
+            msg = client.messages.create(
+                model=AGENT_S_MODEL,
+                max_tokens=1024,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {
+                            "type": "base64", "media_type": "image/png", "data": b64,
+                        }},
+                        {"type": "text", "text": prompt},
+                    ],
+                }],
+            )
+
+            raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+            # Extract the JSON array even if Claude wraps it in prose or markdown fences.
+            start, end = raw.find("["), raw.rfind("]")
+            if start == -1 or end == -1 or end < start:
+                return None
+            plan = json.loads(raw[start:end + 1])
+            if isinstance(plan, list) and plan:
+                print(f"[agent_s] batch_fill: Claude planned {len(plan)} fields from the screenshot")
+                return [
+                    {"html_name": p["html_name"], "value": p["value"]}
+                    for p in plan
+                    if "html_name" in p and "value" in p
+                ]
+
+        except Exception as e:
+            print(f"[agent_s] plan_batch_fill_mapping failed (using hardcoded fields): {e}")
 
         return None
