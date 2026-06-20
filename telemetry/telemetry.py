@@ -9,8 +9,13 @@ Local setup:
   3. Open http://localhost:6006 → project "shepherd" → Traces
 """
 import contextlib
+import logging
 from config import FEATURES, ARIZE_PROJECT_NAME, PHOENIX_COLLECTOR_ENDPOINT
 from shepherd_types import ExecutionResult, StepRecord
+
+# Suppress OTel export errors — Phoenix not running is non-fatal noise
+logging.getLogger("opentelemetry.sdk.trace.export").setLevel(logging.CRITICAL)
+logging.getLogger("opentelemetry.exporter.otlp").setLevel(logging.CRITICAL)
 
 
 class _Noop:

@@ -246,6 +246,7 @@ class ShepherdExecutionEngine:
                         step_error  = str(exc)
                         error       = step_error
                         status      = "failed"
+                        print(f"[engine] step {i} failed: {step_error}")
                         if FEATURES["sentry"]:
                             import sentry_sdk
                             sentry_sdk.capture_exception(exc)
@@ -397,7 +398,7 @@ class ShepherdExecutionEngine:
         Execute Agent S-generated Python/pyautogui code in a restricted namespace.
         Agent S returns strings like: "pyautogui.click(760, 300)"
         """
-        exec(code, {"__builtins__": {}, "pyautogui": pyautogui, "time": time})  # noqa: S102
+        exec(code, {"__builtins__": __builtins__, "pyautogui": pyautogui, "time": time})  # noqa: S102
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
         def sub(t: Optional[str]) -> Optional[str]:

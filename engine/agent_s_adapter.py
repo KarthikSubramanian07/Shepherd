@@ -92,6 +92,8 @@ class AgentSAdapter:
         else:
             # LLM-only grounding — works without a local model server
             grounding_params = dict(engine_params)
+            grounding_params["grounding_width"] = SCREEN_WIDTH
+            grounding_params["grounding_height"] = SCREEN_HEIGHT
             grounding_tag = "LLM grounding (no UI-TARS)"
 
         grounding_agent = OSWorldACI(
@@ -107,8 +109,8 @@ class AgentSAdapter:
             engine_params,
             grounding_agent,
             platform="darwin",
-            max_trajectory_length=8,
-            enable_reflection=True,
+            max_trajectory_length=3,
+            enable_reflection=False,
         )
         print(
             f"[agent_s] Ready — {AGENT_S_ENGINE_TYPE}/{AGENT_S_MODEL} "
