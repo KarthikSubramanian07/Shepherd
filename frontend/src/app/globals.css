@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "@xyflow/react/dist/style.css";
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-canvas text-ink antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* React Flow overrides to match the dark command-center theme */
+.react-flow__background {
+  background-color: #0b0e14;
+}
+.react-flow__edge-path {
+  stroke: #2b3445;
+  stroke-width: 2;
+}
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke: #3b82f6;
+}
+.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: #3b82f6;
+  border: 2px solid #0b0e14;
+}
+.react-flow__attribution {
+  display: none;
+}
+
+/* Thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #222a39 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #222a39;
+  border-radius: 8px;
+}
