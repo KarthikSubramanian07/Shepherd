@@ -10,7 +10,7 @@
     ],
     "mode": "LIVE",
     "high_stakes_steps": [
-      6
+      4
     ],
     "step_instructions": {
       "0": "Open the WorkBridge candidate portal in Safari",
@@ -28,16 +28,6 @@
         "action": "wait",
         "seconds": 2.0,
         "description": "Wait for browser"
-      },
-      {
-        "action": "wait",
-        "seconds": 0.5,
-        "description": "Page settling"
-      },
-      {
-        "action": "wait",
-        "seconds": 0.5,
-        "description": "Page settling"
       },
       {
         "action": "wait",

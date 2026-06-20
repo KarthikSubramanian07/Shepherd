@@ -394,6 +394,10 @@ class ShepherdExecutionEngine:
         if step.action == "batch_fill" and step.fields:
             return self._agent_s.plan_batch_action(step.fields, index, demo_ctx)
 
+        # wait / hotkey / open_app don't benefit from vision planning — skip Agent S.
+        if step.action in ("wait", "hotkey", "open_app"):
+            return None
+
         instruction = self._build_instruction(step, index, routine)
         return self._agent_s.plan_action(instruction, index, demo_ctx)
 
