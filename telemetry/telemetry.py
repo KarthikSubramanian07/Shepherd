@@ -1,5 +1,5 @@
 """
-ShepherdTelemetry — Arize Phoenix OpenTelemetry spans.
+ShepherdTelemetry — Arize Phoenix OpenTelemetry spans + Control Hub trace graph.
 Never crashes the demo: all Phoenix calls wrapped in try/except.
 Phoenix is a DEV instrument — open it in a separate browser window, not embedded in the Control Hub.
 
@@ -7,10 +7,22 @@ Local setup:
   1. Terminal 1: ./scripts/serve_phoenix.sh
   2. Terminal 2: uv run python main.py
   3. Open http://localhost:6006 → project "shepherd" → Traces
+  4. Or Control Hub → center panel → Traces tab
 """
 import contextlib
+import logging
+import time
+
+from opentelemetry import trace
+from opentelemetry.trace import format_span_id, format_trace_id
+
 from config import FEATURES, ARIZE_PROJECT_NAME, PHOENIX_COLLECTOR_ENDPOINT
+from dashboard.events import event_bus
 from shepherd_types import ExecutionResult, StepRecord
+
+# Suppress OTel export errors — Phoenix not running is non-fatal noise
+logging.getLogger("opentelemetry.sdk.trace.export").setLevel(logging.CRITICAL)
+logging.getLogger("opentelemetry.exporter.otlp").setLevel(logging.CRITICAL)
 
 
 class _Noop:
@@ -24,6 +36,49 @@ def _traces_endpoint(base: str) -> str:
     if base.endswith("/v1/traces"):
         return base
     return f"{base}/v1/traces"
+
+
+def _current_span_id() -> str | None:
+    ctx = trace.get_current_span().get_span_context()
+    if ctx.is_valid:
+        return format_span_id(ctx.span_id)
+    return None
+
+
+def _emit_span_start(name: str, trace_id: str, span_id: str, parent_span_id: str | None) -> None:
+    event_bus.emit("trace.span.start", {
+        "trace_id":       trace_id,
+        "span_id":        span_id,
+        "parent_span_id": parent_span_id,
+        "name":           name,
+        "started_at":     time.time(),
+    })
+
+
+def _emit_span_end(
+    name: str, trace_id: str, span_id: str,
+    duration_ms: int, status: str, attributes: dict,
+) -> None:
+    event_bus.emit("trace.span.end", {
+        "trace_id":    trace_id,
+        "span_id":     span_id,
+        "name":        name,
+        "duration_ms": duration_ms,
+        "status":      status,
+        "attributes":  attributes,
+    })
+
+
+def _collect_attrs(span, prefixes: tuple[str, ...] = ()) -> dict:
+    attrs: dict[str, str] = {}
+    raw = getattr(span, "_attributes", None) or getattr(span, "attributes", None)
+    if not raw:
+        return attrs
+    for k, v in raw.items():
+        key = str(k)
+        if not prefixes or key.startswith(prefixes):
+            attrs[key] = str(v)
+    return attrs
 
 
 class ShepherdTelemetry:
@@ -49,9 +104,26 @@ class ShepherdTelemetry:
         if self._tracer is None:
             yield _Noop()
             return
+        parent_span_id = _current_span_id()
+        t0 = time.perf_counter()
+        status = "ok"
         try:
             with self._tracer.start_as_current_span(name) as s:
-                yield s
+                sc = s.get_span_context()
+                trace_id = format_trace_id(sc.trace_id)
+                span_id = format_span_id(sc.span_id)
+                _emit_span_start(name, trace_id, span_id, parent_span_id)
+                try:
+                    yield s
+                except Exception:
+                    status = "error"
+                    raise
+                finally:
+                    dur = int((time.perf_counter() - t0) * 1000)
+                    _emit_span_end(
+                        name, trace_id, span_id, dur, status,
+                        _collect_attrs(s, ("routine.", "action.", "step.", "error.")),
+                    )
         except Exception:
             yield _Noop()
 
@@ -59,7 +131,14 @@ class ShepherdTelemetry:
         if self._tracer is None:
             return
         try:
+            parent_span_id = _current_span_id()
+            t0 = time.perf_counter()
             with self._tracer.start_as_current_span("routine.summary") as span:
+                sc = span.get_span_context()
+                trace_id = format_trace_id(sc.trace_id)
+                span_id = format_span_id(sc.span_id)
+                _emit_span_start("routine.summary", trace_id, span_id, parent_span_id)
+
                 span.set_attribute("routine.id",          result.routine_id)
                 span.set_attribute("routine.status",      result.status)
                 span.set_attribute("routine.duration_ms", result.duration_ms)
@@ -70,7 +149,7 @@ class ShepherdTelemetry:
                     span.set_attribute("error.message", result.error)
 
                 for step in (steps or []):
-                    with self._tracer.start_as_current_span(f"step.{step.index}") as s:
+                    with self.span(f"step.{step.index}") as s:
                         s.set_attribute("step.index",       step.index)
                         s.set_attribute("step.action",      step.action or "")
                         s.set_attribute("step.status",      step.status)
@@ -81,5 +160,12 @@ class ShepherdTelemetry:
                             s.set_attribute("step.deviation", step.deviation)
                         if step.error:
                             s.set_attribute("step.error", step.error)
+
+                dur = int((time.perf_counter() - t0) * 1000)
+                st = "error" if result.error else "ok"
+                _emit_span_end(
+                    "routine.summary", trace_id, span_id, dur, st,
+                    _collect_attrs(span, ("routine.", "error.")),
+                )
         except Exception as e:
             print(f"[arize] record failed (non-fatal): {e}")

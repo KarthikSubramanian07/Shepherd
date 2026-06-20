@@ -97,6 +97,8 @@ uv run python main.py
 
 Run a routine, then open **http://localhost:6006** → project **shepherd** → **Traces** to see `routine.execute` → `step.N` → `routine.summary`.
 
+The same spans also appear live in the **Control Hub** center panel → **Traces** tab (`http://localhost:8765`) as a nested graph with duration bars — no window switching during demos.
+
 ---
 
 ## macOS Permissions
