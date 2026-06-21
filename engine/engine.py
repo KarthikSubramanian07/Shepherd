@@ -2218,11 +2218,13 @@ class ShepherdExecutionEngine:
             )
             _sp.run(["osascript", "-e", _enable_js], check=False, capture_output=True, text=True)
 
+            # Re-escape quotes for AppleScript string embedding
+            js_block_escaped = js_block.replace('"', '\\"')
             ascript = (
                 'tell application "Google Chrome"\n'
                 '  activate\n'
                 '  tell active tab of front window\n'
-                f'    execute javascript "{js_block}"\n'
+                f'    execute javascript "{js_block_escaped}"\n'
                 '  end tell\n'
                 'end tell\n'
             )
@@ -2233,19 +2235,10 @@ class ShepherdExecutionEngine:
             _os.unlink(apath)
             result_ok = r.returncode == 0
         else:
-            # Linux: try CDP via Chrome DevTools port (9222)
+            # Linux: open Chrome console, paste JS, execute
             try:
-                import json as _json
-                import urllib.request as _urllib
-                tabs = _json.loads(_urllib.urlopen("http://localhost:9222/json", timeout=2).read())
-                if tabs:
-                    ws_url = tabs[0].get("webSocketDebuggerUrl")
-                    if ws_url:
-                        pass
-                # Fallback: use xdotool to run JS via address bar
                 activate_app("Google Chrome")
                 time.sleep(0.3)
-                # Use Ctrl+Shift+J to open console, run JS, then close
                 pyautogui.hotkey("ctrl", "shift", "j")
                 time.sleep(0.5)
                 type_text(js_block)
