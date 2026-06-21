@@ -8,25 +8,36 @@ a vision-model call per turn (Agent S re-plans from screenshots). SimuLang
 (Simular's "Playwright for the desktop") closes that loop: once a workflow is
 proven, we compile its milestones into a SimuLang `.ts` script that drives the
 desktop off the **accessibility tree** (deterministic, no LLM tokens per run), and
-replay it via the `simulang` CLI. Agent S stays the explorer/fallback; SimuLang is
-the cheap, auditable replay of what was learned.
+replay it with `npx tsx` against the @simular-ai/simulang-js runtime. Agent S stays
+the explorer/fallback; SimuLang is the cheap, auditable replay of what was learned.
 
 Two Simular products composed in their intended shape: Agent S learns the task,
-SimuLang replays it. Lazy + graceful: with the `simulang` CLI absent the workflow
-still runs via Agent S exactly as before; compilation always produces the artifact
-so the UI can show "graduated to a deterministic script".
+SimuLang replays it. Lazy + graceful: with the runtime absent the workflow still
+runs via Agent S exactly as before; compilation always produces the artifact so the
+UI can show "graduated to a deterministic script".
+
+Replay requirements on the demo machine: the runtime ships as a prebuilt native
+(NAPI) binary installed at the repo root (`npm install`), and replay drives the live
+frontmost app through the macOS Accessibility tree, so the terminal/node process
+must be granted Accessibility permission (System Settings > Privacy & Security >
+Accessibility). Both are one-time, machine-local steps.
 """
 import os
 import shutil
 import subprocess
 from typing import Optional
 
-_ARTIFACT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "simulang")
+_REPO_ROOT = os.path.dirname(os.path.dirname(__file__))
+_ARTIFACT_DIR = os.path.join(_REPO_ROOT, "data", "simulang")
 
 
 def available() -> bool:
-    """True when the `simulang` CLI is on PATH (so a compiled script can replay)."""
-    return shutil.which("simulang") is not None
+    """True when the SimuLang replay runtime is installed: the @simular-ai/simulang-js
+    package resolves at the repo root and a TS runner (tsx, via npx) is on PATH, so a
+    compiled `.ts` script can replay. There is no standalone `simulang` CLI; replay
+    executes the script with `npx tsx`."""
+    pkg = os.path.join(_REPO_ROOT, "node_modules", "@simular-ai", "simulang-js", "package.json")
+    return os.path.exists(pkg) and shutil.which("npx") is not None
 
 
 def artifact_path(workflow_id: str) -> str:
@@ -57,15 +68,16 @@ def compile_workflow(workflow) -> Optional[str]:
 
 
 def replay(workflow_id: str, *, timeout: float = 120.0) -> Optional[dict]:
-    """Replay a compiled SimuLang script via the CLI. Returns a status dict, or
-    None when the CLI is unavailable / the artifact is missing (caller falls back
+    """Replay a compiled SimuLang script with `npx tsx`. Returns a status dict, or
+    None when the runtime is unavailable / the artifact is missing (caller falls back
     to Agent S vision replay)."""
     path = artifact_path(workflow_id)
     if not available() or not os.path.exists(path):
         return None
     try:
         proc = subprocess.run(
-            ["simulang", "run", path],
+            ["npx", "tsx", path],
+            cwd=_REPO_ROOT,
             capture_output=True, text=True, timeout=timeout,
         )
         ok = proc.returncode == 0
@@ -92,7 +104,7 @@ def _render(workflow_id: str, nodes) -> str:
     not pixels — so it is deterministic and re-runs with zero LLM tokens."""
     lines = [
         "// Auto-compiled by Shepherd from a taught workflow — deterministic replay,",
-        "// zero LLM tokens per run. Run with:  simulang run "
+        "// zero LLM tokens per run. Run with:  npx tsx "
         f"data/simulang/{workflow_id}.ts",
         "import { AccessibilityTree, App, AriaRole, FocusPolicy, Visibility } "
         "from '@simular-ai/simulang-js'",
@@ -111,7 +123,10 @@ def _render(workflow_id: str, nodes) -> str:
         label = _node_attr(node, "label") or _node_attr(node, "key") or "step"
         value = _node_attr(node, "value")
         safe = _re_escape(label)
-        comment = f"// {label}"
+        # Flatten the label for the single-line JS comment so a newline in a
+        # milestone name can't spill into executable code in the compiled .ts.
+        flat_label = " ".join(str(label).split())
+        comment = f"// {flat_label}"
         if kind in ("fill", "type") or value:
             lines.append(comment)
             lines.append(f"{{ const el = byLabel(/{safe}/i, AriaRole.Textbox); "
@@ -120,16 +135,20 @@ def _render(workflow_id: str, nodes) -> str:
             lines.append(comment)
             lines.append(f"{{ const el = byLabel(/{safe}/i); if (el) tree.activate(el.refId) }}")
         else:
-            lines.append(f"// (skipped non-actionable milestone: {label})")
+            lines.append(f"// (skipped non-actionable milestone: {flat_label})")
         lines.append("")
     lines.append("// End of compiled workflow.")
     return "\n".join(lines) + "\n"
 
 
 def _re_escape(text: str) -> str:
-    # Escape for embedding inside a JS regex literal /.../
+    # Escape for embedding inside a single-line JS regex literal /.../. Collapse
+    # any whitespace (newlines, tabs) to single spaces first so a multi-line label
+    # can never break out of the regex/comment line into executable code when the
+    # compiled script is run with `npx tsx`.
+    flat = " ".join(str(text).split())
     out = []
-    for ch in str(text)[:60]:
+    for ch in flat[:60]:
         if ch in r"\\/.^$*+?()[]{}|":
             out.append("\\" + ch)
         else:

@@ -343,10 +343,13 @@ class Hub:
             conn.block = None
         elif t == "execution.complete":
             st = d.get("status", "completed")
-            conn.status = {"completed": "completed", "failed": "failed"}.get(st, "idle")
-            conn.block = None
-            conn.routing = None
-            conn._goal_text = None
+            conn.status = {"completed": "completed", "failed": "failed",
+                           "suspended": "suspended"}.get(st, "idle")
+            # Don't clear block/routing/goal if suspended — UI needs them for resume
+            if st != "suspended":
+                conn.block = None
+                conn.routing = None
+                conn._goal_text = None
             # Keep title + recent_steps visible after completion so the fleet card
             # still shows what the run did. They reset on the next execution.start.
             if conn.trace:
@@ -360,6 +363,20 @@ class Hub:
             if conn.trace:
                 conn.trace["status"] = "halted"
                 conn.trace["current"] = None
+        elif t == "execution.suspended":
+            conn.status = "suspended"
+            conn.block = {"type": "suspended", "stepIndex": d.get("step_index"),
+                          "goal": d.get("goal"), "reason": d.get("reason")}
+            if conn.trace:
+                conn.trace["status"] = "suspended"
+                conn.trace["current"] = None
+        elif t == "execution.resumed":
+            conn.status = "running"
+            conn.block = None
+            if conn.trace:
+                conn.trace["status"] = "running"
+        elif t == "execution.steered":
+            pass  # activity log only — don't change conn.status
         elif t == "task.graph.saved":
             if conn.trace and conn.trace.get("known") is False:
                 conn.trace["promote_ready"] = True

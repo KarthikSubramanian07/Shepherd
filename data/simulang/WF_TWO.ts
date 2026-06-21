@@ -1,5 +1,5 @@
 // Auto-compiled by Shepherd from a taught workflow — deterministic replay,
-// zero LLM tokens per run. Run with:  simulang run data/simulang/WF_TWO.ts
+// zero LLM tokens per run. Run with:  npx tsx data/simulang/WF_TWO.ts
 import { AccessibilityTree, App, AriaRole, FocusPolicy, Visibility } from '@simular-ai/simulang-js'
 
 const app = App.frontmost().open(FocusPolicy.Steal, Visibility.Show, true)

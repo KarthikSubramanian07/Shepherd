@@ -12,12 +12,14 @@ AUTONOMOUS mode — Agent S receives the raw user goal and loops until DONE/FAIL
 The click path is synchronous and sacred.
 Nothing async, networked, or ML-based runs inside a routine's step sequence.
 """
+import queue
 import subprocess
 import threading
 import time
 import uuid
 import json
 from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import Optional
 
 import pyautogui
@@ -64,6 +66,24 @@ pyautogui.FAILSAFE = True   # slam mouse to top-left corner to abort
 pyautogui.PAUSE    = 0.3    # deliberate, watchable motion — this is the wow factor
 
 _APP_SETTLE = 2.0           # seconds to wait after open_app
+
+
+@dataclass
+class SuspendedTask:
+    """Everything needed to resume a halted/failed autonomous task."""
+    run_id: str
+    task_key: str
+    goal: str
+    plan_hint: str
+    memory_hint: str
+    step_index: int
+    variables: dict
+    executed: list
+    chain_history: list
+    interventions: list
+    graph: object  # TaskGraph
+    halted_at: float
+    steps_done: int = 0
 
 
 def activate_app(name: str, settle: float = 1.2) -> None:
@@ -146,10 +166,21 @@ class ShepherdExecutionEngine:
         # Rate-limit tracking (resets each run)
         self._run_action_times: list[float] = []
         self._run_variables: dict[str, str] = {}
+        # Mid-run steering: operator can amend the goal while running or resume from halt
+        self._steer_queue: queue.Queue[tuple[str, bool]] = queue.Queue()  # (text, remember)
+        self._suspended_task: Optional["SuspendedTask"] = None
 
     def request_halt(self) -> None:
         """Set by monitor_agent or spoken 'stop' command. Checked at each step boundary."""
         self._halt_flag.set()
+
+    def request_steer(self, text: str, remember: bool = True) -> None:
+        """Inject a goal amendment. Consumed at the next step boundary."""
+        self._steer_queue.put((text, remember))
+
+    def is_suspended(self) -> bool:
+        """Whether a task is halted with preserved state (resumable)."""
+        return self._suspended_task is not None
 
     def effective_mode(self) -> str:
         """The legacy LIVE/LOCKED/AUTONOMOUS enum for this run. Compatibility shim:
@@ -259,35 +290,85 @@ class ShepherdExecutionEngine:
             )
             return self._execute_autonomous_reactive(goal, plan_hint=plan_hint)
 
-    def _execute_autonomous_reactive(self, goal: str, plan_hint: str = "") -> ExecutionResult:
+    def _execute_autonomous_reactive(self, goal: str, plan_hint: str = "",
+                                      resume_ctx: Optional[SuspendedTask] = None) -> ExecutionResult:
         """
         Reactive loop — Agent S plans each action from the full intent
         and current screenshot until DONE, FAIL, halt, or step budget exhausted.
-        """
-        self._halt_flag.clear()
-        self.last_step_records = []
-        self.last_trace_id = None
-        self._interventions = []
-        self._agent_s.reset_autonomous()
-        run_id = str(uuid.uuid4())[:8]
-        started_at = time.time()
-        max_steps = AUTONOMOUS_MAX_STEPS
-        variables = {"GOAL": goal}
 
-        # Per-goal memory graph: load this goal's prior milestones and feed them to
-        # the planner (use); the executed trace is handed to the coalescer at the end
-        # (generate) — same milestone+edge scheme as the planned path.
-        task_key = self._autonomous_task_key(goal)
-        graph = self._graphs.load(task_key, variables)
-        self._active_graph = graph
-        was_known = self._graphs.is_known(graph)
-        # Memory recall is opt-in. By default the loop does a fresh Agent S run and
-        # does NOT feed prior milestones to the planner.
-        memory_hint = ""
-        if AUTONOMOUS_USE_MEMORY and graph.nodes:
-            memory_hint = RoutinePlanner._memory_hint([n.label for n in graph.nodes])
-            print(f"[autonomous] recalled {len(graph.nodes)} milestone(s) from memory "
-                  f"(run #{graph.run_count})")
+        If resume_ctx is provided, the loop resumes from a previously suspended task
+        with all context (chain_history, interventions, goal with steers) preserved.
+        """
+        if resume_ctx:
+            # ── Resume from suspended state ───────────────────────────────────
+            goal = resume_ctx.goal
+            plan_hint = resume_ctx.plan_hint
+            memory_hint = resume_ctx.memory_hint
+            self._agent_s._chain_history = list(resume_ctx.chain_history)
+            self._interventions = list(resume_ctx.interventions)
+            self._active_graph = resume_ctx.graph
+            graph = resume_ctx.graph
+            task_key = resume_ctx.task_key
+            variables = resume_ctx.variables
+            run_id = resume_ctx.run_id
+            started_at = time.time()
+            max_steps = AUTONOMOUS_MAX_STEPS
+            was_known = True
+            self._halt_flag.clear()
+            self.last_step_records = []
+            self.last_trace_id = None
+            # Do NOT call reset_autonomous() — preserve chain memory
+            # Drain stale steers (the resume steer is already baked into goal)
+            while not self._steer_queue.empty():
+                try:
+                    self._steer_queue.get_nowait()
+                except queue.Empty:
+                    break
+            event_bus.emit("execution.resumed", {
+                "run_id": run_id, "step_index": resume_ctx.step_index,
+                "amended_goal": goal,
+            })
+            print(f"[autonomous] RESUMED from step {resume_ctx.step_index}: {goal[:80]}...")
+        else:
+            # ── Fresh start ───────────────────────────────────────────────────
+            self._halt_flag.clear()
+            self.last_step_records = []
+            self.last_trace_id = None
+            self._interventions = []
+            self._agent_s.reset_autonomous()
+            # Drain any stale steers from a previous task
+            while not self._steer_queue.empty():
+                try:
+                    self._steer_queue.get_nowait()
+                except queue.Empty:
+                    break
+            run_id = str(uuid.uuid4())[:8]
+            started_at = time.time()
+            max_steps = AUTONOMOUS_MAX_STEPS
+            variables = {"GOAL": goal}
+
+            # Per-goal memory graph
+            task_key = self._autonomous_task_key(goal)
+            graph = self._graphs.load(task_key, variables)
+            self._active_graph = graph
+            was_known = self._graphs.is_known(graph)
+            memory_hint = ""
+            if AUTONOMOUS_USE_MEMORY and graph.nodes:
+                memory_hint = RoutinePlanner._memory_hint([n.label for n in graph.nodes])
+                # Surface taught conditionals so the agent applies learned
+                # corrections on re-runs (teaching loop for autonomous mode).
+                taught_parts = []
+                for n in graph.nodes:
+                    for c in n.conditionals:
+                        taught_parts.append(f"  • at '{n.label}': if {c.when} → {c.do}")
+                if taught_parts:
+                    memory_hint += (
+                        "\n\nTAUGHT CORRECTIONS (apply these when relevant):\n"
+                        + "\n".join(taught_parts)
+                    )
+                print(f"[autonomous] recalled {len(graph.nodes)} milestone(s) from memory "
+                      f"(run #{graph.run_count})"
+                      + (f", {len(taught_parts)} taught correction(s)" if taught_parts else ""))
 
         event_bus.emit("execution.start", {
             "run_id":      run_id,
@@ -311,7 +392,8 @@ class ShepherdExecutionEngine:
         steps_done = 0
         error: Optional[str] = None
         status = "completed"
-        executed: list[RoutineStep] = []   # one step per action turn → coalescer
+        # Restore pre-suspension steps on resume so the final trace is complete.
+        executed: list[RoutineStep] = list(resume_ctx.executed) if resume_ctx else []
         monitor_step = RoutineStep(action="agent_s", description=goal)
 
         try:
@@ -322,18 +404,69 @@ class ShepherdExecutionEngine:
                 span.set_attribute("routine.goal", goal)
 
                 for i in range(max_steps):
+                    # ── 1. Halt check → save SuspendedTask ────────────────────
                     if self._halt_flag.is_set():
-                        status = "aborted"
-                        event_bus.emit("execution.halted", {
-                            "run_id": run_id, "step_index": i, "reason": "halt_requested",
+                        self._halt_flag.clear()
+                        self._suspended_task = SuspendedTask(
+                            run_id=run_id, task_key=task_key, goal=goal,
+                            plan_hint=plan_hint, memory_hint=memory_hint,
+                            step_index=i, variables=variables,
+                            executed=list(executed),
+                            chain_history=list(self._agent_s._chain_history),
+                            interventions=list(self._interventions),
+                            graph=graph, halted_at=time.time(),
+                            steps_done=steps_done,
+                        )
+                        status = "suspended"
+                        event_bus.emit("execution.suspended", {
+                            "run_id": run_id, "step_index": i,
+                            "goal": goal, "steps_completed": steps_done,
                         })
                         break
 
+                    # ── 2. Drain steer queue (~0.1μs if empty) ────────────────
+                    try:
+                        while True:
+                            steer_text, remember = self._steer_queue.get_nowait()
+                            goal = f"{goal}\n\n[OPERATOR STEER]: {steer_text}"
+                            self._agent_s._chain_history.append(
+                                f">>> USER INTERVENED (IMPORTANT): {steer_text}"
+                            )
+                            event_bus.emit("execution.steered", {
+                                "run_id": run_id, "step_index": i, "steer": steer_text,
+                            })
+                            flag = "save_as_rule" if remember else "one_off"
+                            # Build a descriptive scenario for the teaching loop.
+                            # Use last reasoning if available so the conditional
+                            # clause captures WHEN this steer is relevant.
+                            last_ctx = (self._agent_s.last_reasoning or "").strip()
+                            scenario = (f"while: {last_ctx[:120]}" if last_ctx
+                                        else f"at step {i} of task")
+                            self._interventions.append(InterventionEvent(
+                                step_index=i, trigger="steer", decision="override",
+                                instruction=steer_text, flag=flag,
+                                node_key="", scenario=scenario, ts=time.time(),
+                            ))
+                    except queue.Empty:
+                        pass
+
                     verdict = self._check_monitor(monitor_step, i, run_id, AUTONOMOUS_ROUTINE_ID)
                     if verdict == "halt":
-                        status = "aborted"
-                        event_bus.emit("execution.halted", {
-                            "run_id": run_id, "step_index": i, "reason": "monitor_halt",
+                        self._halt_flag.clear()
+                        self._suspended_task = SuspendedTask(
+                            run_id=run_id, task_key=task_key, goal=goal,
+                            plan_hint=plan_hint, memory_hint=memory_hint,
+                            step_index=i, variables=variables,
+                            executed=list(executed),
+                            chain_history=list(self._agent_s._chain_history),
+                            interventions=list(self._interventions),
+                            graph=graph, halted_at=time.time(),
+                            steps_done=steps_done,
+                        )
+                        status = "suspended"
+                        event_bus.emit("execution.suspended", {
+                            "run_id": run_id, "step_index": i,
+                            "goal": goal, "reason": "monitor_halt",
                         })
                         break
 
@@ -365,6 +498,40 @@ class ShepherdExecutionEngine:
                             apps=apps or None,
                             tools=tools or None,
                         )
+
+                    # ── 3. Post-predict steer check: discard stale plan ───────
+                    if not self._steer_queue.empty():
+                        try:
+                            while True:
+                                steer_text, remember = self._steer_queue.get_nowait()
+                                goal = f"{goal}\n\n[OPERATOR STEER]: {steer_text}"
+                                self._agent_s._chain_history.append(
+                                    f">>> USER INTERVENED (IMPORTANT): {steer_text}"
+                                )
+                                event_bus.emit("execution.steered", {
+                                    "run_id": run_id, "step_index": i, "steer": steer_text,
+                                })
+                                flag = "save_as_rule" if remember else "one_off"
+                                # Capture the agent's current reasoning for a
+                                # richer scenario in the teaching conditional.
+                                last_ctx = (self._agent_s.last_reasoning or "").strip()
+                                scenario = (f"while: {last_ctx[:120]}" if last_ctx
+                                            else f"at step {i} of task")
+                                self._interventions.append(InterventionEvent(
+                                    step_index=i, trigger="steer", decision="override",
+                                    instruction=steer_text, flag=flag,
+                                    node_key="", scenario=scenario, ts=time.time(),
+                                ))
+                        except queue.Empty:
+                            pass
+                        # Close the step.start that was already emitted for this index
+                        dur_ms = int((time.time() - step_t0) * 1000)
+                        event_bus.emit("step.complete", {
+                            "run_id": run_id, "index": i, "status": "completed",
+                            "duration_ms": dur_ms, "deviation": "plan_discarded_steer",
+                        })
+                        # Steer arrived during API call — plan is stale, re-predict
+                        continue
                     rlog.agent_turn(run_id, i, self._agent_s.last_reasoning,
                                     result.code or "", result.outcome)
                     # Surface this agent's per-step reasoning on stdout.
@@ -393,10 +560,7 @@ class ShepherdExecutionEngine:
                         break
 
                     if result.outcome == "fail":
-                        status = "failed"
                         error = result.raw or "Agent S reported failure"
-                        step_status = "failed"
-                        step_error = error
                         dur_ms = int((time.time() - step_t0) * 1000)
                         self.last_step_records.append(StepRecord(
                             index=i, action="agent_s", target=None,
@@ -404,6 +568,23 @@ class ShepherdExecutionEngine:
                         ))
                         event_bus.emit("step.error", {
                             "run_id": run_id, "index": i, "error": error,
+                        })
+                        # Save suspended task on fail — operator can steer past the failure
+                        self._suspended_task = SuspendedTask(
+                            run_id=run_id, task_key=task_key, goal=goal,
+                            plan_hint=plan_hint, memory_hint=memory_hint,
+                            step_index=i, variables=variables,
+                            executed=list(executed),
+                            chain_history=list(self._agent_s._chain_history),
+                            interventions=list(self._interventions),
+                            graph=graph, halted_at=time.time(),
+                            steps_done=steps_done,
+                        )
+                        status = "suspended"
+                        event_bus.emit("execution.suspended", {
+                            "run_id": run_id, "step_index": i,
+                            "goal": goal, "reason": "agent_reported_fail",
+                            "error": error,
                         })
                         break
 
@@ -560,22 +741,25 @@ class ShepherdExecutionEngine:
         # Hand the executed trace to the coalescer (COLD PATH): it LLM-segments into
         # milestones + edges and persists under task_key — the same per-goal memory
         # graph the planner consulted. Runs async; survives interrupt via the journal.
-        deviations = [
-            {"step_index": r.index, "reason": r.deviation}
-            for r in self.last_step_records if r.deviation
-        ]
-        submit_trace(RunTrace(
-            run_id=run_id,
-            routine_id=task_key,
-            variables=variables,
-            status=status,
-            started_at=started_at,
-            ended_at=ended_at,
-            executed=executed,
-            interventions=list(self._interventions),
-            deviations=deviations,
-            intent_text=goal,
-        ))
+        # SKIP on suspension — the trace is incomplete. It will be submitted when the
+        # task completes (after resume) or is discarded (new_task clears suspended).
+        if status != "suspended":
+            deviations = [
+                {"step_index": r.index, "reason": r.deviation}
+                for r in self.last_step_records if r.deviation
+            ]
+            submit_trace(RunTrace(
+                run_id=run_id,
+                routine_id=task_key,
+                variables=variables,
+                status=status,
+                started_at=started_at,
+                ended_at=ended_at,
+                executed=executed,
+                interventions=list(self._interventions),
+                deviations=deviations,
+                intent_text=goal,
+            ))
         self._active_graph = None
 
         rlog.request_finished(run_id, status, steps_done, result.duration_ms,
@@ -1070,12 +1254,19 @@ class ShepherdExecutionEngine:
 
         self._halt_flag.clear()
         self._agent_s.reset()
+        # Reset per-run tracing state so post-run bookkeeping (telemetry.record /
+        # memory.store via _after_run) never persists step records left over from
+        # a prior routine/autonomous execution. Mirrors execute().
+        self.last_step_records = []
+        self.last_trace_id = None
+        self._interventions = []
         run_id = str(uuid.uuid4())[:8]
         started_at = time.time()
 
         # Parent span so Arize Phoenix traces THROUGH the workflow: each milestone's
         # workflow.node span nests under this workflow.execute span.
         with self._telemetry.span("workflow.execute") as _wspan:
+            self.last_trace_id = current_trace_id()
             _wspan.set_attribute("workflow.id", workflow.id)
             _wspan.set_attribute("workflow.name", workflow.name or "")
             _wspan.set_attribute("workflow.goal", goal)
@@ -1614,18 +1805,38 @@ class ShepherdExecutionEngine:
         `activate_app` is exposed so the agent can deterministically bring a target
         app to the foreground (instead of gambling that a Spotlight launch took
         focus); without guaranteed focus, keystrokes land in the wrong window.
+
+        Agent S (and the batched autonomous planner) frequently emit *bare* action
+        calls — ``hotkey('ctrl','l')``, ``press('enter')``, ``click(760, 300)`` —
+        dropping the documented ``pyautogui.`` prefix. Without the names in scope
+        that raises ``NameError`` and aborts the whole step (e.g. "name 'hotkey' is
+        not defined"). Expose the mouse/keyboard action verbs as bare names so the
+        prefixed and bare forms execute identically.
+
+        This is a deliberate *allowlist* of input actions — we do NOT expose
+        pyautogui's blocking GUI dialogs (``alert``/``confirm``/``prompt``) or
+        utilities like ``screenshot``/``locateOnScreen``, so a stray bare call can't
+        pop a modal that stalls the run.
         """
+        ns: dict = {
+            "__builtins__": __builtins__,
+            "pyautogui": pyautogui,
+            "time": time,
+            "sleep": time.sleep,
+            "activate_app": activate_app,
+            "type_text": type_text,
+        }
+        for _verb in (
+            "click", "doubleClick", "tripleClick", "rightClick", "middleClick",
+            "moveTo", "moveRel", "move", "dragTo", "dragRel", "drag",
+            "mouseDown", "mouseUp", "scroll", "hscroll", "vscroll",
+            "press", "keyDown", "keyUp", "hotkey", "typewrite", "write",
+        ):
+            _fn = getattr(pyautogui, _verb, None)
+            if callable(_fn):
+                ns[_verb] = _fn
         with self._actuation_lease():
-            exec(  # noqa: S102
-                code,
-                {
-                    "__builtins__": __builtins__,
-                    "pyautogui": pyautogui,
-                    "time": time,
-                    "activate_app": activate_app,
-                    "type_text": type_text,
-                },
-            )
+            exec(code, ns)  # noqa: S102
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
         with self._actuation_lease():

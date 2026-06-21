@@ -148,7 +148,7 @@ export function WorkflowGraph({
     const nodes: Node<WorkflowNodeData>[] = order.map((n, i) => ({
       id: n.key,
       type: "workflow",
-      position: { x: i * 300, y: (i % 2) * 90 },
+      position: { x: i * 360, y: (i % 2) * 120 },
       data: {
         nodeKey: n.key,
         label: n.label ?? n.key,
@@ -196,6 +196,7 @@ export function WorkflowGraph({
         edges={edges}
         nodeTypes={workflowNodeTypes}
         fitView
+        fitViewOptions={{ padding: 0.2 }}
         minZoom={0.15}
         proOptions={{ hideAttribution: true }}
       >

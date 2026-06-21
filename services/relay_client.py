@@ -194,6 +194,19 @@ class RelayClient:
                 self._engine.request_halt()
             except Exception:
                 pass
+        elif command == "steer":
+            self._apply_steer(payload)
+        elif command == "new_task":
+            # Compound: halt current task + dispatch new intent
+            set_decision("halt")
+            try:
+                self._engine.request_halt()
+            except Exception:
+                pass
+            text = (payload.get("text") or "").strip()
+            if text:
+                self._remote_intents.put(text)
+                event_bus.emit("remote.intent", {"text": text, "source": "command-center"})
         elif command == "override":
             instruction = (payload.get("instruction") or "").strip()
             if instruction:
@@ -210,6 +223,41 @@ class RelayClient:
             self._apply_workflow_command(command, payload)
         elif command == "promote":
             self._promote_graph(payload)
+
+    def _apply_steer(self, payload: dict) -> None:
+        """Route a steer command based on current engine state.
+
+        - If suspended: amend the suspended task's goal and trigger resume.
+        - If running: inject into the live steer queue for next step boundary.
+        """
+        from shepherd_types import InterventionEvent
+
+        text = (payload.get("text") or "").strip()
+        remember = payload.get("remember", True)
+        if not text:
+            return
+
+        # Atomically capture the suspended task reference to avoid TOCTOU race
+        # (main loop thread may clear _suspended_task between check and access).
+        ctx = self._engine._suspended_task
+        if ctx is not None:
+            # Agent is suspended — amend goal and trigger resume
+            ctx.goal = f"{ctx.goal}\n\n[OPERATOR STEER]: {text}"
+            ctx.chain_history.append(
+                f">>> USER INTERVENED (IMPORTANT): {text}"
+            )
+            flag = "save_as_rule" if remember else "one_off"
+            ctx.interventions.append(InterventionEvent(
+                step_index=ctx.step_index, trigger="steer", decision="override",
+                instruction=text, flag=flag,
+                node_key="", scenario="operator steer (on resume)", ts=__import__("time").time(),
+            ))
+            self._remote_intents.put("__RESUME__")
+            event_bus.emit("remote.steer", {"text": text, "source": "command-center", "resumed": True})
+        else:
+            # Agent is running — inject into live goal at next step boundary
+            self._engine.request_steer(text, remember)
+            event_bus.emit("remote.steer", {"text": text, "source": "command-center", "resumed": False})
 
     def _apply_workflow_command(self, command: str, payload: dict) -> None:
         """Drive the milestone executor's control gate from the Command Center.

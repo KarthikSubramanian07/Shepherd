@@ -4,34 +4,49 @@
 
 # Shepherd
 
-### The agent is the part you cannot trust. Shepherd is the layer that lets you trust it anyway.
+### Mission control for AI agents. The agent is the part you cannot trust. Shepherd is the system that lets you run it anyway.
 
 [![CI](https://github.com/KarthikSubramanian07/shepherd/actions/workflows/ci.yml/badge.svg)](https://github.com/KarthikSubramanian07/shepherd/actions/workflows/ci.yml)
 
+![Python](https://img.shields.io/badge/Python-3.11+-2c6e60?logo=python&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-223b3a?logo=nextdotjs&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-8_vector_sets-cf6a43?logo=redis&logoColor=white)
+![OpenTelemetry](https://img.shields.io/badge/OTel-Arize_Phoenix-2c6e60?logo=opentelemetry&logoColor=white)
+![Claude](https://img.shields.io/badge/oversight-Claude-cf6a43?logo=anthropic&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-223b3a)
+![Sponsor tech](https://img.shields.io/badge/sponsor_tech-10_integrated_live-cf6a43)
+
+🐑 &nbsp;**Local-first** &nbsp;·&nbsp; 🛰️ **Operate any machine** &nbsp;·&nbsp; 🔗 **Tamper-evident audit** &nbsp;·&nbsp; 🗣️ **Voice in, voice out** &nbsp;·&nbsp; ⚡ **Sub-ms policy gate**
+
 </div>
 
-Right now, somewhere, an AI agent is clicking through a real interface on
-someone's behalf. It is fast. It is capable. And the moment it does something
-nobody intended, the only honest answer to "what did it just do?" is a shrug. No
-rewind. No record. No proof. Teams are shipping these into production and quietly
-hoping for the best.
+We built an agent that could drive a desktop. Then we watched it do something we
+never asked it to, and the scary part was not the mistake. It was the silence
+after: no rewind, no record, no way to answer the only question that mattered,
+*what did it just do, and why?* The cursor had moved on its own, and the most
+honest answer we had was a shrug.
 
-Hoping is not a control.
+Teams are shipping agents like that into production and quietly hoping for the
+best. Hoping is not a control.
 
-**Shepherd is a local oversight and governance layer for AI desktop agents.** A
-shepherd does not cage the flock or walk every step for it. It watches, it knows
-the dangerous ground, and it steps in at exactly the right moment. That is the
-job here: a configurable monitor, a tamper-evident audit trail, and a human
-decision gate sitting between the agent's intent and your machine, without slowing
-the agent down. You teach a task by demonstrating it once, watch it run live,
-catch it the instant it strays, replay precisely what it did while you were away,
-and operate it on a machine across the country.
+**Shepherd is local mission control for AI desktop agents.** A shepherd does not
+cage the flock or walk every step for it. It knows the dangerous ground, runs out
+front, and steps in at exactly the right moment. That is the job: you teach a task
+by demonstrating it once, Shepherd drives the real desktop to carry it out, governs
+every high-stakes step in real time, catches it the instant it strays, replays
+precisely what it did while you were away, and runs it on a machine across the
+country. The sub-millisecond policy gate, the independent AI verifier, the human
+decision point, and the tamper-evident audit trail are one system, not features
+bolted on.
 
-It is the first thing you install *alongside* your agent, not instead of it.
+Shepherd is not a safety wrapper around someone else's agent. The agent is the
+engine inside it. Everything that turns raw capability into something you can
+actually deploy, the teaching, the governance, the memory, the audit, the remote
+control, is Shepherd.
 
 ---
 
-## Why now
+## ⚡ Why now
 
 The agent-capability curve went vertical and the trust curve did not move. Every
 month a new model can drive a computer better, and every month the gap widens
@@ -41,31 +56,38 @@ office, a benefits desk) is not capability. It is that a black box touching a
 real machine is a liability nobody can sign off on. Shepherd is the missing
 control plane: the thing that turns "impressive demo" into "approved in prod."
 
+There is going to be a layer like this. Every agent that touches a real machine
+will eventually run behind one, the same way every packet eventually ran behind a
+firewall. We are building that layer to be the obvious one: local-first, model-
+agnostic, fast enough to be invisible, and honest enough that you can hand the
+audit log to a regulator. The agents get the headlines. The layer that lets them
+into production is the business.
+
 ---
 
-## The demo in 90 seconds
+## ⏱️ The demo in 90 seconds
 
-```
-You say:  "send the candidate decision email"
-   |
-   v  Deepgram transcribes your voice, the router resolves the intent
-   |
-Agent S opens the mail composer (Simular drives the real desktop)
-   |
-   v  It is missing context, so a durable Agentspan agent researches the
-   |     candidate on the live web (Browserbase) and drafts the body
-   |
-The agent moves to Send.
-   |
-   v  Policy engine (rule-based, under 1 ms): external recipient, secret in the
-   |  body. Verdict: HALT, before a single irreversible click.
-   |
-Control Hub lights up: the milestone graph that replayed node by node, the reason
-it stopped, the independent verifier's second opinion, the live screen.
-   |
-   v  You approve, or say "stop" out loud, and it halts at the boundary.
-   |
-Every action, including the halt, is signed into a SHA-256 hash-chain audit log.
+```mermaid
+flowchart TD
+    V["🗣️ You say: send the candidate decision email"] --> STT["Deepgram transcribes · router resolves the intent"]
+    STT --> AS["Agent S opens the mail composer<br/>Simular drives the real desktop"]
+    AS --> RES["Missing context, so a durable Agentspan agent<br/>researches the candidate on the live web Browserbase<br/>and drafts the body"]
+    RES --> SEND(["The agent moves to Send"])
+    SEND --> POL["⚡ Policy engine, under 1ms:<br/>external recipient + secret in the body"]
+    POL -->|"Verdict: HALT"| GATE["🛑 Stopped before a single irreversible click"]
+    GATE --> HUB["🎛️ Control Hub lights up<br/>milestone graph · verifier second opinion · live screen"]
+    HUB --> HUMAN{"You approve,<br/>or say stop out loud"}
+    HUMAN -->|approve| GO["▶️ It continues"]
+    HUMAN -->|stop| STOP["🛑 Halts at the boundary"]
+    GO --> AUDIT["🔗 Every action, including the halt,<br/>signed into a SHA-256 hash chain"]
+    STOP --> AUDIT
+
+    classDef danger fill:#bb4a3a,stroke:#bb4a3a,color:#fff;
+    classDef gate fill:#cf6a43,stroke:#cf6a43,color:#fff;
+    classDef proof fill:#223b3a,stroke:#223b3a,color:#fff;
+    class GATE,STOP danger;
+    class POL,HUMAN gate;
+    class AUDIT proof;
 ```
 
 Change one rule in `data/policy.yaml`, re-run, and the behavior changes
@@ -73,7 +95,7 @@ immediately. That is the difference between a demo and a product.
 
 ---
 
-## What you get (the Control Hub)
+## 🎛️ What you get (the Control Hub)
 
 A single console, not a pile of scripts. Every tab is live over WebSocket.
 
@@ -95,34 +117,34 @@ A single console, not a pile of scripts. Every tab is live over WebSocket.
 
 ---
 
-## How it works
+## ⚙️ How it works
 
-```
- Voice / typed intent
-   -> Deepgram STT (voice to text, boundary only)
-   -> Intent router       (USE_ROUTER=true) Redis vector search (BAAI/bge, local)
-                          + keyword fallback; else skipped
-   -> Execution engine    autonomous (default): an LLM drafts a plan, then Agent S
-                                      executes it screenshot-by-screenshot
-                          routed + ROUTINE_REPLAY=vision: Agent S plans against the demo
-                          routed + ROUTINE_REPLAY=deterministic: verbatim replay (offline floor)
-        |  (at high-stakes boundaries only, never mid-click)
-        v
-   3-layer oversight stack
-        1. Policy engine    rule-based, always on, under 1 ms (data/policy.yaml)
-                            credential / captcha / phishing / external-send triggers,
-                            app + domain containment, action + step rate limits
-        2. Verifier         independent Claude second opinion on a flag
-        3. Human gate       any surviving flag blocks; approve, halt, or steer.
-                            Spoken "stop" fires the same halt path.
-        |
-        v
-   Tamper-evident audit log     SHA-256 hash chain, GET /api/audit/verify
-   Telemetry                    Arize Phoenix spans, routine.run -> action.N -> workflow.node
-   Memory + crystallization     Redis replay store; runs coalesce into workflows
-        |
-        v
-   Control Hub (Next.js)  +  Remote Command Center (coordinator relay / tunnel)
+```mermaid
+flowchart TD
+    IN["🗣️ Voice / typed intent"] --> STT["Deepgram STT · boundary only"]
+    STT --> ROUTER["Intent router<br/>Redis vector search BAAI/bge + keyword fallback"]
+    ROUTER --> ENGINE["Execution engine<br/>autonomous plan, or routine replay vision/deterministic<br/>Agent S drives the desktop"]
+    ENGINE -->|"at high-stakes boundaries only, never mid-click"| STACK
+
+    subgraph STACK["🛡️ 3-layer oversight stack, fastest first"]
+        direction TB
+        L1["1 · Policy engine<br/>rule-based, always on, under 1ms · data/policy.yaml"]
+        L2["2 · Verifier<br/>independent Claude, or a Band council"]
+        L3["3 · Human gate<br/>approve / halt / steer · spoken stop fires the same halt"]
+        L1 --> L2 --> L3
+    end
+
+    STACK --> AUDIT["🔗 Tamper-evident audit log<br/>SHA-256 hash chain"]
+    STACK --> TEL["📊 Telemetry<br/>Arize Phoenix spans"]
+    STACK --> MEM["🧠 Memory + crystallization<br/>Redis recall · runs coalesce into workflows"]
+    AUDIT --> HUB["🎛️ Control Hub Next.js<br/>+ Remote Command Center"]
+    TEL --> HUB
+    MEM --> HUB
+
+    classDef gate fill:#cf6a43,stroke:#cf6a43,color:#fff;
+    classDef proof fill:#223b3a,stroke:#223b3a,color:#fff;
+    class STACK gate;
+    class AUDIT proof;
 ```
 
 A single rule runs through the whole codebase: **the click path is sacred.**
@@ -132,9 +154,9 @@ a model stall can never strand the mouse mid-action.
 
 ---
 
-## The five things that make it a product, not a demo
+## 🏆 The five things that make it a product, not a demo
 
-### 1. Two ways to hand it a task: show it once, or just say it
+### 1. 🎬 Two ways to hand it a task: show it once, or just say it
 
 For a task you repeat, **demonstrate it once** and the demonstration becomes the
 routine. No node graph, no Zapier-style flowchart. The agent works in the same
@@ -157,7 +179,7 @@ recorder and an actual agent: it generalizes to tasks nobody scripted. And the
 part that matters most, **the same oversight stack watches an autonomous run
 exactly as it watches a recorded one.** Open-ended capability, still on a leash.
 
-### 2. The oversight stack catches it before it costs you
+### 2. 🛡️ The oversight stack catches it before it costs you
 
 Defense in depth, fastest first, each layer independent so a miss in one is caught
 by the next.
@@ -188,7 +210,7 @@ demo flows ship today: a job application that halts at the credential field, and
 an email that halts before sending to an external recipient with a secret in the
 body. Both are governance moments, not form-fillers.
 
-### 3. It learns: runs crystallize into reusable workflows
+### 3. 🧠 It learns: runs crystallize into reusable workflows
 
 Most agent tools forget a run the second it ends. Shepherd remembers, at the
 altitude a person thinks at. Off the hot path, a finished run is coalesced into a
@@ -223,18 +245,20 @@ safety net tightens exactly where reality showed it should. And in LIVE mode,
 demonstration and flags drift the moment the agent goes off-script, before it
 compounds.
 
-### 4. Operate any machine, with no inbound ports
+### 4. 🛰️ Operate any machine, with no inbound ports
 
 Shepherd runs an agent on a machine across the country as easily as on your own.
 The operated agent dials out to a coordinator relay (one outbound connection, no
 inbound ports, no VPN), and a remote Command Center watches its **live screen
 over WebRTC peer-to-peer** beside the workflow graph it builds in real time. You
-dispatch ad-hoc tasks and see exactly how the vector router resolved them, steer
-or teach mid-run, and deploy the relay anywhere with a one-command Cloudflare
-Tunnel. The full remote-operation and theoretical peering model is in
-`docs/PEERING.md`.
+dispatch ad-hoc tasks and see exactly how the vector router resolved them, and you
+are never a spectator: **steer, suspend, and resume an autonomous run mid-flight**,
+inject a new instruction between steps, pause it cold, then let it pick up where it
+left off, or teach it a better move that bakes into the workflow. Deploy the relay
+anywhere with a one-command Cloudflare Tunnel. The full remote-operation and
+theoretical peering model is in `docs/PEERING.md`.
 
-### 5. Built on real agent infrastructure, not glue
+### 5. 🧩 Built on real agent infrastructure, not glue
 
 The execution engine is Simular's Agent S planning against your demonstration.
 The research digression is a genuine Agentspan (Orkes) agent that compiles into a
@@ -249,16 +273,18 @@ build, not stubbed: none of it is a screenshot of a logo.
 
 ---
 
-## Integrations
+## 🧱 The anatomy of the watch
 
-Ordered by how load-bearing each one actually is in the code. **Status** says what
-it takes to light up: _Core_ (always on, the product needs it), _On by default_,
-_Key-gated_ (needs a credential, else a graceful fallback runs), _Off by default_,
-or _Build-time_ (used to write the code, nothing runs at runtime).
+Shepherd is one system, not a coat of logos. Every layer below is load-bearing:
+pull one and a real capability goes dark. We built each in its intended shape and
+ran every one live, never stubbed, never a screenshot of a logo. The **Status**
+column is honest about what each takes to light up (_Core_ always on, _On by
+default_, _Key-gated_ needs a credential, _Off by default_, or _Build-time_), and
+every one degrades gracefully when its service is gone.
 
-| Sponsor | Status | How Shepherd actually uses it |
+| Layer | Status | What it is, and why the product needs it |
 |---|---|---|
-| **Simular (Agent S + SimuLang)** | Core | The execution engine, the only code that actuates. Real `gui-agents` AgentS3 (`engine/agent_s_adapter.py`): it plans each LIVE and autonomous action from a screenshot and drives the desktop via pyautogui. The cursor moving on its own is Agent S. Two Simular products composed in their intended shape: once a task is **learned**, Shepherd **graduates it into a deterministic SimuLang script** (`services/simulang_runner.py`) that replays off the accessibility tree with **zero LLM tokens per run** (`simulang run`), with Agent S vision as the explorer and the fallback. Agent S learns; SimuLang replays cheaply and auditably. Nothing else here clicks. |
+| **Simular (Agent S + SimuLang)** | Core | The execution engine, the only code that actuates. Real `gui-agents` AgentS3 (`engine/agent_s_adapter.py`): it plans each LIVE and autonomous action from a screenshot and drives the desktop via pyautogui. The cursor moving on its own is Agent S. Two Simular products composed in their intended shape: once a task is **learned**, Shepherd **graduates it into a deterministic SimuLang script** (`services/simulang_runner.py`) that replays off the accessibility tree with **zero LLM tokens per run** (compiled `.ts`, run with `npx tsx` against the real `@simular-ai/simulang-js` native runtime), with Agent S vision as the explorer and the fallback. Agent S learns; SimuLang replays cheaply and auditably. Nothing else here clicks. |
 | **Anthropic / Claude** | Core | The cognitive layer. Claude is the independent **verifier** (`services/verifier.py`) and the autonomous **routine planner** (`engine/routine_planner.py`), and the model behind the **Agentspan researcher**. It can also drive milestone segmentation and the Agent S planner, but those are provider-configurable (Gemini is the default segmenter to conserve budget; the Agent S provider is set per-config). The deployability thesis (agents in health, public services, finance) rests on this oversight. |
 | **Arize Phoenix** | On by default | Not just observability, a **closed loop that improves the agent**. The base layer is real OpenTelemetry: spans on every run, plan, action, and workflow node (`routine.run → agent_s.plan → action.N`) with OpenInference I/O on LLM/TOOL spans. On top, `services/phoenix_evals.py` runs an **LLM-as-judge** over each oversight decision, **writes the score back onto the Phoenix span** (the Annotations panel), and feeds it into adaptive risk: steps the judge repeatedly calls genuine risks get **auto-promoted into the monitored set**, so Phoenix evaluation data literally changes which steps require human approval next run. `scripts/phoenix_experiment.py` produces the before/after "oversight precision" table. Off the click path; degrades to no-op spans if Phoenix is down. `./scripts/serve_phoenix.sh` → http://localhost:6006 |
 | **Redis** | On if running | Redis is the agent's **memory**, well beyond caching, all on Redis 8 vector sets (`VADD`/`VSIM`): (1) **cross-run semantic recall** (`services/run_memory.py`) embeds every finished run and, when a new goal arrives, recalls the most similar *successful* prior run **by meaning** so a reworded goal ("submit my Acme application" vs "apply to the Acme job") reuses a proven milestone chain instead of planning from scratch; (2) vector search for intent routing; (3) a semantic LLM cache that skips repeat milestone segmentation by meaning; plus agent replay memory and the adaptive-risk signal. Three distinct AI uses of the same primitive. Off the click path; every one degrades gracefully (keyword routing, fresh planning, heuristics) so the system runs fine without Redis. |
@@ -270,13 +296,14 @@ or _Build-time_ (used to write the code, nothing runs at runtime).
 | **Band (band.ai)** | Off by default | A live multi-agent **oversight council**, verified end to end. On an uncertain high-stakes flag the engine (as `shepherd-monitor`, the chair) posts the action into a Band room and a panel of independent specialist agents on Band's mesh, `shepherd-security`, `shepherd-privacy`, `shepherd-destructive`, each judge it from their own lane and reply with a **VOTE**, even @mentioning each other to escalate. The chair tallies the votes (any halt wins) into the human gate. It is Band's own DevSquad / Drafter-Reviewer pattern mapped onto Shepherd's oversight: genuine N-agent deliberation, not a single call. Boundary-only, roughly 5-second round-trip against the real Agent API. Off by default: with the council unconfigured it gracefully collapses to one `shepherd-verifier`, and with Band off entirely the identical verdict comes from the in-process Claude verifier. |
 | **Cognition / Devin** | Build-time | A coding agent used during development, not a runtime dependency, no Devin code runs in production. `devin-ai-integration[bot]` authored or co-authored several merged feature branches (WebRTC P2P remote, the live execution-trace graph, fleet session summaries), reviewed via Devin Review and resolved in-branch before merge. |
 
-Every runtime integration is feature-flagged and degrades gracefully. With all
-flags off, the core automation and Control Hub run fully offline, the only thing
-you can't remove is Agent S (the engine) and a planner/verifier model.
+Every layer is feature-flagged and degrades to a clean no-op when its service is
+absent, so with everything off the core automation and Control Hub still run fully
+offline. The only two you cannot remove are the hands (Agent S) and the judgment
+(a planner/verifier model).
 
 ---
 
-## Governance policy
+## 📋 Governance policy
 
 `data/policy.yaml` is the whole oversight contract, hot-reloaded on every
 evaluation. No code change, no restart.
@@ -301,7 +328,7 @@ containment:
   max_steps_per_run: 100
 ```
 
-## Audit log
+## 🔗 Audit log
 
 Every action is appended to a SHA-256 hash chain. Change one byte anywhere and
 verification pinpoints the break.
@@ -311,7 +338,7 @@ curl localhost:8765/api/audit/verify
 # {"valid": true, "entries": 47, "tampered_at": null, "reason": "chain intact"}
 ```
 
-## Execution modes
+## 🎚️ Execution modes
 
 Two un-bundled knobs decide how an intent is handled (`USE_ROUTER` / `ROUTINE_REPLAY`):
 
@@ -330,7 +357,7 @@ runtime override wins for the live process until changed.
 
 ---
 
-## Quick start
+## 🚀 Quick start
 
 ```bash
 # 1. Install (Python via uv, Node for the Control Hub)
@@ -362,7 +389,7 @@ BACKEND_URL=http://localhost:8765 uv run python main.py
 
 Open **http://localhost:3000** and speak or type an intent.
 
-## Observability (Phoenix + Sentry)
+## 📊 Observability (Phoenix + Sentry)
 
 Both are optional and off the click path.
 
@@ -382,7 +409,7 @@ Phoenix GraphQL (`getProjectByName`).
 Implementation: `telemetry/telemetry.py`, `telemetry/agent_trace.py`,
 `telemetry/phoenix_client.py`, `telemetry/sentry_init.py`.
 
-## Project layout
+## 🗂️ Project layout
 
 ```
 main.py            Entry loop: intent -> router -> engine -> telemetry + memory
@@ -403,8 +430,26 @@ data/              routines.json, policy.yaml, workflows, demo target pages
 
 ---
 
+## 🎯 The bet
+
+Every wave of computing got a control plane once it touched things that mattered.
+Networks got the firewall. Cloud got IAM. Code got CI and code review. Agents that
+click around real machines are the next wave, and right now they have nothing: no
+gate, no record, no proof, just a cursor moving and a shrug. That absence is the
+single biggest thing keeping capable agents out of the rooms where they would be
+worth the most.
+
+Shepherd is the control plane for that wave. We did not build a safer agent. We
+built the layer that makes **any** agent safe enough to deploy, and we built it
+local-first, model-agnostic, and fast enough to disappear, so it wins on the one
+axis that compounds: the more agents the world ships, the more they all need this.
+Every piece in this repo runs today. We exercised every integration live, signed
+every action into a hash chain, and put the whole thing behind one console a
+non-engineer could operate. This is not a prototype of the idea. It is the idea,
+working.
+
 <div align="center">
 
-The cursor moving is the hook. The audit trail beside it is the product.
+**The cursor moving is the hook. The audit trail beside it is the product.**
 
 </div>

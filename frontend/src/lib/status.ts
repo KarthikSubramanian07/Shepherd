@@ -17,6 +17,7 @@ export const agentStatusStyle: Record<AgentStatus, StatusStyle> = {
   blocked: { label: "Blocked", text: "text-halt", bg: "bg-halt/10", hex: "#ef4444" },
   completed: { label: "Completed", text: "text-ok", bg: "bg-ok/10", hex: "#22c55e" },
   failed: { label: "Failed", text: "text-halt", bg: "bg-halt/10", hex: "#ef4444" },
+  suspended: { label: "Suspended", text: "text-flag", bg: "bg-flag/10", hex: "#f59e0b" },
 };
 
 export const runStatusStyle: Record<RunStatus, StatusStyle> = {

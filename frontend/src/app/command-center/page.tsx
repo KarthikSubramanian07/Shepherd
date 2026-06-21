@@ -85,7 +85,7 @@ export default function CommandCenterPage() {
           {/* Cross-run memory · the agent recalled a similar past run from Redis */}
           {state.memoryRecall && (
             <div className="mt-3 flex items-start gap-2 rounded-xl border border-accent/30 bg-accent/[0.06] p-3 text-xs">
-              <span className="mt-0.5 shrink-0 text-accent-ink">↺</span>
+              <span aria-hidden="true" className="mt-0.5 shrink-0 text-accent-ink">↺</span>
               <div>
                 <span className="font-semibold text-ink">
                   Recalled a similar run ({Math.round(state.memoryRecall.similarity * 100)}% match)
@@ -227,7 +227,10 @@ export default function CommandCenterPage() {
           {state.cloudBrowserUrl && (
             <div className="mt-4 rounded-xl border border-edge bg-canvas/50 p-4">
               <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                <span className="h-1.5 w-1.5 animate-pulseRing rounded-full bg-accent" />
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 animate-pulseRing rounded-full bg-accent"
+                />
                 Live cloud browser · Browserbase + Stagehand (interactive)
               </div>
               <iframe

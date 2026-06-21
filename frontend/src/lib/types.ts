@@ -125,7 +125,8 @@ export type AgentStatus =
   | "running"
   | "blocked"
   | "completed"
-  | "failed";
+  | "failed"
+  | "suspended";
 
 export interface Agent {
   id: string;

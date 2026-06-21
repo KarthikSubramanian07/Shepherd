@@ -188,12 +188,16 @@ class AgentWorker(threading.Thread):
     @staticmethod
     def _status_from_result(result) -> str:
         status = getattr(result, "status", None)
-        if status in ("completed", "failed", "aborted"):
-            return "completed" if status == "completed" else (
-                "halted" if status == "aborted" else "failed")
+        if status in ("completed", "failed", "aborted", "suspended"):
+            # A suspended autonomous run (a monitor halt, a steer, or a parked
+            # failure) is NOT a success. In orchestrated mode the per-worker
+            # engine is torn down when run() ends, so a suspended task has
+            # stopped and needs attention: report it as halted, never completed.
+            return {"completed": "completed", "failed": "failed",
+                    "aborted": "halted", "suspended": "halted"}[status]
         if isinstance(result, dict) and result.get("status"):
             return str(result["status"])
-        return "completed"
+        return "failed"  # fail-safe: never report an unrecognized result as completed
 
     def _emit(self, event_type: str, data: dict) -> None:
         if self._on_event is None:
