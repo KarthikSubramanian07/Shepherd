@@ -128,6 +128,13 @@ class Settings(BaseSettings):
     screen_width: int = 1920
     screen_height: int = 1080
 
+    # ── Agentspan (Orkes) — durable agent engine, open-source, self-hosted ──
+    # The research digression runs as a real Agentspan agent on this server.
+    # No Agentspan key (it is keyless locally); the agent reuses ANTHROPIC_API_KEY.
+    agentspan_enabled: bool = True
+    agentspan_server_url: str = "http://localhost:6767/api"
+    agentspan_model: str = "anthropic/claude-haiku-4-5"
+
     @property
     def features(self) -> dict[str, bool]:
         """Feature flags derived from which credentials are present."""
@@ -139,6 +146,7 @@ class Settings(BaseSettings):
             "browserbase": bool(self.browserbase_api_key),
             "band":        bool(self.band_api_key and self.band_room_key),
             "orkes":       bool(self.orkes_server_url and self.orkes_api_key),
+            "agentspan":   bool(self.agentspan_enabled and self.anthropic_api_key),
             "agent_s":     True,
             "remote":      bool(self.coordinator_url),
         }
@@ -161,6 +169,8 @@ BAND_API_KEY               = settings.band_api_key
 BAND_ROOM_KEY              = settings.band_room_key
 ORKES_SERVER_URL           = settings.orkes_server_url
 ORKES_API_KEY              = settings.orkes_api_key
+AGENTSPAN_SERVER_URL       = settings.agentspan_server_url
+AGENTSPAN_MODEL            = settings.agentspan_model
 
 EXECUTION_MODE = settings.execution_mode
 AUTONOMOUS_ON_UNMATCHED = settings.autonomous_on_unmatched

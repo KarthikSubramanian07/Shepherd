@@ -516,6 +516,18 @@ async def get_status() -> JSONResponse:
     })
 
 
+@app.get("/api/agentspan/status")
+async def agentspan_status() -> JSONResponse:
+    """The research digression runs as a real Agentspan (Orkes) agent on a durable
+    self-hosted server. Surface its reachability + last execution so the Control
+    Hub can show the agent engine working during the demo."""
+    try:
+        from services import agentspan_research
+        return JSONResponse(agentspan_research.status())
+    except Exception as e:
+        return JSONResponse({"available": False, "error": str(e)})
+
+
 @app.post("/api/mode/{mode}")
 async def set_mode(mode: str) -> JSONResponse:
     mode = mode.upper()

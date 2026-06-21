@@ -272,7 +272,8 @@
           "action": "read",
           "url": "https://github.com/{GITHUB_USER}",
           "store_as": "PROJECTS_SUMMARY",
-          "fallback_value": "Notable work: an open-source automation CLI, a real-time data pipeline, and a governance dashboard for AI agents."
+          "fallback_value": "Notable work: an open-source automation CLI, a real-time data pipeline, and a governance dashboard for AI agents.",
+          "agent_research": true
         }
       },
       {
@@ -392,7 +393,8 @@
           "action": "read",
           "url": "https://github.com/{GITHUB_USER}",
           "store_as": "RESEARCH_NOTES",
-          "fallback_value": "an open-source automation CLI, a real-time data pipeline, and a governance dashboard for AI agents"
+          "fallback_value": "an open-source automation CLI, a real-time data pipeline, and a governance dashboard for AI agents",
+          "agent_research": true
         }
       },
       {

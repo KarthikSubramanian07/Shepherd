@@ -1125,19 +1125,46 @@ class ShepherdExecutionEngine:
                 if blocked:
                     raise ValueError(f"[containment] {blocked['reason']}")
             from services.browserbase_routine import run_browser_step
-            result = run_browser_step(bstep)
-            # A "read" can feed the next step: store its value into a variable so a
-            # later {VAR} fill uses what the agent just read off the live web. If the
-            # read came back empty, fall back to the step's fallback_value (then to
-            # an empty string) so a later fill never ships a literal {PLACEHOLDER}.
             store_as = bstep.get("store_as")
-            value = result.get("value")
+
+            # Research digression: run it as a real Agentspan agent (durable
+            # workflow on the Agentspan server) that reasons + calls a fetch tool
+            # (Browserbase under the hood). Falls through to a direct read if the
+            # agent engine is unavailable, so the demo never depends on it.
+            value = None
+            via = "browserbase"
+            if bstep.get("agent_research") and FEATURES.get("agentspan"):
+                try:
+                    from services import agentspan_research
+                    summary = agentspan_research.research(target_url)
+                    if summary:
+                        value = summary
+                        via = "agentspan"
+                        event_bus.emit("agent.agentspan", {
+                            "agent":        "shepherd-researcher",
+                            "execution_id": agentspan_research.status().get("last_execution_id"),
+                            "url":          target_url,
+                            "summary":      summary[:160],
+                            "store_as":     store_as,
+                        })
+                except Exception as e:
+                    print(f"[agentspan] research dispatch failed (non-fatal): {e}")
+
+            if value is None:
+                result = run_browser_step(bstep)
+                value = result.get("value")
+                via = result.get("status", "ok")
+
+            # A "read" feeds the next step: store its value into a variable so a
+            # later {VAR} fill uses what the agent just read. If empty, fall back to
+            # the step's fallback_value (then ""), so a fill never ships a literal
+            # {PLACEHOLDER}.
             if store_as:
                 variables[store_as] = value or bstep.get("fallback_value", "") or ""
             event_bus.emit("step.browser", {
-                "url":      result.get("url", target_url),
+                "url":      target_url,
                 "action":   bstep.get("action", "navigate"),
-                "status":   result.get("status", "ok"),
+                "status":   via,
                 "value":    (value or "")[:160],
                 "store_as": store_as,
             })

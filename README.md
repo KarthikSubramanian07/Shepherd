@@ -155,7 +155,7 @@ seeing exactly how the vector router resolved them. See `docs/PEERING.md`.
 | **Redis** | Beyond caching: vector search for intent routing (Redis 8 vectorset, VADD/VSIM), agent replay memory, and a semantic LLM cache that skips repeat milestone segmentation by meaning. |
 | **Sentry** | Error monitoring on a tool performing destructive OS actions. Auto-captures exceptions; a deliberately triggered error shows the full trace. |
 | **Band** | Boundary-only multi-agent messaging: the monitor agent and the engine agent collaborate around the run, never inside the click path. |
-| **Orkes / Agentspan** | Wraps the agent run for Agentspan observation when configured. |
+| **Orkes / Agentspan** | The research digression is a real Agentspan agent. `shepherd-researcher` compiles into a durable workflow on the self-hosted Agentspan server, reasons, and calls a `fetch_page` tool (Browserbase under the hood, so the two compose). Every run leaves a queryable execution. Open-source and keyless locally; the agent reuses the Anthropic key. Falls back to a direct read if the server is down. |
 | **Anthropic / Claude Code** | Built end to end with Claude Code. Claude is the verifier (independent second opinion), the milestone segmenter, and the optional reasoning layer behind the router, with a deterministic keyword fallback always retained. |
 
 Every integration is feature-flagged and degrades gracefully. With all flags off,
