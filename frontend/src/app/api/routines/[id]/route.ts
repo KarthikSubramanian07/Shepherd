@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
-import { routines } from "@/lib/mock-data";
+
+const BACKEND = process.env.SHEPHERD_API_BASE ?? "http://localhost:8765";
 
 export async function GET(
   _req: Request,
   { params }: { params: { id: string } },
 ) {
-  const routine = routines.find((r) => r.id === params.id);
-  if (!routine) {
-    return NextResponse.json({ error: "routine not found" }, { status: 404 });
+  try {
+    const res = await fetch(`${BACKEND}/api/routines/${params.id}`, {
+      cache: "no-store",
+    });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error: `cannot reach Shepherd backend at ${BACKEND} — is it running? (${(e as Error).message})`,
+      },
+      { status: 502 },
+    );
   }
-  return NextResponse.json(routine);
 }
