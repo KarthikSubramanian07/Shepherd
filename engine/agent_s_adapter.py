@@ -29,6 +29,8 @@ from typing import Optional
 # Map the host OS to a gui-agents platform tag so generated hotkeys are correct
 # (e.g. ctrl+a/ctrl+v on Linux vs command+a on macOS).
 _PLATFORM = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(sys.platform, "linux")
+_OS_LABEL = {"linux": "Linux", "darwin": "macOS", "windows": "Windows"}.get(_PLATFORM, "Linux")
+_MOD_KEY = "command" if _PLATFORM == "darwin" else "ctrl"
 
 from config import (
     AGENT_S_ENGINE_TYPE, AGENT_S_MODEL, AGENT_S_BASE_URL,
@@ -332,7 +334,7 @@ class AgentSAdapter:
             b64 = base64.standard_b64encode(self._capture()).decode()
             plan_block = f"{plan_hint}\n\n" if plan_hint else ""
             prompt = (
-                "You are an autonomous desktop agent on macOS pursuing this goal:\n"
+                f"You are an autonomous desktop agent on {_OS_LABEL} pursuing this goal:\n"
                 f"  {goal}\n\n"
                 f"{plan_block}"
                 f"{memory_hint}\n"
@@ -355,11 +357,11 @@ class AgentSAdapter:
                 "- FOCUS FIRST. Before typing anything, make the target app frontmost "
                 "with activate_app('Mail') (or 'Safari', 'Google Chrome', etc.). "
                 "pyautogui sends keystrokes to whatever the OS has focused — if the app "
-                "isn't truly frontmost, your text lands in Spotlight or the wrong field. "
-                "Do NOT rely on a Spotlight launch (command+space) to also grab focus; "
+                "isn't truly frontmost, your text lands in a launcher or the wrong field. "
+                f"Do NOT rely on a launcher shortcut ({_MOD_KEY}+space) to also grab focus; "
                 "call activate_app to launch AND focus deterministically.\n"
                 "- REPLACING A FIELD IS ONE ATOMIC BATCH: click the field, select-all "
-                "(command+a), AND type_text the new value — all in the SAME turn. NEVER "
+                f"({_MOD_KEY}+a), AND type_text the new value — all in the SAME turn. NEVER "
                 "end a batch right after a select-all: a text selection is lost the moment "
                 "the next turn re-focuses or re-clicks, so you will loop forever selecting "
                 "and never replacing. If you select text, you MUST type_text its "
@@ -371,7 +373,7 @@ class AgentSAdapter:
                 "text you typed on an earlier turn — leave it ALONE and move to the next "
                 "unfinished field. Only clear/retype fields that are wrong or empty; never "
                 "re-do a field you already completed.\n"
-                "- DISMISS STRAY POPUPS. If you see an emoji/Character Viewer, Spotlight, "
+                "- DISMISS STRAY POPUPS. If you see an emoji picker, a search overlay, "
                 "an autocomplete, or any overlay obstructing input, press 'escape' as the "
                 "FIRST action of the batch before doing anything else.\n"
                 "- STOP the batch before any action whose target only appears after a "
@@ -642,7 +644,7 @@ class AgentSAdapter:
             b64 = base64.standard_b64encode(self._capture()).decode()
             prompt = (
                 "You are an autonomous desktop agent executing a saved WORKFLOW on "
-                f"macOS. Overall goal:\n  {goal}\n\n"
+                f"{_OS_LABEL}. Overall goal:\n  {goal}\n\n"
                 f"{resolved_block}{missing_block}\n"
                 f"{current_block}"
                 f"{plan_block}"
