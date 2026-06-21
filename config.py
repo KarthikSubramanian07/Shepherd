@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     band_verifier_handle: str = "shepherd-verifier"
     band_api_base: str = "https://app.band.ai/api/v1/agent"
 
+    # ── ArmorIQ — intent-intelligence authorization for the oversight stack ──
+    # Before a run executes, the resolved plan is captured and ArmorIQ issues a
+    # cryptographically-signed intent token gated by an allow/deny policy derived
+    # from containment. A denial halts the run before the first action.
+    armoriq_enabled: bool = False
+    armoriq_api_key: str = ""           # ak_live_... / ak_test_... / ak_claw_...
+
     # ── Deepgram STT tuning ────────────────────────────────────────────────
     deepgram_model: str = "nova-2"
     deepgram_language: str = "en-US"
@@ -186,6 +193,7 @@ class Settings(BaseSettings):
                                  and self.band_engine_api_key and self.band_verifier_agent_id),
             "orkes":       bool(self.orkes_server_url and self.orkes_api_key),
             "agentspan":   bool(self.agentspan_enabled and self.anthropic_api_key),
+            "armoriq":     bool(self.armoriq_enabled and self.armoriq_api_key),
             "agent_s":     True,
             "remote":      bool(self.coordinator_url),
         }
@@ -212,6 +220,8 @@ BAND_ENGINE_API_KEY        = settings.band_engine_api_key
 BAND_VERIFIER_AGENT_ID     = settings.band_verifier_agent_id
 BAND_VERIFIER_HANDLE       = settings.band_verifier_handle
 BAND_API_BASE              = settings.band_api_base
+ARMORIQ_ENABLED            = settings.armoriq_enabled
+ARMORIQ_API_KEY            = settings.armoriq_api_key
 ORKES_SERVER_URL           = settings.orkes_server_url
 ORKES_API_KEY              = settings.orkes_api_key
 AGENTSPAN_SERVER_URL       = settings.agentspan_server_url
