@@ -217,6 +217,93 @@ Commands sent from the Command Center to the agent:
 
 ---
 
+## Tailscale Setup (Recommended for Restrictive Networks)
+
+If `cloudflared` is blocked (campus WiFi, corporate networks that filter port 7844 or do TLS inspection), **Tailscale** is the best alternative. It creates a private encrypted mesh between your machines — works through any NAT/firewall, no port forwarding, no public exposure.
+
+### Install (2 minutes)
+
+```bash
+# Linux (agent machine / coordinator)
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+
+# macOS (Command Center laptop)
+brew install tailscale
+# Or download from https://tailscale.com/download/mac
+tailscale up
+```
+
+On first run, it prints a login URL — open it in a browser to authenticate. Both machines must be on the same Tailscale account (or shared via Tailscale ACLs).
+
+After login, each machine gets a stable `100.x.y.z` Tailscale IP:
+```bash
+tailscale ip -4
+# → 100.64.0.1 (example)
+```
+
+### Topology: Coordinator + Agent on one machine, Command Center on another
+
+```
+┌──────────────────────────────────┐              ┌────────────────────────┐
+│  Machine A (Tailscale: 100.64.0.1)│              │  Machine B (laptop)    │
+│  coordinator (port 8770)         │◀─Tailscale──│  Command Center        │
+│  + main.py --listen              │   encrypted  │  browser → :3000       │
+│    (connects to localhost:8770)  │──mesh─────▶│                        │
+└──────────────────────────────────┘              └────────────────────────┘
+```
+
+**Machine A** (agent + coordinator):
+```bash
+cd shepherd
+
+# Start coordinator
+export COORDINATOR_TOKEN="demo"
+export COORDINATOR_PORT=8770
+uv run python -m coordinator &
+
+# Start agent (connects locally, no tunnel needed)
+export COORDINATOR_URL="ws://localhost:8770"
+export AGENT_PAIRING_CODE="DEMO"
+DISPLAY=:0 uv run python main.py --listen
+```
+
+**Machine B** (Command Center):
+```bash
+cd shepherd/frontend
+
+# Point at Machine A's Tailscale IP (not localhost!)
+cat > .env.local << 'EOF'
+NEXT_PUBLIC_COORDINATOR_URL=ws://100.64.0.1:8770
+NEXT_PUBLIC_COORDINATOR_TOKEN=demo
+EOF
+
+npm install && npm run dev
+# Open http://localhost:3000/remote → enter session code "DEMO"
+```
+
+### Why Tailscale works where Cloudflare Tunnel doesn't
+
+| | Cloudflare Tunnel | Tailscale |
+|---|---|---|
+| Blocked by | Port 7844 filtering, TLS inspection | Almost nothing (uses DERP relays on :443 as fallback) |
+| Requires | Outbound TCP :7844 to Cloudflare edge | Outbound HTTPS :443 (always allowed) |
+| URL | Random public `*.trycloudflare.com` | Private `100.x.y.z` (not exposed to internet) |
+| Auth | Token in URL params | Tailscale ACLs (machine-level) |
+| Bandwidth | Unlimited (free) | Unlimited (free for personal, 100 devices) |
+
+### Tailscale + WebRTC bonus
+
+Tailscale also solves the WebRTC P2P NAT traversal problem. Since both machines get routable Tailscale IPs, ICE candidates can connect directly without TURN:
+
+```bash
+# On the agent machine, enable WebRTC P2P:
+export WEBRTC_ENABLED=true
+# ICE will use the Tailscale IP as a host candidate → direct P2P video
+```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -227,6 +314,8 @@ Commands sent from the Command Center to the agent:
 | "Agent S unavailable" | Missing LLM API key or `gui-agents` not installed | Run `uv sync` and set `AGENT_S_ENGINE_TYPE` + API key in `.env` |
 | WebSocket disconnects | Tunnel idle timeout (100s) | Non-issue during active use (frames sent every 1s); if idle, add a ping |
 | Tunnel URL changed | `cloudflared` restarted | Update `COORDINATOR_URL` on agent and `NEXT_PUBLIC_COORDINATOR_URL` on frontend |
+| `cloudflared` TLS handshake timeout | Network blocks port 7844 (campus WiFi, corporate) | Use Tailscale instead (see above), or hotspot from phone to bypass the middlebox |
+| WebRTC P2P not connecting (JPEG fallback works) | Both peers behind symmetric NAT, no TURN server | Use Tailscale (gives routable IPs) or add a TURN relay; JPEG fallback is fine for demos |
 
 ---
 
