@@ -126,6 +126,28 @@ def test_coordinator_tracks_finalize_gate():
     assert snap["finalized"] == {"action": "persisted", "workflow_id": "WF", "version": 2}
 
 
+def test_coordinator_tracks_dispatch_routing():
+    """An ad-hoc dispatch's routing decision is surfaced for the operator."""
+    hub = Hub()
+    conn = _conn()
+
+    hub.apply_event(conn, _ev("intent.received", raw_text="apply to the job", source="command-center"))
+    assert conn.snapshot()["routing"]["state"] == "routing"
+
+    hub.apply_event(conn, _ev(
+        "plan.resolved", kind="WORKFLOW", target="WF_LIVE_JOB_APPLICATION",
+        confidence=0.83, source="vector", matched=["apply", "job"],
+    ))
+    r = conn.snapshot()["routing"]
+    assert r["state"] == "matched"
+    assert r["kind"] == "WORKFLOW" and r["target"] == "WF_LIVE_JOB_APPLICATION"
+    assert r["confidence"] == 0.83
+
+    # a later unmatched intent falls back to autonomous
+    hub.apply_event(conn, _ev("intent.autonomous_fallback", raw_text="do something new"))
+    assert conn.snapshot()["routing"]["state"] == "autonomous"
+
+
 def test_relay_finalize_command_resolves_gate():
     """The Command Center's workflow.finalize command unblocks await_finalize."""
     workflow_control.reset()

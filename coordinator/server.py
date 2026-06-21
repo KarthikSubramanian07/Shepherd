@@ -69,6 +69,9 @@ class AgentConn:
     # Live workflow traversal state, built on the fly from workflow.* events so the
     # Command Center can render the milestone graph for this agent.
     workflow: Optional[dict] = None
+    # Most recent ad-hoc dispatch routing decision (intent → workflow / autonomous),
+    # surfaced so the operator can see what the vector router matched.
+    routing: Optional[dict] = None
 
     def snapshot(self) -> dict:
         return {
@@ -88,6 +91,7 @@ class AgentConn:
             "lastActivityAt":   _iso(self.last_activity),
             "hasFrame":         self.last_frame is not None,
             "workflow":         self._workflow_view(),
+            "routing":          self.routing,
         }
 
     def _workflow_view(self) -> Optional[dict]:
@@ -195,7 +199,27 @@ class Hub:
         conn.last_activity = time.time()
         conn.history.append(event)
 
-        if t == "execution.start":
+        if t == "intent.received":
+            # An ad-hoc task was dispatched; routing is about to be decided.
+            conn.routing = {"state": "routing", "text": d.get("raw_text"),
+                            "source": d.get("source")}
+        elif t == "plan.resolved":
+            # The vector/keyword router resolved the intent to a target.
+            kind = d.get("kind")
+            matched = kind in ("WORKFLOW", "ROUTINE")
+            conn.routing = {
+                "state": "matched" if matched else "unmatched",
+                "kind": kind, "target": d.get("target"),
+                "confidence": d.get("confidence"), "source": d.get("source"),
+                "matched": d.get("matched", []),
+            }
+        elif t in ("intent.unmatched", "intent.autonomous_fallback"):
+            conn.routing = {
+                "state": "autonomous" if t == "intent.autonomous_fallback" else "unmatched",
+                "kind": "AUTONOMOUS" if t == "intent.autonomous_fallback" else None,
+                "text": d.get("raw_text"),
+            }
+        elif t == "execution.start":
             conn.status = "running"
             conn.routine_id = d.get("routine_id")
             conn.run_id = d.get("run_id")
