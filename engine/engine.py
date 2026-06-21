@@ -1516,17 +1516,29 @@ class ShepherdExecutionEngine:
         `activate_app` is exposed so the agent can deterministically bring a target
         app to the foreground (instead of gambling that a Spotlight launch took
         focus); without guaranteed focus, keystrokes land in the wrong window.
+
+        Agent S (and the batched autonomous planner) frequently emit *bare* action
+        calls — ``hotkey('ctrl','l')``, ``press('enter')``, ``click(760, 300)`` —
+        dropping the documented ``pyautogui.`` prefix. Without the names in scope
+        that raises ``NameError`` and aborts the whole step (e.g. "name 'hotkey' is
+        not defined"). Expose the common pyautogui verbs as top-level names so both
+        the prefixed and bare forms execute identically.
         """
-        exec(  # noqa: S102
-            code,
-            {
-                "__builtins__": __builtins__,
-                "pyautogui": pyautogui,
-                "time": time,
-                "activate_app": activate_app,
-                "type_text": type_text,
-            },
-        )
+        ns: dict = {
+            "__builtins__": __builtins__,
+            "pyautogui": pyautogui,
+            "time": time,
+            "sleep": time.sleep,
+            "activate_app": activate_app,
+            "type_text": type_text,
+        }
+        for _verb in (
+            "click", "doubleClick", "rightClick", "moveTo", "moveRel", "dragTo",
+            "press", "hotkey", "keyDown", "keyUp", "typewrite", "write", "scroll",
+            "mouseDown", "mouseUp",
+        ):
+            ns[_verb] = getattr(pyautogui, _verb)
+        exec(code, ns)  # noqa: S102
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
         def sub(t: Optional[str]) -> Optional[str]:
