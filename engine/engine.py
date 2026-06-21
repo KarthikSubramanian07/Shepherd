@@ -20,6 +20,7 @@ import pyautogui
 import config as _cfg
 from config import (
     FEATURES, EXECUTION_MODE, AUTONOMOUS_MAX_STEPS, AUTONOMOUS_PLAN_FIRST,
+    AUTONOMOUS_USE_MEMORY,
     AGENT_S_MODEL, AGENT_S_ENGINE_TYPE, PLANNER_MODEL, PLANNER_ENGINE_TYPE,
 )
 from shepherd_types import (
@@ -109,14 +110,16 @@ class ShepherdExecutionEngine:
         event_bus.emit("routine.planning", {"goal": goal})
         print(f"[planner] Drafting routine for: {goal}")
 
-        # Memory: load this goal's prior graph and feed its milestone trail to the
-        # planner so it reuses what worked before instead of re-deriving the task.
+        # Memory recall is opt-in (AUTONOMOUS_USE_MEMORY); off by default so the
+        # planner drafts fresh rather than reusing this goal's prior milestone trail.
         task_key = self._autonomous_task_key(goal)
-        mem = self._graphs.load(task_key, {})
-        prior_milestones = [n.label for n in mem.nodes]
-        if prior_milestones:
-            print(f"[planner] recalled {len(prior_milestones)} milestone(s) from memory "
-                  f"(run #{mem.run_count})")
+        prior_milestones: list = []
+        if AUTONOMOUS_USE_MEMORY:
+            mem = self._graphs.load(task_key, {})
+            prior_milestones = [n.label for n in mem.nodes]
+            if prior_milestones:
+                print(f"[planner] recalled {len(prior_milestones)} milestone(s) from memory "
+                      f"(run #{mem.run_count})")
 
         # Single parent span so the planning LLM call and the execution loop nest
         # under ONE trace in Phoenix instead of appearing as two separate roots.
@@ -202,8 +205,11 @@ class ShepherdExecutionEngine:
         graph = self._graphs.load(task_key, variables)
         self._active_graph = graph
         was_known = self._graphs.is_known(graph)
-        memory_hint = RoutinePlanner._memory_hint([n.label for n in graph.nodes])
-        if graph.nodes:
+        # Memory recall is opt-in. By default the loop does a fresh Agent S run and
+        # does NOT feed prior milestones to the planner.
+        memory_hint = ""
+        if AUTONOMOUS_USE_MEMORY and graph.nodes:
+            memory_hint = RoutinePlanner._memory_hint([n.label for n in graph.nodes])
             print(f"[autonomous] recalled {len(graph.nodes)} milestone(s) from memory "
                   f"(run #{graph.run_count})")
 

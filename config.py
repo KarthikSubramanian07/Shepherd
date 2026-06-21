@@ -52,10 +52,15 @@ class Settings(BaseSettings):
     # ── Engine ─────────────────────────────────────────────────────────────
     # LIVE = Agent S per routine step | LOCKED = deterministic replay
     # AUTONOMOUS = Agent S plans freely from raw intent (no routines.json steps)
-    execution_mode: str = "LIVE"
+    # Default AUTONOMOUS: every goal runs the reactive Agent S loop (screenshot ->
+    # act -> screenshot) and produces a response, with no memory recall.
+    execution_mode: str = "AUTONOMOUS"
     # When LIVE/LOCKED and router finds no match, run autonomous if Agent S is up
     autonomous_on_unmatched: bool = True
     autonomous_max_steps: int = 30
+    # Feed this goal's prior milestone graph to the planner. Off by default — each
+    # run does a fresh Agent S loop without relying on memory. Turn on to recall.
+    autonomous_use_memory: bool = False
     # Chain several UI actions per screenshot/request (fewer round-trips, faster)
     # instead of one action per turn. Falls back to single-action Agent S if off
     # or if the chained planner is unavailable.
@@ -68,8 +73,9 @@ class Settings(BaseSettings):
     # the agent is a persistent server taking goals from the CLI and/or frontend.
     # Set true for one-shot use. Ignored in remote/--listen mode.
     exit_when_done: bool = False
-    # Draft a routines.json-style step list before Agent S executes (vs reactive loop)
-    autonomous_plan_first: bool = True
+    # Draft a routines.json-style step list before Agent S executes (vs reactive loop).
+    # Off by default: use the reactive Agent S loop that re-screenshots each turn.
+    autonomous_plan_first: bool = False
     autonomous_plan_max_steps: int = 12
     # Routine planner LLM — independent of Agent S (text-only JSON drafting)
     planner_engine_type: str = "anthropic"   # "anthropic" | "openai"
@@ -178,6 +184,7 @@ AGENTSPAN_MODEL            = settings.agentspan_model
 EXECUTION_MODE = settings.execution_mode
 AUTONOMOUS_ON_UNMATCHED = settings.autonomous_on_unmatched
 AUTONOMOUS_MAX_STEPS = settings.autonomous_max_steps
+AUTONOMOUS_USE_MEMORY = settings.autonomous_use_memory
 AUTONOMOUS_CHAIN = settings.autonomous_chain
 AUTONOMOUS_CHAIN_MAX = settings.autonomous_chain_max
 EXIT_WHEN_DONE = settings.exit_when_done
