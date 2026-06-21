@@ -239,6 +239,9 @@ class ShepherdExecutionEngine:
                 fine  = len((result.code or "").splitlines())
                 self._graphs.record_milestone(
                     graph, "step", label, str(i), fine, step_status, run_id)
+                # Persist immediately so the graph is viewable mid-run and survives
+                # an interrupt before the run formally completes.
+                self._graphs.flush(graph)
                 event_bus.emit("task.graph.node", {
                     "run_id": run_id, "index": i, "label": label,
                     "kind": "step", "status": step_status,

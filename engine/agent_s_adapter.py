@@ -74,6 +74,9 @@ class AgentSAdapter:
         # The model's reasoning for its most recent predict (gui-agents executor
         # info["plan"]). The engine reads this to log WHY each action ran.
         self.last_reasoning: str = ""
+        # Running memory of the chained planner so it knows what it already did
+        # (each direct vision call is otherwise stateless → it repeats itself).
+        self._chain_history: list[str] = []
         try:
             self._init_agent()
         except ImportError as e:
@@ -174,7 +177,8 @@ class AgentSAdapter:
             print(f"[agent_s] reset failed (non-fatal): {e}")
 
     def reset_autonomous(self) -> None:
-        """Reset only the long-trajectory agent used for free-form goals."""
+        """Reset the free-form goal state (long-trajectory agent + chain memory)."""
+        self._chain_history = []
         if self._autonomous_agent is None:
             return
         try:
@@ -259,10 +263,21 @@ class AgentSAdapter:
             if not ANTHROPIC_API_KEY:
                 return None
 
+            if self._chain_history:
+                history = (
+                    "Actions you have ALREADY performed in previous turns (do NOT "
+                    "repeat them — they are done):\n"
+                    + "\n".join(f"  turn {n}: {h}" for n, h in enumerate(self._chain_history))
+                    + "\n\n"
+                )
+            else:
+                history = "This is your first turn; nothing has been done yet.\n\n"
+
             b64 = base64.standard_b64encode(self._capture()).decode()
             prompt = (
                 "You are an autonomous desktop agent on macOS pursuing this goal:\n"
                 f"  {goal}\n\n"
+                f"{history}"
                 f"The screenshot is {SCREEN_WIDTH}x{SCREEN_HEIGHT}px (use absolute "
                 "pixel coordinates from it). Plan the NEXT BATCH of UI actions that "
                 "make progress toward the goal, chaining as many as you safely can "
@@ -276,13 +291,18 @@ class AgentSAdapter:
                 "you'll get a fresh screenshot next turn.\n"
                 "- Prefer the keyboard (hotkeys, Tab, typing, the address bar) over "
                 "clicking; it's far more reliable than pixel coordinates.\n"
+                "- IGNORE any code editor, terminal, or console window in the screenshot "
+                "(e.g. logs about an 'autonomous agent') — that is NOT part of your task; "
+                "judge progress only from the actual application you're driving.\n"
+                "- Do NOT repeat actions listed above as already performed. If the goal "
+                "is already satisfied by them (e.g. the email compose window is open with "
+                'its fields filled), return status "done" with empty actions.\n'
                 "- Each action is one line of Python using only `pyautogui` and `time` "
                 "(e.g. pyautogui.hotkey('command','space'); pyautogui.typewrite('Safari', interval=0.02); "
                 "pyautogui.press('enter'); time.sleep(1); pyautogui.click(840, 220)).\n\n"
                 'Return ONLY JSON: {"reasoning": "...", "status": "continue|done|fail", '
                 '"actions": ["<python line>", ...]}\n'
-                'Use status "done" if the goal is already complete (actions may be empty), '
-                '"fail" if it cannot be done.'
+                'Use status "done" the moment the goal is achieved, "fail" if it cannot be done.'
             )
 
             client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -319,6 +339,9 @@ class AgentSAdapter:
                 return AutonomousStepResult(outcome="wait", raw="WAIT")
 
             code = "\n".join(actions)
+            # Remember what this turn did so the next turn won't repeat it.
+            summary = self.last_reasoning or "; ".join(actions)
+            self._chain_history.append(summary[:200])
             print(f"[agent_s] autonomous step {step_index}: chained {len(actions)} actions in one request")
             return AutonomousStepResult(outcome="action", code=code, raw=code)
 
