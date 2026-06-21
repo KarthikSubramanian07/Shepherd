@@ -1,0 +1,88 @@
+# Shepherd Governance Policy
+# Edit this file to change what the oversight layer allows, flags, or halts.
+# No code changes needed — the policy engine reloads on each evaluation.
+version: 1
+
+# ── Screen content rules ──────────────────────────────────────────────────────
+# Evaluated by the monitor at every high-stakes step boundary (OCR of screenshot).
+# First matching rule wins. Actions: halt | flag
+screen_rules:
+  - name: no-credentials
+    match_text:
+      - "password"
+      - "enter password"
+      - "confirm password"
+      - "api key"
+      - "secret key"
+      - "access token"
+      - "social security"
+      - "ssn"
+    action: halt
+    reason: "Credential or sensitive data field detected"
+
+  - name: no-captcha
+    match_text:
+      - "captcha"
+      - "i'm not a robot"
+      - "i am not a robot"
+      - "verify you are human"
+      - "recaptcha"
+      - "are you a robot"
+    action: halt
+    reason: "CAPTCHA detected — human verification required"
+
+  - name: no-injection
+    match_text:
+      - "ignore previous instructions"
+      - "disregard above"
+      - "disregard the above"
+      - "you are now"
+      - "pretend you are"
+      - "act as if you"
+    action: halt
+    reason: "Possible prompt injection or adversarial content detected"
+
+  - name: suspicious-payment
+    match_text:
+      - "confirm payment"
+      - "authorize charge"
+      - "billing information"
+      - "credit card number"
+      - "cvv"
+    action: flag
+    reason: "Payment authorization detected — requires human approval"
+
+# ── Planted trigger overrides ─────────────────────────────────────────────────
+# Deterministic overrides for pre-planted demo/test triggers (no OCR needed).
+triggers:
+  credential: halt
+  captcha:    halt
+  phishing:   halt
+  payment:    flag
+  stuck:      flag
+
+# ── Containment — limits on what the agent may open or visit ─────────────────
+containment:
+  # Which macOS apps the agent may launch via open_app. Case-sensitive.
+  allowed_apps:
+    - "Google Chrome"
+    - "Safari"
+    - "Firefox"
+    - "TextEdit"
+    - "Notes"
+
+  # URL domain/host allowlist for browser and open_app URL steps.
+  # Partial match: "localhost" matches http://localhost:8765/demo-form.
+  # An empty list disables domain enforcement.
+  allowed_domains:
+    - "localhost"
+    - "127.0.0.1"
+    - "workbridge.internal"
+    - "demo.workbridge.io"
+    - "workbridge.com"
+
+  # Hard ceiling on actions-per-minute across a single run (0 = unlimited).
+  max_actions_per_minute: 60
+
+  # Hard ceiling on total steps in one routine run (0 = unlimited).
+  max_steps_per_run: 100

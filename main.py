@@ -5,14 +5,19 @@ Voice/typed intent → router → engine → telemetry + memory + dashboard.
 
 Usage:
   python main.py
-  python main.py --mode LOCKED   # force deterministic fallback
+  python main.py --mode LOCKED      # force deterministic fallback
+  python main.py --mode AUTONOMOUS  # free-form Agent S goals (no routine required)
 """
 import os
+import queue
 import sys
 import time
 import threading
 
-from config import FEATURES, EXECUTION_MODE, DASHBOARD_PORT
+from config import (
+    FEATURES, EXECUTION_MODE, DASHBOARD_PORT,
+    AUTONOMOUS_ON_UNMATCHED, EXIT_WHEN_DONE,
+)
 from shepherd_types import Intent, ResolvedRoutine
 from router.router import ShepherdIntentRouter
 from engine.engine import ShepherdExecutionEngine
@@ -25,15 +30,40 @@ from telemetry.evolution import RoutineEvolution
 from dashboard.events import event_bus
 
 
-def _get_intent_text(engine: ShepherdExecutionEngine) -> str:
+def _get_intent_text(
+    engine: ShepherdExecutionEngine,
+    remote_intents: "queue.Queue[str]",
+) -> str:
     """
-    Returns the raw intent text from Deepgram (voice) or typed input.
-    Arms the stop-command listener before recording so 'stop' halts during execution.
+    Returns the raw intent text from a remote Command Center, Deepgram (voice),
+    or typed input. Arms the stop-command listener before recording so 'stop'
+    halts during execution.
     """
+    # A command-center intent already waiting takes priority.
+    try:
+        return remote_intents.get_nowait()
+    except queue.Empty:
+        pass
+
+    # Remote-driven mode: the operated machine may be headless, so block on the
+    # relay's intent queue instead of local stdin. The voice 'stop' listener is
+    # still armed so a spoken halt works during execution.
+    if FEATURES["remote"]:
+        if FEATURES["deepgram"]:
+            try:
+                from services.deepgram_input import listen_for_stop_command
+                listen_for_stop_command(halt_callback=engine.request_halt)
+            except Exception:
+                pass
+        while True:
+            try:
+                return remote_intents.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
     if FEATURES["deepgram"]:
         try:
-            from services.deepgram_input import listen_and_transcribe, listen_for_stop_command
-            listen_for_stop_command(halt_callback=engine.request_halt)
+            from services.deepgram_input import listen_and_transcribe
             transcript = listen_and_transcribe()
             if transcript:
                 return transcript
@@ -113,8 +143,8 @@ def _record_mode(routine_id: str) -> None:
         json.dump(routines, f, indent=2)
 
     print(f"[record] ✓ Saved {len(steps)} steps → {routine_id}.demonstration")
-    print(f"[record]   Screenshots: data/screenshots/step_NNN.png")
-    print(f"[record]   Run 'python main.py' to execute with Agent S against this recording.\n")
+    print("[record]   Screenshots: data/screenshots/step_NNN.png")
+    print("[record]   Run 'python main.py' to execute with Agent S against this recording.\n")
 
 
 def main() -> None:
@@ -131,11 +161,15 @@ def main() -> None:
         if idx + 1 < len(sys.argv):
             mode = sys.argv[idx + 1].upper()
 
-    print(f"\n=== THE SHEPHERD ===")
+    print("\n=== THE SHEPHERD ===")
     print(f"Mode: {mode}  |  Active features: {[k for k, v in FEATURES.items() if v]}\n")
 
     # ── Init ──────────────────────────────────────────────────────────────────
     init_sentry()
+    # Warn loudly if Screen Recording isn't granted — otherwise Agent S is blind
+    # (screenshots show only desktop + menu bar) and silently spins on every task.
+    from engine.permissions import preflight as _perm_preflight
+    _perm_preflight()
     telemetry = ShepherdTelemetry()
     memory    = ExecutionMemory()
     load_routines()          # pre-warm cache
@@ -143,6 +177,7 @@ def main() -> None:
     router    = ShepherdIntentRouter()
     evolution = RoutineEvolution()
     engine    = ShepherdExecutionEngine(coords=coords, telemetry=telemetry, mode=mode, evolution=evolution)
+    remote_intents: "queue.Queue[str]" = queue.Queue()
 
     # ── Start dashboard ───────────────────────────────────────────────────────
     try:
@@ -151,6 +186,19 @@ def main() -> None:
         print(f"[dashboard] Control Hub → http://localhost:{DASHBOARD_PORT}\n")
     except Exception as e:
         print(f"[dashboard] Could not start: {e}")
+
+    # ── Start the coordinator relay (outbound; never blocks engine) ───────────
+    if FEATURES["remote"]:
+        try:
+            from services.relay_client import start_relay_client
+            from config import COORDINATOR_URL, AGENT_ID, AGENT_PAIRING_CODE
+            start_relay_client(engine, remote_intents)
+            print(f"[relay] Dialing coordinator {COORDINATOR_URL} as '{AGENT_ID}'")
+            print("[relay] ┌──────────────────────────────────────────────┐")
+            print(f"[relay] │  Command Center session code:  {AGENT_PAIRING_CODE:<13} │")
+            print("[relay] └──────────────────────────────────────────────┘\n")
+        except Exception as e:
+            print(f"[relay] Could not start: {e}")
 
     # ── Start Overshoot vision stream (parallel, never blocks engine) ─────────
     if FEATURES["overshoot"]:
@@ -162,16 +210,52 @@ def main() -> None:
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     print("Speak an intent or type it. Ctrl-C to quit.")
-    print("Routines: 'fill form', 'open browser', 'demo'\n")
+    if mode == "AUTONOMOUS":
+        print("Mode AUTONOMOUS — any intent runs as a free-form Agent S goal.\n")
+    else:
+        print("Routines: 'fill form', 'open browser', 'demo'")
+        if AUTONOMOUS_ON_UNMATCHED:
+            print("Unmatched intents fall back to autonomous Agent S.\n")
+        else:
+            print("Set AUTONOMOUS_ON_UNMATCHED=true or --mode AUTONOMOUS for free-form goals.\n")
 
     while True:
         try:
-            raw = _get_intent_text(engine)
+            raw = _get_intent_text(engine, remote_intents)
             if not raw:
                 continue
 
             intent = Intent(raw_text=raw, timestamp=time.time())
             event_bus.emit("intent.received", {"raw_text": intent.raw_text, "source": intent.source})
+
+            effective_mode = engine.effective_mode()
+
+            # ── AUTONOMOUS mode — any intent runs as a free-form Agent S goal ──
+            if effective_mode == "AUTONOMOUS":
+                if not engine._agent_s.available:
+                    print("[autonomous] Agent S unavailable — set AGENT_S_* keys in .env\n")
+                    event_bus.emit("intent.unmatched", {"raw_text": intent.raw_text, "reason": "agent_s_unavailable"})
+                    continue
+                print(f"[autonomous] goal: {raw}")
+                event_bus.emit("routine.resolved", {
+                    "routine_id":      "AUTONOMOUS",
+                    "confidence":      1.0,
+                    "matched_keywords": [],
+                    "variables":       {"GOAL": raw},
+                })
+                # Arm the spoken-stop listener now — mic is free since intent was already captured
+                if FEATURES["deepgram"]:
+                    try:
+                        from services.deepgram_input import listen_for_stop_command
+                        listen_for_stop_command(halt_callback=engine.request_halt)
+                    except Exception:
+                        pass
+                result = engine.execute_autonomous(raw)
+                _after_run(engine, telemetry, memory, result, confidence=1.0)
+                if _should_end_session():
+                    print("[shepherd] Task complete — ending session.\n")
+                    break
+                continue
 
             plan = router.resolve_plan(intent)
             event_bus.emit("plan.resolved", {
@@ -193,6 +277,21 @@ def main() -> None:
                     continue
 
             if plan.kind != "ROUTINE":
+                if AUTONOMOUS_ON_UNMATCHED and engine._agent_s.available:
+                    print(f"[router] No routine matched — autonomous fallback for: {raw}")
+                    event_bus.emit("intent.autonomous_fallback", {"raw_text": intent.raw_text})
+                    event_bus.emit("routine.resolved", {
+                        "routine_id":      "AUTONOMOUS",
+                        "confidence":      0.0,
+                        "matched_keywords": [],
+                        "variables":       {"GOAL": raw},
+                    })
+                    result = engine.execute_autonomous(raw)
+                    _after_run(engine, telemetry, memory, result, confidence=0.0)
+                    if _should_end_session():
+                        print("[shepherd] Task complete — ending session.\n")
+                        break
+                    continue
                 print("[router] No routine matched. Try: 'fill form', 'open browser', or 'demo'\n")
                 event_bus.emit("intent.unmatched", {"raw_text": intent.raw_text})
                 continue
@@ -215,26 +314,20 @@ def main() -> None:
                     target=_band_start, args=(resolved,), daemon=True
                 ).start()
 
-            # ── Execute (synchronous, blocking) ───────────────────────────────
-            result = engine.execute(resolved)
-
-            # ── Post-execution (all outside the click path) ───────────────────
+            # Arm the spoken-stop listener now — mic is free since intent was captured
             if FEATURES["deepgram"]:
                 try:
-                    from services.deepgram_input import stop_listener
-                    stop_listener()
+                    from services.deepgram_input import listen_for_stop_command
+                    listen_for_stop_command(halt_callback=engine.request_halt)
                 except Exception:
                     pass
 
-            if FEATURES["band"]:
-                threading.Thread(
-                    target=_band_complete, args=(result,), daemon=True
-                ).start()
-
-            telemetry.record(result, engine.last_step_records)
-            memory.store(result, engine.last_step_records, confidence=resolved.confidence)
-
-            print(f"[shepherd] {result.status.upper()} — {result.steps_completed} steps in {result.duration_ms}ms\n")
+            # ── Execute (synchronous, blocking) ───────────────────────────────
+            result = engine.execute(resolved)
+            _after_run(engine, telemetry, memory, result, confidence=resolved.confidence)
+            if _should_end_session():
+                print("[shepherd] Task complete — ending session.\n")
+                break
 
         except KeyboardInterrupt:
             print("\n[shepherd] Bye.")
@@ -244,6 +337,33 @@ def main() -> None:
             if FEATURES["sentry"]:
                 import sentry_sdk
                 sentry_sdk.capture_exception(e)
+
+
+def _should_end_session() -> bool:
+    """
+    End the program once a task finishes (EXIT_WHEN_DONE), unless we're a remote
+    agent — the command center keeps the session alive to serve more goals.
+    """
+    return EXIT_WHEN_DONE and not FEATURES["remote"]
+
+
+def _after_run(engine, telemetry, memory, result, confidence: float) -> None:
+    """Post-execution bookkeeping — always outside the click path."""
+    if FEATURES["deepgram"]:
+        try:
+            from services.deepgram_input import stop_listener
+            stop_listener()
+        except Exception:
+            pass
+
+    if FEATURES["band"]:
+        threading.Thread(
+            target=_band_complete, args=(result,), daemon=True
+        ).start()
+
+    telemetry.record(result, engine.last_step_records)
+    memory.store(result, engine.last_step_records, confidence=confidence)
+    print(f"[shepherd] {result.status.upper()} — {result.steps_completed} steps in {result.duration_ms}ms\n")
 
 
 def _band_start(resolved) -> None:

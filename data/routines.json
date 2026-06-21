@@ -6,16 +6,19 @@
       "APPLICANT_NAME",
       "APPLICANT_LASTNAME",
       "APPLICANT_EMAIL",
-      "APPLICANT_PHONE"
+      "APPLICANT_PHONE",
+      "APPLICANT_LINKEDIN",
+      "APPLICANT_EXPERIENCE",
+      "APPLICANT_SALARY"
     ],
     "mode": "LIVE",
     "high_stakes_steps": [
-      6
+      4
     ],
     "step_instructions": {
-      "0": "Open the WorkBridge candidate portal in Safari",
-      "5": "The first name field is auto-focused after page load",
-      "17": "PLANTED TRIGGER: tab to password / API key field \u2014 monitor halts every time"
+      "0": "Open the WorkBridge candidate portal in Google Chrome",
+      "3": "Fill applicant fields \u2014 in LIVE mode Claude plans the mapping from the form screenshot",
+      "4": "PLANTED TRIGGER: credential / API key field \u2014 monitor halts every time"
     },
     "steps": [
       {
@@ -31,16 +34,6 @@
       },
       {
         "action": "wait",
-        "seconds": 0.5,
-        "description": "Page settling"
-      },
-      {
-        "action": "wait",
-        "seconds": 0.5,
-        "description": "Page settling"
-      },
-      {
-        "action": "wait",
         "seconds": 1.5,
         "description": "Wait for form"
       },
@@ -51,36 +44,48 @@
           {
             "tabs": 1,
             "text": "{APPLICANT_NAME}",
-            "description": "First name"
+            "description": "First name",
+            "html_name": "fname"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_LASTNAME}",
-            "description": "Last name"
+            "description": "Last name",
+            "html_name": "lname"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_EMAIL}",
-            "description": "Email"
+            "description": "Email",
+            "html_name": "email"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_PHONE}",
-            "description": "Phone"
+            "description": "Phone",
+            "html_name": "phone"
+          },
+          {
+            "tabs": 1,
+            "text": "{APPLICANT_LINKEDIN}",
+            "description": "LinkedIn",
+            "html_name": "linkedin"
+          },
+          {
+            "tabs": 1,
+            "description": "Skip role select"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_EXPERIENCE}",
-            "description": "Years of experience"
+            "description": "Years of experience",
+            "html_name": "yoe"
           },
           {
             "tabs": 1,
             "text": "{APPLICANT_SALARY}",
-            "description": "Expected salary"
-          },
-          {
-            "tabs": 4,
-            "description": "Skip past portfolio to password section"
+            "description": "Expected salary",
+            "html_name": "salary"
           }
         ]
       },

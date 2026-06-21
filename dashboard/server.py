@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 
 import uvicorn
@@ -31,6 +32,200 @@ _state: dict = {
     "awaiting":   False,
 }
 
+# ── Intervention tracking ──────────────────────────────────────────────────
+_interventions: list[dict] = []
+_intervention_counter: int = 0
+
+
+def _create_intervention(data: dict) -> None:
+    global _intervention_counter
+    _intervention_counter += 1
+    step_index = data.get("step_index", 0)
+    now_iso = datetime.utcnow().isoformat() + "Z"
+    reason = data.get("reason", "")
+    verdict = data.get("verdict", "flag")
+
+    def _trigger(r: str) -> str:
+        r = r.lower()
+        if any(k in r for k in ("credential", "password", "api key", "secret")):
+            return "credential"
+        if "captcha" in r:
+            return "captcha"
+        if any(k in r for k in ("phishing", "injection", "disregard")):
+            return "phishing"
+        if "stuck" in r:
+            return "stuck"
+        return "deviation"
+
+    _interventions.append({
+        "id": f"iv-{_intervention_counter}",
+        "runId": _state.get("run_id") or "",
+        "agentId": "shepherd-agent",
+        "routineId": _state.get("routine_id") or "",
+        "stepId": f"step-{step_index}",
+        "detection": {
+            "type": _trigger(reason),
+            "verdict": verdict,
+            "reason": reason,
+            "stepId": f"step-{step_index}",
+            "detectedAt": now_iso,
+            "requiresHuman": True,
+        },
+        "status": "pending",
+        "resolution": None,
+        "resolvedBy": None,
+        "resolvedAt": None,
+        "note": None,
+        "createdAt": now_iso,
+    })
+
+
+# ── TypeScript-compatible shape helpers ────────────────────────────────────
+
+def _routine_to_ts(routine_id: str) -> dict:
+    from engine.routines import get_routine
+    r = get_routine(routine_id)
+    now_iso = datetime.utcnow().isoformat() + "Z"
+    steps_out = []
+    si = getattr(r, "step_instructions", None) or {}
+    for i, s in enumerate(r.steps):
+        steps_out.append({
+            "id": f"step-{i}",
+            "index": i,
+            "action": s.action,
+            "title": getattr(s, "description", None) or s.action,
+            "instruction": si.get(i),
+            "target": getattr(s, "target", None),
+            "text": getattr(s, "text", None),
+            "highStakes": i in r.high_stakes_steps,
+            "monitorTrigger": getattr(s, "monitor_trigger", None) or None,
+        })
+    edges_out = [
+        {"id": f"e-{i}-{i + 1}", "source": f"step-{i}", "target": f"step-{i + 1}"}
+        for i in range(len(r.steps) - 1)
+    ]
+    name = (r.description or routine_id).split(" — ")[0].split(" – ")[0].strip()
+    running = _state.get("routine_id") == routine_id and _state.get("status") == "running"
+    return {
+        "id": r.routine_id,
+        "name": name,
+        "description": r.description or "",
+        "mode": r.mode,
+        "tags": [r.mode.lower(), "automation"],
+        "version": 1,
+        "stepCount": len(r.steps),
+        "updatedAt": now_iso,
+        "reliability": 1.0,
+        "activeAgents": 1 if running else 0,
+        "variables": r.variables,
+        "steps": steps_out,
+        "edges": edges_out,
+        "createdAt": now_iso,
+    }
+
+
+def _make_agent() -> dict:
+    status = _state.get("status", "idle")
+    routine_id = _state.get("routine_id") or ""
+    run_id = _state.get("run_id")
+    step_index = _state.get("step_index")
+    agent_status = {"idle": "idle", "running": "running", "halted": "blocked"}.get(status, "idle")
+    progress = 0.0
+    if routine_id and step_index is not None:
+        try:
+            from engine.routines import get_routine
+            r = get_routine(routine_id)
+            total = max(len(r.steps), 1)
+            progress = round(min(step_index / total, 1.0), 3)
+        except Exception:
+            pass
+    routine_name = routine_id or "—"
+    if routine_id:
+        try:
+            from engine.routines import get_routine
+            r = get_routine(routine_id)
+            routine_name = (r.description or routine_id).split(" — ")[0].split(" – ")[0].strip()
+        except Exception:
+            pass
+    now_iso = datetime.utcnow().isoformat() + "Z"
+    agent: dict = {
+        "id": "shepherd-agent",
+        "name": "Shepherd",
+        "routineId": routine_id,
+        "routineName": routine_name,
+        "runId": run_id,
+        "status": agent_status,
+        "currentStepId": f"step-{step_index}" if step_index is not None else None,
+        "currentStepIndex": step_index,
+        "progress": progress,
+        "host": "localhost",
+        "startedAt": None,
+        "lastActivityAt": now_iso if status != "idle" else None,
+    }
+    if agent_status == "blocked":
+        pending = [iv for iv in _interventions if iv["status"] == "pending"]
+        if pending:
+            agent["block"] = pending[-1]["detection"]
+    return agent
+
+
+def _ts_iso(v) -> str | None:
+    if v is None:
+        return None
+    try:
+        return datetime.utcfromtimestamp(float(v)).isoformat() + "Z"
+    except Exception:
+        return None
+
+
+def _run_status(steps: list) -> str:
+    for s in steps:
+        if s.get("status") == "halted":
+            return "aborted"
+        if s.get("status") == "failed":
+            return "failed"
+    return "completed"
+
+
+def _run_summary(r: dict) -> dict:
+    steps = r.get("steps", [])
+    routine_id = r.get("routine_id", "")
+    routine_name = routine_id
+    try:
+        from engine.routines import get_routine
+        rt = get_routine(routine_id)
+        routine_name = (rt.description or routine_id).split(" — ")[0].split(" – ")[0].strip()
+    except Exception:
+        pass
+    return {
+        "id": r.get("run_id", ""),
+        "routineId": routine_id,
+        "routineName": routine_name,
+        "agentId": "shepherd-agent",
+        "agentName": "Shepherd",
+        "status": _run_status(steps),
+        "startedAt": _ts_iso(r.get("started_at")) or datetime.utcnow().isoformat() + "Z",
+        "endedAt": _ts_iso(r.get("ended_at")),
+        "confidence": r.get("confidence", 1.0),
+    }
+
+
+def _run_full(r: dict) -> dict:
+    steps_out = []
+    for s in r.get("steps", []):
+        idx = s.get("index", 0)
+        steps_out.append({
+            "stepId": f"step-{idx}",
+            "index": idx,
+            "status": s.get("status", "completed"),
+            "startedAt": _ts_iso(s.get("started_at")),
+            "durationMs": s.get("duration_ms"),
+            "error": s.get("error"),
+            "monitorVerdict": s.get("monitor_verdict"),
+            "deviation": s.get("deviation"),
+        })
+    return {**_run_summary(r), "variables": r.get("variables", {}), "steps": steps_out}
+
 app = FastAPI(title="Shepherd Control Hub", docs_url=None, redoc_url=None)
 
 # CORS — allow the Next.js dashboard (any localhost port in dev) plus any extra
@@ -40,6 +235,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_extra,
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -85,9 +281,17 @@ def _track_state(message: dict) -> None:
                       step_index=None)
     elif t == "monitor.alert":
         _state["status"] = "halted"
+        _create_intervention(d)
     elif t == "monitor.decision":
         if d.get("decision") != "halt":
             _state["status"] = "running"
+        # Resolve the most recent pending intervention
+        for iv in reversed(_interventions):
+            if iv["status"] == "pending":
+                iv["status"] = "resolved"
+                iv["resolution"] = "approved" if d.get("decision") == "approve" else "rejected"
+                iv["resolvedAt"] = datetime.utcnow().isoformat() + "Z"
+                break
     elif t == "workflow.start":
         _state.update(status="running", workflow_id=d.get("workflow_id"),
                       node_key=d.get("start"), awaiting=False)
@@ -160,31 +364,26 @@ async def ws_endpoint(ws: WebSocket) -> None:
 async def get_runs() -> JSONResponse:
     try:
         from telemetry.memory import ExecutionMemory
-        return JSONResponse(ExecutionMemory().recent(20))
+        raw = ExecutionMemory().recent(20)
+        return JSONResponse([_run_summary(r) for r in raw])
     except Exception:
         return JSONResponse([])
+
+
+@app.get("/api/routines")
+async def list_routines() -> JSONResponse:
+    try:
+        from engine.routines import load_routines
+        routines = load_routines()
+        return JSONResponse([_routine_to_ts(rid) for rid in routines])
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/api/routines/{routine_id}")
 async def get_routine_info(routine_id: str) -> JSONResponse:
     try:
-        from engine.routines import get_routine
-        r = get_routine(routine_id)
-        return JSONResponse({
-            "routine_id":       r.routine_id,
-            "description":      r.description,
-            "mode":             r.mode,
-            "high_stakes_steps": r.high_stakes_steps,
-            "steps": [
-                {
-                    "index":       i,
-                    "action":      s.action,
-                    "description": s.description or s.action,
-                    "high_stakes": i in r.high_stakes_steps,
-                }
-                for i, s in enumerate(r.steps)
-            ],
-        })
+        return JSONResponse(_routine_to_ts(routine_id))
     except KeyError:
         return JSONResponse({"error": "not found"}, status_code=404)
     except Exception as e:
@@ -300,8 +499,10 @@ async def get_status() -> JSONResponse:
 @app.post("/api/mode/{mode}")
 async def set_mode(mode: str) -> JSONResponse:
     mode = mode.upper()
-    if mode not in ("LIVE", "LOCKED"):
-        return JSONResponse({"error": "mode must be LIVE or LOCKED"}, status_code=400)
+    if mode not in ("LIVE", "LOCKED", "AUTONOMOUS"):
+        return JSONResponse(
+            {"error": "mode must be LIVE, LOCKED, or AUTONOMOUS"}, status_code=400
+        )
     _cfg._runtime_mode = mode
     _state["mode"] = mode
     event_bus.emit("mode.changed", {"mode": mode})
@@ -342,10 +543,85 @@ async def get_run(run_id: str) -> JSONResponse:
         from telemetry.memory import ExecutionMemory
         run = ExecutionMemory().get_run(run_id)
         if run:
-            return JSONResponse(run)
+            return JSONResponse(_run_full(run))
     except Exception:
         pass
     return JSONResponse({"error": "not found"}, status_code=404)
+
+
+@app.get("/api/audit")
+async def get_audit() -> JSONResponse:
+    """Return the most recent audit log entries (hash-chained JSONL)."""
+    try:
+        from telemetry.audit_log import read_all
+        return JSONResponse(read_all(limit=200))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/audit/verify")
+async def verify_audit() -> JSONResponse:
+    """Verify tamper-evidence of the entire audit log hash chain."""
+    try:
+        from telemetry.audit_log import verify_chain
+        return JSONResponse(verify_chain())
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/policy")
+async def get_policy() -> JSONResponse:
+    """Return the current governance policy rules (from data/policy.yaml)."""
+    try:
+        import yaml
+        from pathlib import Path
+        raw = Path("data/policy.yaml").read_text()
+        return JSONResponse(yaml.safe_load(raw))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/agents")
+async def list_agents() -> JSONResponse:
+    return JSONResponse([_make_agent()])
+
+
+@app.get("/api/agents/{agent_id}")
+async def get_agent(agent_id: str) -> JSONResponse:
+    if agent_id != "shepherd-agent":
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse(_make_agent())
+
+
+@app.get("/api/interventions")
+async def list_interventions() -> JSONResponse:
+    return JSONResponse(list(reversed(_interventions[-50:])))
+
+
+@app.post("/api/interventions/{intervention_id}")
+async def resolve_intervention(intervention_id: str, request: Request) -> JSONResponse:
+    iv = next((x for x in _interventions if x["id"] == intervention_id), None)
+    if iv is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        body = await request.json()
+        resolution = body.get("resolution", "approved")
+    except Exception:
+        resolution = "approved"
+
+    from engine.approvals import set_decision
+    if resolution == "rejected":
+        set_decision("halt")
+    else:
+        set_decision("approve")
+
+    iv["status"] = "resolved"
+    iv["resolution"] = resolution
+    iv["resolvedBy"] = "dashboard"
+    iv["resolvedAt"] = datetime.utcnow().isoformat() + "Z"
+    if isinstance(body, dict) and body.get("note"):
+        iv["note"] = body["note"]
+    return JSONResponse(iv)
 
 
 def start_dashboard() -> None:

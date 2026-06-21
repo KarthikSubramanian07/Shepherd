@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { ShepherdProvider } from "@/lib/shepherd-ws";
 
 export const metadata: Metadata = {
   title: "Shepherd — Agent Command Center",
@@ -16,10 +17,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <div className="flex h-screen overflow-hidden">
-          <Sidebar />
-          <main className="flex-1 overflow-auto">{children}</main>
-        </div>
+        <ShepherdProvider>
+          <div className="flex h-screen overflow-hidden">
+            <Sidebar />
+            <main className="flex-1 overflow-auto">{children}</main>
+          </div>
+        </ShepherdProvider>
       </body>
     </html>
   );

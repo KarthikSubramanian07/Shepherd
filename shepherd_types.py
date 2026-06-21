@@ -21,9 +21,10 @@ class ResolvedRoutine:
 @dataclass
 class BatchField:
     """One sub-step inside a batch_fill action."""
-    tabs: int = 1          # how many Tab presses before typing
-    text: Optional[str] = None    # text to type (None = tab-only, e.g. to skip a field)
-    description: Optional[str] = None   # field label for Agent S prompt
+    tabs: int = 1
+    text: Optional[str] = None
+    description: Optional[str] = None
+    html_name: Optional[str] = None   # HTML name attr — if set, fill via JS injection (no focus needed)
 
 
 @dataclass
@@ -86,6 +87,18 @@ class NodeStats:
     approval_count: int = 0
     total_duration_ms: int = 0
     execution_count: int = 0
+
+
+# Synthetic routine id for free-form Agent S runs (no routines.json entry required).
+AUTONOMOUS_ROUTINE_ID = "AUTONOMOUS"
+
+
+@dataclass
+class AutonomousStepResult:
+    """One Agent S turn in AUTONOMOUS mode."""
+    outcome: str  # "action" | "done" | "fail" | "wait" | "unavailable"
+    code: Optional[str] = None
+    raw: Optional[str] = None
 
 
 @dataclass

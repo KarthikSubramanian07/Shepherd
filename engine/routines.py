@@ -1,7 +1,7 @@
 """Pure data loader — reads routines.json into RoutineDefinition objects. No control logic."""
 import json
 import os
-from shepherd_types import RoutineDefinition, RoutineStep, RecordedStep, BatchField
+from shepherd_types import BatchField, RoutineDefinition, RoutineStep, RecordedStep
 
 
 def _build_step(s: dict) -> RoutineStep:

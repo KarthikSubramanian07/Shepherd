@@ -1,69 +1,46 @@
 """
-MonitorAgent — rule-based failure-mode detection.
+MonitorAgent — policy-driven failure-mode detection.
 Runs at high_stakes_steps boundaries ONLY — never inside a click sequence.
 
-Detects:
-  - Planted trigger  (100% reliable for demo — always use this for the demo beat)
-  - Credential/password field
-  - CAPTCHA
-  - Phishing/prompt-injection text
-  - Stuck state (no screen change for N seconds)
+Detection layers (in order):
+  1. Planted trigger  — 100% reliable for demo (from policy.yaml triggers map)
+  2. Policy screen rules — configurable keyword matching against OCR text
+  3. Stuck-state detection — screen hash unchanged for N seconds
 
-Rule-based path is always-on. LLM upgrade is optional, gated, never the sole path.
+The policy is loaded from data/policy.yaml at runtime — no restart needed.
+Rule-based path is always-on. LLM verifier is a second-opinion layer in engine.py.
 """
 import time
 from typing import Optional
 from shepherd_types import RoutineStep
+from services.policy_engine import evaluate_trigger, evaluate_screen
 
-_STUCK_THRESHOLD = 8.0  # seconds without screen change
+_STUCK_THRESHOLD = 8.0
 _last_hash: Optional[int] = None
 _last_hash_time: float = 0.0
 
 
-def check_step(step: RoutineStep, screen_state: dict) -> dict:
+def check_step(step: RoutineStep, screen_state: dict = {}) -> dict:  # noqa: B006
     """
     Returns {"verdict": "ok"|"flag"|"halt", "reason": str}
     Called at high_stakes_steps boundaries. Never inside the click sequence.
     """
-    # 1. Planted trigger — guaranteed demo reliability
+    # 1. Planted trigger — guaranteed demo reliability, policy-backed
     if step.monitor_trigger:
-        return _planted(step.monitor_trigger)
+        return evaluate_trigger(step.monitor_trigger)
 
-    # 2. Screenshot OCR rule checks
+    # 2. Screenshot OCR → policy screen rules
     try:
         import pyautogui
         shot = pyautogui.screenshot()
         text = _ocr(shot)
-        result = _rules(text, shot)
+        result = _check_screen(text, shot)
         if result:
             return result
     except Exception as e:
         print(f"[monitor] screenshot check failed (non-fatal): {e}")
 
     return {"verdict": "ok", "reason": ""}
-
-
-def _planted(trigger: str) -> dict:
-    """100% reliable detection for planted demo triggers."""
-    MAP = {
-        "credential": {
-            "verdict": "halt",
-            "reason":  "Credential / password field detected — halting to protect sensitive data",
-        },
-        "captcha": {
-            "verdict": "halt",
-            "reason":  "CAPTCHA detected — human verification required",
-        },
-        "phishing": {
-            "verdict": "halt",
-            "reason":  "Possible prompt injection or phishing content detected",
-        },
-        "stuck": {
-            "verdict": "flag",
-            "reason":  "Possible stuck state — no screen change detected",
-        },
-    }
-    return MAP.get(trigger, {"verdict": "flag", "reason": f"Unknown trigger: {trigger}"})
 
 
 def _ocr(screenshot) -> str:
@@ -74,39 +51,20 @@ def _ocr(screenshot) -> str:
         return ""
 
 
-def _rules(text: str, screenshot=None) -> Optional[dict]:
-    credential_patterns = [
-        "password", "enter password", "confirm password",
-        "api key", "secret key", "access token",
-    ]
-    captcha_patterns = [
-        "captcha", "i'm not a robot", "verify you are human", "recaptcha",
-    ]
-    injection_patterns = [
-        "ignore previous instructions", "disregard above",
-        "you are now", "pretend you are",
-    ]
+def _check_screen(text: str, screenshot=None) -> Optional[dict]:
+    # Policy engine: configurable rules from policy.yaml
+    result = evaluate_screen(text)
+    if result:
+        return result
 
-    for p in credential_patterns:
-        if p in text:
-            return {"verdict": "halt", "reason": f"Credential field detected: '{p}'"}
-
-    for p in captcha_patterns:
-        if p in text:
-            return {"verdict": "halt", "reason": f"CAPTCHA detected: '{p}'"}
-
-    for p in injection_patterns:
-        if p in text:
-            return {"verdict": "halt", "reason": f"Possible prompt injection: '{p}'"}
-
-    # Stuck state
+    # Stuck state (not in policy.yaml — inherently dynamic)
     global _last_hash, _last_hash_time
     if screenshot is not None:
         try:
             h = hash(screenshot.tobytes())
             now = time.time()
             if h == _last_hash and (now - _last_hash_time) > _STUCK_THRESHOLD:
-                _last_hash_time = now  # reset so it doesn't flood on every subsequent boundary
+                _last_hash_time = now
                 return {"verdict": "flag", "reason": "Stuck state: screen unchanged too long"}
             if h != _last_hash:
                 _last_hash = h

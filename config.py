@@ -51,8 +51,20 @@ class Settings(BaseSettings):
     deepgram_language: str = "en-US"
 
     # ── Engine ─────────────────────────────────────────────────────────────
-    # "LIVE" = Agent S against demonstration | "LOCKED" = deterministic replay
+    # LIVE = Agent S per routine step | LOCKED = deterministic replay
+    # AUTONOMOUS = Agent S plans freely from raw intent (no routines.json steps)
     execution_mode: str = "LIVE"
+    # When LIVE/LOCKED and router finds no match, run autonomous if Agent S is up
+    autonomous_on_unmatched: bool = True
+    autonomous_max_steps: int = 30
+    # Chain several UI actions per screenshot/request (fewer round-trips, faster)
+    # instead of one action per turn. Falls back to single-action Agent S if off
+    # or if the chained planner is unavailable.
+    autonomous_chain: bool = True
+    autonomous_chain_max: int = 6   # max actions to plan in one request
+    # End the session once a task finishes instead of looping for another intent.
+    # Ignored in remote mode (the command center keeps the agent serving).
+    exit_when_done: bool = True
 
     # ── Dashboard ──────────────────────────────────────────────────────────
     dashboard_port: int = 8765
@@ -70,6 +82,24 @@ class Settings(BaseSettings):
     # a faster non-reasoning model.
     llm_timeout_s: float = 180.0
     llm_max_tokens: int = 8192
+
+    # ── Remote orchestration (coordinator relay) ───────────────────────────
+    # When `coordinator_url` is set, the agent dials OUT to a central
+    # coordinator so a remote Command Center can observe and steer it. The
+    # coordinator is the only component that needs a public URL (one ngrok /
+    # deploy) — agents never expose an inbound port. All of this is
+    # boundary-only and degrades to local-only when unset (the click path is
+    # never gated on the network).
+    coordinator_url: str = ""          # e.g. ws://localhost:8770 or wss://<host>
+    coordinator_token: str = ""        # shared secret for agents + UI
+    coordinator_port: int = 8770       # port the coordinator itself binds
+    agent_pairing_code: str = ""       # session join code; auto-generated if empty
+    agent_id: str = ""                  # stable id for this machine (default: hostname)
+    agent_name: str = ""               # human label shown in the Command Center
+    agent_host: str = ""              # where this agent runs (default: hostname)
+    relay_fps: float = 3.0             # screen frames/sec pushed to the coordinator
+    relay_frame_width: int = 1024      # downscale width for pushed frames (px)
+    relay_frame_quality: int = 55      # JPEG quality for pushed frames (1-95)
 
     # ── Agent S (gui-agents package) ───────────────────────────────────────
     agent_s_engine_type: str = "anthropic"   # "anthropic" | "openai" | "gemini"
@@ -100,6 +130,7 @@ class Settings(BaseSettings):
             "context":     False,   # criteria unpublished — check Saturday
             "fieldguide":  False,   # criteria unpublished — check Saturday
             "agent_s":     True,
+            "remote":      bool(self.coordinator_url),
         }
 
 
@@ -123,6 +154,11 @@ ORKES_SERVER_URL           = settings.orkes_server_url
 ORKES_API_KEY              = settings.orkes_api_key
 
 EXECUTION_MODE = settings.execution_mode
+AUTONOMOUS_ON_UNMATCHED = settings.autonomous_on_unmatched
+AUTONOMOUS_MAX_STEPS = settings.autonomous_max_steps
+AUTONOMOUS_CHAIN = settings.autonomous_chain
+AUTONOMOUS_CHAIN_MAX = settings.autonomous_chain_max
+EXIT_WHEN_DONE = settings.exit_when_done
 
 DASHBOARD_PORT = settings.dashboard_port
 EVENTS_DB_PATH = settings.events_db_path
@@ -134,6 +170,23 @@ GEMINI_ENDPOINT_URL = settings.gemini_endpoint_url
 LLM_ANTHROPIC_MODEL = settings.llm_anthropic_model
 LLM_TIMEOUT_S       = settings.llm_timeout_s
 LLM_MAX_TOKENS      = settings.llm_max_tokens
+
+import secrets as _secrets
+import socket as _socket
+
+_HOSTNAME = _socket.gethostname()
+COORDINATOR_URL     = settings.coordinator_url
+COORDINATOR_TOKEN   = settings.coordinator_token
+COORDINATOR_PORT    = settings.coordinator_port
+# Short, human-typeable session code. Read off the agent machine and entered in
+# the Command Center to attach to this session. Auto-generated once per process.
+AGENT_PAIRING_CODE  = settings.agent_pairing_code or _secrets.token_hex(3).upper()
+AGENT_ID            = settings.agent_id or _HOSTNAME
+AGENT_NAME          = settings.agent_name or _HOSTNAME
+AGENT_HOST          = settings.agent_host or _HOSTNAME
+RELAY_FPS           = settings.relay_fps
+RELAY_FRAME_WIDTH   = settings.relay_frame_width
+RELAY_FRAME_QUALITY = settings.relay_frame_quality
 
 AGENT_S_ENGINE_TYPE = settings.agent_s_engine_type
 AGENT_S_MODEL       = settings.agent_s_model

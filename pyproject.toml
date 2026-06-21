@@ -7,25 +7,30 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "pyautogui==0.9.54",
-    "Pillow==10.3.0",
+    "Pillow>=12.2.0",
     "pynput==1.7.6",
-    "fastapi==0.111.0",
-    "uvicorn[standard]==0.29.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.29.0",
     "websockets>=12.0",
     "arize-phoenix-otel>=0.9.0",
-    "opentelemetry-sdk==1.24.0",
-    "opentelemetry-exporter-otlp==1.24.0",
-    "sentry-sdk==2.4.0",
-    "redis==5.0.4",
-    "deepgram-sdk==3.2.7",
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-exporter-otlp>=1.24.0",
+    "sentry-sdk>=2.8.0",
+    "redis>=5.0.4",
+    "deepgram-sdk>=3.2.7",
     "pydantic-settings>=2.2.0",
     "browserbase==0.3.0",
     "playwright==1.44.0",
     "httpx>=0.27.0",
+    "python-multipart>=0.0.18",
     "pytesseract==0.3.10",
-    "python-dotenv==1.0.1",
+    "python-dotenv>=1.2.2",
     "gui-agents>=0.3",
     "fastembed>=0.7.3",
+    "pyyaml>=6.0.3",
+    "protobuf>=5.29.6",
+    "starlette>=0.47.2",
+    "arize-phoenix>=8.0.0",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +39,21 @@ agent_s = ["gui-agents"]
 
 [tool.uv]
 package = false
+
+# gui-agents pulls in paddlepaddle + paddleocr, but those are only used by its
+# (unused) s1 OCR server — we run the s3 agent with LLM/UI-TARS grounding and the
+# monitor uses pytesseract. paddlepaddle also has no wheel for Intel macOS, which
+# breaks `uv sync` there. Drop both via an always-false marker so they're never
+# installed on any platform.
+override-dependencies = [
+    "paddlepaddle; sys_platform == 'never'",
+    "paddleocr; sys_platform == 'never'",
+    # fastembed (vector router) pulls onnxruntime, which has no wheel for Intel
+    # macOS. Vector routing is optional (falls back to keyword routing), so drop
+    # both ONLY on Intel macOS; keep them everywhere else.
+    "fastembed; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "onnxruntime; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+]
 
 [dependency-groups]
 dev = [
