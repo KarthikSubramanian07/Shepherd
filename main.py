@@ -174,8 +174,10 @@ def main() -> None:
             mode = sys.argv[idx + 1].upper()
 
     # --listen: don't prompt on stdin; take goals only from the dashboard /api/intent
-    # (or coordinator). Lets you drive the agent entirely from the frontend.
+    # (or coordinator), and keep serving across goals. Drive entirely from the frontend.
+    global _listen_mode
     listen = "--listen" in sys.argv
+    _listen_mode = listen
 
     print("\n=== THE SHEPHERD ===")
     print(f"Mode: {mode}  |  Active features: {[k for k, v in FEATURES.items() if v]}\n")
@@ -366,12 +368,15 @@ def main() -> None:
                 sentry_sdk.capture_exception(e)
 
 
+_listen_mode = False  # set True by --listen; keeps the agent serving across goals
+
+
 def _should_end_session() -> bool:
     """
     End the program once a task finishes (EXIT_WHEN_DONE), unless we're a remote
-    agent — the command center keeps the session alive to serve more goals.
+    agent or in --listen mode — both keep the session alive to serve more goals.
     """
-    return EXIT_WHEN_DONE and not FEATURES["remote"]
+    return EXIT_WHEN_DONE and not FEATURES["remote"] and not _listen_mode
 
 
 def _after_run(engine, telemetry, memory, result, confidence: float) -> None:

@@ -355,6 +355,30 @@ Say or type: **"fill out the application form"** — watch it run, and halt at t
 
 ---
 
+## Simplest setup — one command (recommended)
+
+Run the whole stack (backend + agent + frontend) with a single script and drive it
+from the browser:
+
+```bash
+./scripts/dev.sh
+```
+
+It frees the ports, wires the frontend to the local backend, then starts **two
+processes**:
+- the **agent in `--listen` mode**, which also serves the **backend/API on :8765** and
+  waits for goals (no terminal prompt; keeps serving across goals);
+- the **frontend** on :3000.
+
+Then open **http://localhost:3000/command-center** and type a goal in the **"Run a
+goal"** box — the agent runs it and you watch live. `Ctrl-C` stops everything; logs
+are in `/tmp/shepherd/{agent,frontend}.log`.
+
+That's it — no coordinator, no `BACKEND_URL`, no port juggling. The two advanced
+topologies below are optional.
+
+---
+
 ## Persistent Backend (dashboard separate from agents)
 
 By default the dashboard/API runs **inside** the agent process, so it stops when the
