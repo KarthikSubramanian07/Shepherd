@@ -256,7 +256,10 @@ the hot path** and needs no deterministic matcher. `goto` reuses an existing nod
 - **`WorkflowNode`** = milestone + `instruction`, `requires: [str]`, `conditionals:
   [{when, do, goto?}]`, `procedure?`, `optional`, `source: observed|taught`.
 - **`WorkflowEdge`** = `from`, `to`, `condition?` (NL guard), `times_seen`.
-- **`Workflow`** = `id, name, intent_patterns, params, nodes, edges, version, from_graph`.
+- **`Workflow`** = `id, name, description, intent_patterns, params, nodes, edges, version, from_graph`.
+- **`RunTrace`** carries `intent_text` — the raw NL intent from the user, threaded from
+  the dispatch point through `engine.py` to the coalescer so `TaskGraphStore.save()`
+  populates `graph.intents` with real language instead of empty strings.
 
 Already implemented this branch: `TaskGraphNode`, `TaskGraphEdge`, `TaskGraph`
 (`shepherd_types.py`), persisted by `engine/task_graph.py`.
@@ -303,9 +306,14 @@ so the segmenter/coalescer don't care which model runs:
    ad-hoc autonomous run completes and the coalescer saves the task graph
    (`task.graph.saved` event with `known=false`), the Command Center's default-on
    "Bake out a new workflow" toggle fires a `promote` command via the relay. The agent
-   calls `WorkflowStore.promote()` with name derived from the stored intents and
-   `intent_patterns` from the graph's `intents` list. The operator can untoggle to
-   skip. Endpoint: `POST /api/task-graphs/{task_key}/promote`.
+   calls the shared `promote_graph()` helper (`engine/workflow_promote.py`) which derives
+   name + `intent_patterns` from the graph's real NL intents, creates the workflow
+   IMMEDIATELY (instantly dispatchable), and fires an async background task
+   (`engine/workflow_describe.py`) that calls the LLM to generate a human-readable title,
+   description, and paraphrased intent_patterns — then re-indexes the vector store. If the
+   LLM is unavailable, the NL-derived values are kept. Both `relay_client._promote_graph()`
+   and `POST /api/task-graphs/{task_key}/promote` delegate to this shared helper.
+   Endpoint: `POST /api/task-graphs/{task_key}/promote`.
 5. **Milestone-graph executor (done; being superseded — see §0)** — traverses the
    workflow node-by-node with a single-message advance and pluggable workers (AgentS
    / LLM / Scripted) (`engine/workflow_executor.py`); Control Hub steer/teach gate
@@ -335,6 +343,8 @@ so the segmenter/coalescer don't care which model runs:
 | Frontend graph view | `frontend/src/app/task-graph/`, `frontend/src/components/graph/TaskGraphView.tsx` |
 | Modular LLM layer | `engine/llm.py` |
 | Workflow store (promotion + versioning) | `engine/workflow_store.py` → `data/workflows.json` |
+| Shared promote helper | `engine/workflow_promote.py` |
+| Async workflow description (LLM) | `engine/workflow_describe.py` |
 | Teaching loop (EDIT-mode bake) | `engine/workflow_edit.py` |
 | Milestone-graph executor (traversal) | `engine/workflow_executor.py` |
 | Workflow dispatch + executor wiring | `router/router.py`, `engine/engine.py` |

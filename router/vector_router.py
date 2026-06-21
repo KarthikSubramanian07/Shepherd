@@ -13,6 +13,8 @@ VSET_KEY = "shepherd:routines"
 VSET_WF_KEY = "shepherd:workflows"
 SIMILARITY_THRESHOLD = 0.40   # below this, defer to keyword router
 
+_singleton: Optional["VectorRouter"] = None  # set after init for re-index access
+
 
 class VectorRouter:
     def __init__(self, registry: dict) -> None:
@@ -41,11 +43,24 @@ class VectorRouter:
             vec = self._embed(text)
             r.execute_command("VADD", VSET_KEY, "FP32", vec, routine_id)
 
+        global _singleton
+        _singleton = self
         print(f"[vector_router] Ready — {len(registry)} routines indexed in Redis vectorset")
 
     @property
     def available(self) -> bool:
         return self._r is not None and self._model is not None
+
+    @staticmethod
+    def _workflow_index_text(wf) -> str:
+        """Build the text to embed for a workflow: name + description +
+        intent_patterns + milestone/node labels for richer matching."""
+        parts = [wf.name]
+        if getattr(wf, "description", None):
+            parts.append(wf.description)
+        parts.extend(wf.intent_patterns)
+        parts.extend(n.label for n in getattr(wf, "nodes", []))
+        return " ".join(parts)
 
     def index_workflows(self, workflows: list) -> None:
         """(Re-)index dispatchable Workflows into their own vectorset so the same
@@ -56,11 +71,22 @@ class VectorRouter:
         try:
             self._r.delete(VSET_WF_KEY)
             for wf in workflows:
-                text = wf.name + " " + " ".join(wf.intent_patterns)
+                text = self._workflow_index_text(wf)
                 self._r.execute_command("VADD", VSET_WF_KEY, "FP32", self._embed(text), wf.id)
             print(f"[vector_router] {len(workflows)} workflows indexed in Redis vectorset")
         except Exception as e:
             print(f"[vector_router] workflow index failed (non-fatal): {e}")
+
+    def index_single_workflow(self, wf) -> None:
+        """Upsert a single workflow into the vectorset (e.g. after async describe
+        enriches its title/description). No-op when unavailable."""
+        if not self.available:
+            return
+        try:
+            text = self._workflow_index_text(wf)
+            self._r.execute_command("VADD", VSET_WF_KEY, "FP32", self._embed(text), wf.id)
+        except Exception as e:
+            print(f"[vector_router] single workflow index failed (non-fatal): {e}")
 
     def resolve_workflow(self, intent_text: str) -> Optional[tuple[str, float]]:
         """Nearest saved workflow id + similarity, or None if below threshold."""

@@ -229,6 +229,7 @@ class Workflow:
     """
     id: str                                   # e.g. "WF_JOB_APPLICATION"
     name: str                                 # human label, e.g. "Apply to a job"
+    description: str = ""                     # human-readable summary (async LLM-generated)
     intent_patterns: list[str] = field(default_factory=list)  # router match text
     params: list[str] = field(default_factory=list)           # variable names it accepts
     nodes: list[TaskGraphNode] = field(default_factory=list)
@@ -292,3 +293,4 @@ class RunTrace:
     executed: list[RoutineStep] = field(default_factory=list)
     interventions: list[InterventionEvent] = field(default_factory=list)
     deviations: list[dict] = field(default_factory=list)
+    intent_text: str = ""

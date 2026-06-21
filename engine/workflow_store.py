@@ -133,6 +133,7 @@ def _serialize(w: Workflow) -> dict:
     return {
         "id":              w.id,
         "name":            w.name,
+        "description":     w.description,
         "intent_patterns": w.intent_patterns,
         "params":          w.params,
         "version":         w.version,
@@ -149,6 +150,7 @@ def _deserialize(raw: dict) -> Workflow:
     return Workflow(
         id=raw["id"],
         name=raw.get("name", raw["id"]),
+        description=raw.get("description", ""),
         intent_patterns=raw.get("intent_patterns", []),
         params=raw.get("params", []),
         version=raw.get("version", 1),

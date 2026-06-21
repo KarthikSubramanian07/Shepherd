@@ -141,7 +141,7 @@ export interface RemoteTrace {
   /** True once the coalescer saves the graph and it's eligible for promotion. */
   promoteReady?: boolean;
   /** Set after WorkflowStore.promote() succeeds — the created workflow. */
-  promoted?: { workflow_id: string; name: string; version?: number } | null;
+  promoted?: { workflow_id: string; name: string; description?: string; version?: number } | null;
 }
 
 export interface RemoteRouting {

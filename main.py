@@ -377,7 +377,7 @@ def main() -> None:
                     pass
 
             # ── Execute (synchronous, blocking) ───────────────────────────────
-            result = engine.execute(resolved)
+            result = engine.execute(resolved, intent_text=intent.raw_text)
             _after_run(engine, telemetry, memory, result, confidence=resolved.confidence)
             if _should_end_session():
                 print("[shepherd] Task complete — ending session.\n")
