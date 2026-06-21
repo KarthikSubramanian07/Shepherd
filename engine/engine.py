@@ -88,41 +88,60 @@ class SuspendedTask:
 
 
 def activate_app(name: str, settle: float = 1.2) -> None:
-    """Deterministically bring a macOS app to the foreground and give it focus.
-
-    Exposed to autonomous chained-action code. Use this before typing so keystrokes
-    land in the intended window — Spotlight launches are unreliable about stealing
-    focus, which is what sends text into Spotlight/the wrong field. `open -a` both
-    launches the app (if needed) and activates it (brings a running app to front),
-    so it covers both cases without the AppleScript `activate` — which would require
-    macOS Automation (TCC) permission and could stall on a consent prompt."""
+    """Bring an app to the foreground. Cross-platform: macOS uses `open -a`,
+    Linux uses `wmctrl` or `xdotool` as fallback."""
+    import sys as _sys
     try:
-        subprocess.run(["open", "-a", name], check=False, timeout=10)
+        if _sys.platform == "darwin":
+            subprocess.run(["open", "-a", name], check=False, timeout=10)
+        else:
+            # Linux: try wmctrl first, then xdotool
+            try:
+                subprocess.run(
+                    ["wmctrl", "-a", name], check=True, timeout=5,
+                )
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                try:
+                    subprocess.run(
+                        ["xdotool", "search", "--name", name, "windowactivate"],
+                        check=False, timeout=5,
+                    )
+                except FileNotFoundError:
+                    print(f"[engine] activate_app: no wmctrl/xdotool on Linux (non-fatal)")
     except Exception as e:  # never let focus-setting abort the run
         print(f"[engine] activate_app({name!r}) failed (non-fatal): {e}")
     time.sleep(settle)
 
 
 def type_text(text: str) -> None:
-    """Reliable text entry for the autonomous agent — paste via the macOS clipboard
-    (pbcopy + AppleScript Cmd+V) instead of typing character-by-character.
-
-    pyautogui.typewrite holds Shift to make capitals; at low intervals the release
-    lags, so letters after a capital stay uppercase ('Introduction' -> 'INTRODUCTION')
-    until it catches up. Pasting sends no per-character keystrokes, so capitalization,
-    punctuation and newlines come out exactly as written. Falls back to typewrite if
-    the clipboard path fails. The focused field must already be active (click/select
-    first), same as typewrite."""
+    """Reliable text entry — paste via clipboard instead of character-by-character.
+    Cross-platform: macOS uses pbcopy + Cmd+V, Linux uses xclip + Ctrl+V."""
     if not text:
         return
+    import sys as _sys
     try:
-        subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True, timeout=5)
-        time.sleep(0.1)
-        subprocess.run(
-            ["osascript", "-e",
-             'tell application "System Events" to keystroke "v" using command down'],
-            check=False, timeout=5,
-        )
+        if _sys.platform == "darwin":
+            subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True, timeout=5)
+            time.sleep(0.1)
+            subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to keystroke "v" using command down'],
+                check=False, timeout=5,
+            )
+        else:
+            # Linux: use xclip + Ctrl+V
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=text.encode("utf-8"), check=True, timeout=5,
+                )
+            except FileNotFoundError:
+                subprocess.run(
+                    ["xsel", "--clipboard", "--input"],
+                    input=text.encode("utf-8"), check=True, timeout=5,
+                )
+            time.sleep(0.1)
+            pyautogui.hotkey("ctrl", "v")
     except Exception as e:
         print(f"[engine] type_text paste failed ({e}); falling back to typewrite")
         pyautogui.typewrite(text, interval=0.05)

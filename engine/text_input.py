@@ -35,12 +35,26 @@ def enter_text(text: str) -> None:
         pyautogui.write(text, interval=0.03)
         return
 
-    subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True)
-    time.sleep(0.1)
-    subprocess.run(
-        ["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'],
-        check=False,
-    )
+    if sys.platform == "darwin":
+        subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True)
+        time.sleep(0.1)
+        subprocess.run(
+            ["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'],
+            check=False,
+        )
+    else:
+        try:
+            subprocess.run(
+                ["xclip", "-selection", "clipboard"],
+                input=text.encode("utf-8"), check=True, timeout=5,
+            )
+        except FileNotFoundError:
+            subprocess.run(
+                ["xsel", "--clipboard", "--input"],
+                input=text.encode("utf-8"), check=True, timeout=5,
+            )
+        time.sleep(0.1)
+        pyautogui.hotkey("ctrl", "v")
 
 
 def hotkey(keys: list[str]) -> None:
