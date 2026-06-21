@@ -96,6 +96,14 @@ class Orchestrator:
             w.halt()
         return len(workers)
 
+    def shutdown(self, timeout: float = 12.0) -> None:
+        """Halt every agent and WAIT for its worker to finish. This is what makes a
+        browser window close cleanly on exit: each session is closed by its own
+        worker thread (Playwright is thread-confined), so we must let the workers
+        run their teardown rather than kill the process out from under them."""
+        self.halt_all()
+        self.join_all(timeout=timeout)
+
     # ── fleet view ────────────────────────────────────────────────────────────
     def snapshot(self) -> dict:
         with self._lock:

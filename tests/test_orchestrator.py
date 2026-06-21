@@ -86,6 +86,33 @@ def test_concurrency_cap_backlogs_extra_tasks():
     assert done["n"] == 5
 
 
+def test_shutdown_halts_and_waits_for_teardown():
+    """shutdown() must halt every agent AND wait for each worker to run its
+    teardown on its own thread — that's what closes browser windows cleanly."""
+    torn_down = {"n": 0}
+    lock = threading.Lock()
+
+    def fn(worker):
+        try:
+            while not worker.halted:
+                time.sleep(0.01)
+        finally:
+            with lock:                 # stand-in for session.close() on the worker thread
+                torn_down["n"] += 1
+        return {"status": "halted"}
+
+    orch = Orchestrator(max_agents=4)
+    for i in range(3):
+        orch.dispatch(f"g{i}", surface_kind="local", run_fn=fn)
+    time.sleep(0.1)
+
+    orch.shutdown(timeout=3)
+
+    assert torn_down["n"] == 3          # every worker finished its teardown
+    snap = orch.snapshot()
+    assert all(a["status"] == "halted" for a in snap["agents"])
+
+
 def test_blocked_browserbase_task_does_not_stall_local(monkeypatch):
     """A backlogged Browserbase task that can never start (session cap reached)
     must not block runnable local tasks queued behind it (no head-of-line stall)."""

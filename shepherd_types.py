@@ -124,6 +124,9 @@ class ExecutionResult:
     started_at: float
     ended_at: float
     run_id: str = ""
+    # Medium natural-language summary of what the agent did, shown to the user on
+    # the frontend at the end of the run (built at the run boundary).
+    response: str = ""
 
 
 @dataclass

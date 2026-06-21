@@ -41,6 +41,13 @@ def _fmt(t: str, d: dict) -> str:
         return f"  STEP {g('index')} start  [{g('action')}] {g('description', '')}"
     if t == "step.agent_s_thinking":
         return f"  STEP {g('index')} thinking..."
+    if t == "agent.reasoning":
+        who = g("agent_id", "?")
+        line = f"  THINK [{who}] t{g('turn')} ({g('status', '')}): {g('reasoning', '') or '(none)'}"
+        ops = g("ops", [])
+        if ops:
+            line += f"\n         plan: {' | '.join(ops)}"
+        return line
     if t == "step.complete":
         dev = f" (deviation: {g('deviation')})" if g('deviation') else ""
         return f"  STEP {g('index')} done   {g('status')} ({g('duration_ms')}ms){dev}"
@@ -55,7 +62,10 @@ def _fmt(t: str, d: dict) -> str:
     if t == "execution.halted":
         return f"HALT      step {g('step_index')} — {g('reason')}"
     if t == "execution.complete":
-        return f"EXEC      done {g('status')} — {g('steps_completed')} steps in {g('duration_ms')}ms"
+        line = f"EXEC      done {g('status')} — {g('steps_completed')} steps in {g('duration_ms')}ms"
+        if g("response"):
+            line += f"\n           ↳ {g('response')}"
+        return line
     if t == "monitor.alert":
         return f"MONITOR   {str(g('verdict', '')).upper()} @ step {g('step_index')}: {g('reason')}"
     if t == "monitor.decision":
@@ -80,8 +90,17 @@ def _fmt(t: str, d: dict) -> str:
     return f"{t}  {d}"   # generic fallback for any unmapped event
 
 
+_started = False
+
+
 def start_console_logging() -> None:
-    """Begin printing every workflow event to stdout. Idempotent-safe to call once."""
+    """Begin printing every workflow event to stdout. Idempotent — calling it
+    more than once is a no-op (a second subscriber would print every line twice)."""
+    global _started
+    if _started:
+        return
+    _started = True
+
     def _on(message: dict) -> None:
         t = message.get("type")
         if not t or t in _SKIP:

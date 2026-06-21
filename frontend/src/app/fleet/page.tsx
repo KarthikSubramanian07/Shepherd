@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Cpu, Globe, Loader2, Plus, Square, Users } from "lucide-react";
+import { Cpu, Globe, Loader2, Plus, Rocket, Square, Trash2, Users, X } from "lucide-react";
 import { api, type FleetSnapshot } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, CardBody, CardHeader } from "@/components/ui/primitives";
@@ -20,11 +20,19 @@ function fmtMs(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+interface StagedTask {
+  id: number;
+  goal: string;
+  kind: "local" | "browserbase";
+}
+
 export default function FleetPage() {
   const [snap, setSnap] = useState<FleetSnapshot | null>(null);
   const [goal, setGoal] = useState("");
   const [kind, setKind] = useState<"local" | "browserbase">("browserbase");
+  const [staged, setStaged] = useState<StagedTask[]>([]);
   const [busy, setBusy] = useState(false);
+  const idRef = useRef(1);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function load() {
@@ -43,11 +51,22 @@ export default function FleetPage() {
     };
   }, []);
 
-  async function dispatch() {
-    if (!goal.trim()) return;
-    setBusy(true);
-    await api.dispatchAgent(goal.trim(), kind);
+  function addToQueue() {
+    const g = goal.trim();
+    if (!g) return;
+    setStaged((s) => [...s, { id: idRef.current++, goal: g, kind }]);
     setGoal("");
+  }
+
+  function removeStaged(id: number) {
+    setStaged((s) => s.filter((t) => t.id !== id));
+  }
+
+  async function deployAll() {
+    if (staged.length === 0) return;
+    setBusy(true);
+    await api.dispatchBatch(staged.map((t) => ({ goal: t.goal, surface_kind: t.kind })));
+    setStaged([]);
     setBusy(false);
     load();
   }
@@ -80,39 +99,84 @@ export default function FleetPage() {
           </Card>
         )}
 
-        {/* Dispatch */}
+        {/* Queue builder — stage tasks, then deploy all at once */}
         <Card>
           <CardHeader>
-            <div className="flex items-center gap-2 text-sm font-medium text-ink">
-              <Plus className="h-4 w-4" /> Dispatch an agent
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-medium text-ink">
+                <Plus className="h-4 w-4" /> Queue tasks
+              </div>
+              <span className="text-xs text-muted">
+                {staged.length} staged — add tasks, then deploy them all at once
+              </span>
             </div>
           </CardHeader>
-          <CardBody className="flex flex-wrap items-center gap-2">
-            <input
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && dispatch()}
-              placeholder="e.g. find the cheapest flight to NYC"
-              className="h-9 flex-1 min-w-[260px] rounded-lg border border-edge bg-surface px-3 text-sm text-ink outline-none focus:ring-2 focus:ring-accent/40"
-            />
-            <div className="flex rounded-lg border border-edge p-0.5">
-              {(["browserbase", "local"] as const).map((k) => (
-                <button
-                  key={k}
-                  onClick={() => setKind(k)}
-                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
-                    kind === k ? "bg-panel2 text-ink" : "text-muted"
-                  }`}
-                >
-                  {k === "browserbase" ? <Globe className="h-3.5 w-3.5" /> : <Cpu className="h-3.5 w-3.5" />}
-                  {k === "browserbase" ? "Browser" : "Desktop"}
-                </button>
-              ))}
+          <CardBody className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addToQueue()}
+                placeholder="e.g. find the cheapest flight to NYC"
+                className="h-9 flex-1 min-w-[260px] rounded-lg border border-edge bg-canvas px-3 text-sm text-ink outline-none focus:ring-2 focus:ring-accent/40"
+              />
+              <div className="flex rounded-lg border border-edge p-0.5">
+                {(["browserbase", "local"] as const).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setKind(k)}
+                    className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
+                      kind === k ? "bg-panel2 text-ink" : "text-muted"
+                    }`}
+                  >
+                    {k === "browserbase" ? <Globe className="h-3.5 w-3.5" /> : <Cpu className="h-3.5 w-3.5" />}
+                    {k === "browserbase" ? "Browser" : "Desktop"}
+                  </button>
+                ))}
+              </div>
+              <Button variant="outline" size="sm" onClick={addToQueue}>
+                <Plus className="h-3.5 w-3.5" /> Add to queue
+              </Button>
             </div>
-            <Button size="sm" disabled={busy || !enabled} onClick={dispatch}>
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-              Dispatch
-            </Button>
+
+            {/* Staged list */}
+            {staged.length > 0 && (
+              <div className="space-y-1.5">
+                {staged.map((t, i) => (
+                  <div
+                    key={t.id}
+                    className="flex items-center gap-2 rounded-lg border border-edge bg-panel2 px-3 py-2"
+                  >
+                    <span className="font-mono text-[11px] text-muted">{i + 1}</span>
+                    <Badge tone="neutral">
+                      {t.kind === "browserbase" ? <Globe className="h-3 w-3" /> : <Cpu className="h-3 w-3" />}
+                      {t.kind === "browserbase" ? "Browser" : "Desktop"}
+                    </Badge>
+                    <span className="flex-1 truncate text-sm text-ink">{t.goal}</span>
+                    <button
+                      onClick={() => removeStaged(t.id)}
+                      className="text-muted hover:text-halt"
+                      aria-label="Remove task"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Deploy bar */}
+            <div className="flex items-center justify-end gap-2 border-t border-edge pt-3">
+              {staged.length > 0 && (
+                <Button variant="ghost" size="sm" onClick={() => setStaged([])}>
+                  <Trash2 className="h-3.5 w-3.5" /> Clear
+                </Button>
+              )}
+              <Button size="sm" disabled={busy || !enabled || staged.length === 0} onClick={deployAll}>
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
+                Deploy all{staged.length > 0 ? ` (${staged.length})` : ""}
+              </Button>
+            </div>
           </CardBody>
         </Card>
 

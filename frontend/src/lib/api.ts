@@ -264,6 +264,16 @@ export const api = {
     });
     return res.json().catch(() => ({ error: `HTTP ${res.status}` }));
   },
+  dispatchBatch: async (
+    tasks: { goal: string; surface_kind: "local" | "browserbase" }[],
+  ): Promise<{ ok?: boolean; agent_ids?: string[]; errors?: unknown[]; error?: string }> => {
+    const res = await fetch(`${BACKEND}/api/fleet/dispatch_batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tasks }),
+    });
+    return res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  },
   haltAgent: async (agentId: string): Promise<{ ok?: boolean }> => {
     const res = await fetch(`${BACKEND}/api/fleet/halt/${agentId}`, { method: "POST" });
     return res.json().catch(() => ({ ok: false }));

@@ -24,8 +24,13 @@ class EventBus:
         self._loop = loop
 
     def subscribe(self, fn: Callable) -> None:
+        # Idempotent: never register the SAME callable twice. A double-install
+        # (e.g. setup re-run, or a module imported under two paths) would
+        # otherwise make every subscriber fire N times — which shows up as
+        # console lines printed N× and events broadcast N× to the dashboard.
         with self._lock:
-            self._subs.append(fn)
+            if fn not in self._subs:
+                self._subs.append(fn)
 
     def unsubscribe(self, fn: Callable) -> None:
         with self._lock:

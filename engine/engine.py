@@ -46,6 +46,7 @@ from engine.routine_planner import RoutinePlanner, normalize_open_app_step
 from engine.task_graph import TaskGraphStore, summarize, milestone_key
 from engine.coalescer import submit as submit_trace
 from engine.generalize import generalize_goal
+from engine.run_summary import summarize_run
 from dashboard.events import event_bus
 from telemetry import audit_log
 from telemetry import request_log as rlog
@@ -366,6 +367,15 @@ class ShepherdExecutionEngine:
                         )
                     rlog.agent_turn(run_id, i, self._agent_s.last_reasoning,
                                     result.code or "", result.outcome)
+                    # Surface this agent's per-step reasoning on stdout.
+                    event_bus.emit("agent.reasoning", {
+                        "run_id":    run_id,
+                        "agent_id":  getattr(self, "agent_id", "") or "local",
+                        "turn":      i,
+                        "status":    result.outcome,
+                        "reasoning": self._agent_s.last_reasoning or "",
+                        "ops":       list(apps or []),
+                    })
                     step_status = "completed"
                     step_error: Optional[str] = None
 
@@ -525,6 +535,8 @@ class ShepherdExecutionEngine:
             apply_chain_span(span, input_text=goal, output_text=chain_out)
 
         ended_at = time.time()
+        response = summarize_run(
+            goal, status, [s.description for s in executed], error=error or "")
         result = ExecutionResult(
             routine_id=AUTONOMOUS_ROUTINE_ID,
             status=status,
@@ -535,12 +547,14 @@ class ShepherdExecutionEngine:
             started_at=started_at,
             ended_at=ended_at,
             run_id=run_id,
+            response=response,
         )
         event_bus.emit("execution.complete", {
             "run_id":          run_id,
             "status":          status,
             "steps_completed": steps_done,
             "duration_ms":     result.duration_ms,
+            "response":        response,
         })
 
         # Hand the executed trace to the coalescer (COLD PATH): it LLM-segments into
@@ -991,6 +1005,9 @@ class ShepherdExecutionEngine:
             apply_chain_span(span, input_text=chain_in, output_text=chain_out)
 
         ended_at = time.time()
+        response = summarize_run(
+            intent_text or resolved.routine_id, status,
+            [s.description for s in executed], error=error or "")
         result = ExecutionResult(
             routine_id=resolved.routine_id,
             status=status,
@@ -1001,12 +1018,14 @@ class ShepherdExecutionEngine:
             started_at=started_at,
             ended_at=ended_at,
             run_id=run_id,
+            response=response,
         )
         event_bus.emit("execution.complete", {
             "run_id":          run_id,
             "status":          status,
             "steps_completed": steps_done,
             "duration_ms":     result.duration_ms,
+            "response":        response,
         })
 
         # ── Hand the trace to the async coalescer (COLD PATH) ───────────────────
@@ -1081,6 +1100,9 @@ class ShepherdExecutionEngine:
 
         ended_at = time.time()
         status = {"completed": "completed", "blocked": "aborted"}.get(wf_run.status, "aborted")
+        response = summarize_run(
+            goal or workflow.name, status, list(wf_run.path),
+            error=(wf_run.blocked_on or "") if status != "completed" else "")
         result = ExecutionResult(
             routine_id=workflow.id,
             status=status,
@@ -1091,7 +1113,20 @@ class ShepherdExecutionEngine:
             started_at=started_at,
             ended_at=ended_at,
             run_id=run_id,
+            response=response,
         )
+        # Surface the response on the frontend. Workflow runs drive the live view
+        # via workflow.* events (not execution.*), so this trailing
+        # execution.complete is what carries the response to the UI — consistent
+        # with the autonomous/routine paths. Reuses the computed response (no 2nd
+        # LLM call); the live graph is already finalized by workflow.done.
+        event_bus.emit("execution.complete", {
+            "run_id":          run_id,
+            "status":          status,
+            "steps_completed": len(wf_run.path),
+            "duration_ms":     result.duration_ms,
+            "response":        response,
+        })
         return result
 
     def _run_workflow_agentic(self, workflow, goal="", params=None, profile=None):

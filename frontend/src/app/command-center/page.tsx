@@ -98,6 +98,16 @@ export default function CommandCenterPage() {
             </div>
           )}
 
+          {/* Agent response · the medium text summary of the finished run */}
+          {state.response && state.status !== "running" && (
+            <div className="mt-3 rounded-xl border border-edge bg-panel2/60 p-4 text-sm">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+                Response
+              </div>
+              <p className="whitespace-pre-wrap leading-relaxed text-ink">{state.response}</p>
+            </div>
+          )}
+
           {/* Monitor alert · the signature moment: the lantern catches the danger */}
           {state.monitorAlert && (
             <div className="mt-4 animate-riseIn rounded-xl border border-halt/40 bg-halt/[0.06] p-4 shadow-halt">

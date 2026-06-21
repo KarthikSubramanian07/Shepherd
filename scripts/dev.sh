@@ -26,6 +26,13 @@ echo "[dev] freeing ports $BACKEND_PORT and $FRONTEND_PORT..."
 free_port "$BACKEND_PORT"
 free_port "$FRONTEND_PORT"
 
+# Kill any leftover agent from a previous run — otherwise two agents write to the
+# same log (doubled lines) and each owns its own browser windows, so Ctrl-C leaves
+# orphaned/crashed browsers. (pkill skips its own pid.)
+echo "[dev] stopping any leftover agent (main.py)..."
+pkill -f "python main.py" 2>/dev/null || true
+sleep 0.3
+
 # Point the frontend at the local backend (live WS + REST).
 cat > frontend/.env.local <<EOF
 NEXT_PUBLIC_API_BASE=http://localhost:$BACKEND_PORT
@@ -49,7 +56,15 @@ FE_PID=$!
 cleanup() {
   echo
   echo "[dev] stopping..."
-  kill "$AGENT_PID" "$FE_PID" 2>/dev/null || true
+  kill "$FE_PID" 2>/dev/null || true
+  # SIGTERM the agent and let it shut down gracefully — it halts every agent and
+  # closes browser windows cleanly on SIGTERM. Give it up to ~6s BEFORE force-
+  # freeing the port (free_port -9 would otherwise kill it mid-teardown).
+  kill "$AGENT_PID" 2>/dev/null || true
+  for _ in $(seq 1 12); do
+    kill -0 "$AGENT_PID" 2>/dev/null || break
+    sleep 0.5
+  done
   free_port "$BACKEND_PORT"
   free_port "$FRONTEND_PORT"
   exit 0

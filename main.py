@@ -509,6 +509,30 @@ def _run_orchestrated(coords, telemetry, remote_intents, listen, default_kind) -
           "a lane; otherwise default is "
           f"'{default_kind}'.  Ctrl-C to quit.\n")
 
+    # Graceful shutdown — close browser windows cleanly instead of killing the
+    # process out from under them (which leaves a "browser crashed" dialog). Wire
+    # BOTH Ctrl-C (SIGINT) and the SIGTERM that scripts/dev.sh sends on cleanup.
+    import signal
+    _shutting_down = threading.Event()
+
+    def _graceful(signum, _frame):
+        if _shutting_down.is_set():
+            os._exit(1)   # second Ctrl-C → force quit now
+        _shutting_down.set()
+        print("\n[orchestrator] stopping agents and closing browser windows… "
+              "(Ctrl-C again to force quit)")
+        try:
+            orch.shutdown(timeout=12)
+        finally:
+            print("[shepherd] Bye.")
+            os._exit(0)
+
+    for _sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            signal.signal(_sig, _graceful)
+        except (ValueError, OSError):
+            pass  # not the main thread / unsupported — fall back to except blocks
+
     def _dispatch(raw: str) -> None:
         kind = default_kind
         text = raw.strip()

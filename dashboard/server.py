@@ -980,6 +980,40 @@ async def fleet_dispatch(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "agent_id": agent_id})
 
 
+@app.post("/api/fleet/dispatch_batch")
+async def fleet_dispatch_batch(request: Request) -> JSONResponse:
+    """Deploy a whole staged queue of tasks at once. Body: {"tasks": [{goal,
+    surface_kind?, name?}, ...]}. Dispatches them in one shot so they all spawn
+    together (subject to the orchestrator's concurrency caps — extras backlog)."""
+    if _orchestrator is None:
+        return JSONResponse({"error": "orchestrator not running"}, status_code=409)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    tasks = body.get("tasks") if isinstance(body, dict) else None
+    if not isinstance(tasks, list) or not tasks:
+        return JSONResponse({"error": "tasks (non-empty list) required"}, status_code=400)
+
+    agent_ids, errors = [], []
+    for t in tasks:
+        if not isinstance(t, dict):
+            continue
+        goal = (t.get("goal") or t.get("text") or "").strip()
+        if not goal:
+            errors.append({"task": t, "error": "goal required"})
+            continue
+        try:
+            agent_ids.append(_orchestrator.dispatch(
+                goal,
+                surface_kind=(t.get("surface_kind") or "").strip().lower(),
+                name=(t.get("name") or "").strip(),
+            ))
+        except ValueError as e:
+            errors.append({"goal": goal, "error": str(e)})
+    return JSONResponse({"ok": not errors, "agent_ids": agent_ids, "errors": errors})
+
+
 @app.post("/api/fleet/halt/{agent_id}")
 async def fleet_halt(agent_id: str) -> JSONResponse:
     if _orchestrator is None:

@@ -64,6 +64,8 @@ export interface ExecutionState {
   cloudBrowserUrl: string | null;
   /** Cross-run memory recall for the active goal (a similar prior run was found). */
   memoryRecall: { goal: string; similarity: number; milestones: string[] } | null;
+  /** Medium natural-language summary of the last finished run (shown to the user). */
+  response: string | null;
   /** Live milestone graph that replays node-by-node as the agent runs. */
   graphNodes: LiveGraphNode[];
   /** Maps a fine step index → graph node key (built from task.graph.loaded). */
@@ -83,6 +85,7 @@ const DEFAULT_STATE: ExecutionState = {
   armoriqGate: null,
   cloudBrowserUrl: null,
   memoryRecall: null,
+  response: null,
   graphNodes: [],
   stepToNode: {},
   totalSteps: 0,
@@ -137,6 +140,7 @@ function applyEvent(
         verifierResult: null,
         armoriqGate: null,
         cloudBrowserUrl: null,
+        response: null,
         // Reset the live graph; task.graph.loaded (if any) re-seeds it below.
         graphNodes: [],
         stepToNode: {},
@@ -224,6 +228,7 @@ function applyEvent(
         verifierResult: null,
         cloudBrowserUrl: null,
         memoryRecall: null,
+        response: (d.response as string) || prev.response,
         graphNodes: prev.graphNodes.map((n) =>
           n.status === "running" || n.status === "pending"
             ? { ...n, status: "done" }
