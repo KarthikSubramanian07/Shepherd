@@ -68,6 +68,7 @@ export function useWebRTC(
       pcRef.current.close();
       pcRef.current = null;
     }
+    pendingCandidates.current = [];
     setState("idle");
     if (videoElRef.current) {
       videoElRef.current.srcObject = null;
@@ -106,9 +107,11 @@ export function useWebRTC(
               const s = pc.iceConnectionState;
               if (s === "connected" || s === "completed") {
                 setState("connected");
-              } else if (s === "failed" || s === "disconnected") {
+              } else if (s === "failed") {
                 setState("failed");
               }
+              // "disconnected" is transient (temp network blip) — don't
+              // flip to failed immediately; ICE may recover on its own.
             };
 
             // Receive remote video track.
