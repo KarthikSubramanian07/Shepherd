@@ -465,6 +465,38 @@ The current protocol version is **`1`**.
 
 ---
 
+## WebRTC Signaling (Optional P2P Streaming)
+
+The coordinator supports relaying WebRTC signaling messages to enable **direct peer-to-peer video streaming** between agents and UIs. This is optional — the default base64 frame relay works without it. WebRTC is useful when you want lower latency or when the coordinator is on a bandwidth-constrained host.
+
+### Message Types
+
+| Type | Direction | Payload |
+|------|-----------|---------|
+| `webrtc.offer` | Agent → Coordinator → UI | SDP offer (`RTCSessionDescriptionInit`) |
+| `webrtc.answer` | UI → Coordinator → Agent | SDP answer (`RTCSessionDescriptionInit`) |
+| `webrtc.ice` | Both directions | `{ "candidate": RTCIceCandidateInit }` |
+
+### Flow
+
+1. Agent creates an `RTCPeerConnection`, adds a screen-capture video track, and generates an SDP offer.
+2. Agent sends `{"type": "webrtc.offer", "data": <SDP offer>}` to the coordinator.
+3. Coordinator relays it to the watching UI(s) for that agent.
+4. UI creates its own `RTCPeerConnection`, sets the remote description, creates an answer.
+5. UI sends `{"type": "webrtc.answer", "agent_id": "<id>", "data": <SDP answer>}` back through the coordinator.
+6. ICE candidates trickle via `webrtc.ice` messages in both directions through the coordinator.
+7. Once the P2P connection is established, video flows directly between agent and UI — the coordinator is no longer in the data path.
+
+### Bandwidth Impact
+
+With WebRTC active, the coordinator only relays signaling messages (~5-10 KB per connection setup) plus the regular event/command JSON. Frame bandwidth drops to zero on the coordinator since video flows peer-to-peer.
+
+### Fallback
+
+If WebRTC negotiation fails (e.g., both peers behind symmetric NAT with no TURN server), the system falls back to the standard base64 frame relay transparently.
+
+---
+
 ## Implementing a Third-Party Client
 
 ### Minimal Agent Client
