@@ -14,6 +14,16 @@ def _release() -> Optional[str]:
         return None
 
 
+def _attach_replay(scope, run_id: Optional[str]) -> None:
+    """Attach the agent's session-replay filmstrip (screenshots + manifest) for
+    this run to the Sentry scope. Best-effort; never raises."""
+    try:
+        from telemetry import session_replay
+        session_replay.attach_to_scope(scope, run_id)
+    except Exception:
+        pass
+
+
 def _link_phoenix(scope, trace_id: Optional[str]) -> None:
     """Attach the Phoenix/OTel trace id to a Sentry scope for cross-linking.
 
@@ -110,6 +120,7 @@ def _on_event(event_type: str, data: dict) -> None:
         elif event_type == "execution.complete":
             _close_span(run_id)
             _finish_txn(run_id, "ok")
+            _clear_replay(run_id)
         elif event_type == "execution.halted":
             _close_span(run_id)
             _finish_txn(run_id, "aborted")
@@ -118,9 +129,21 @@ def _on_event(event_type: str, data: dict) -> None:
                 level="warning",
                 tags={"shepherd.event": "halt", "reason": data.get("reason"),
                       "run_id": run_id, "step_index": data.get("step_index")},
+                run_id=run_id,
             )
+            _clear_replay(run_id)
     except Exception as e:
         print(f"[sentry] event non-fatal: {e}")
+
+
+def _clear_replay(run_id: str) -> None:
+    """Free this run's replay buffer once the run has ended (and any capture that
+    needed it has already fired inline at the failing step)."""
+    try:
+        from telemetry import session_replay
+        session_replay.clear(run_id)
+    except Exception:
+        pass
 
 
 def _close_span(run_id: str) -> None:
@@ -182,6 +205,7 @@ def capture_intervention(
                     scope.add_attachment(bytes=screenshot_png, filename="halt.png", content_type="image/png")
                 except Exception:
                     pass
+            _attach_replay(scope, run_id)
             _link_phoenix(scope, trace_id)
             sentry_sdk.capture_message(f"Oversight {decision}: {reason}", level="warning")
     except Exception as e:
@@ -194,11 +218,14 @@ def capture(
     tags: Optional[dict[str, Any]] = None,
     context: Optional[dict[str, Any]] = None,
     trace_id: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> None:
     """
     Capture an exception with optional structured context. No-op when Sentry is
     disabled. Centralizes the feature check + SDK import so call sites stay clean.
-    The active Phoenix trace id is linked automatically (or pass `trace_id`).
+    The active Phoenix trace id is linked automatically (or pass `trace_id`), and
+    the agent's session-replay filmstrip (screenshots leading up to the failure)
+    is attached when a run id is available.
     """
     if not FEATURES["sentry"]:
         return
@@ -210,6 +237,7 @@ def capture(
                     scope.set_tag(k, str(v))
             if context:
                 scope.set_context("execution", context)
+            _attach_replay(scope, run_id or (context or {}).get("run_id"))
             _link_phoenix(scope, trace_id)
             sentry_sdk.capture_exception(exc)
     except Exception as e:
@@ -223,11 +251,13 @@ def capture_message(
     tags: Optional[dict[str, Any]] = None,
     context: Optional[dict[str, Any]] = None,
     trace_id: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> None:
     """
     Report a non-exception failure (e.g. a run that ended status='failed' without
     raising) as a Sentry message with structured context. No-op when disabled.
-    The active Phoenix trace id is linked automatically (or pass `trace_id`).
+    The active Phoenix trace id is linked automatically (or pass `trace_id`), and
+    the agent's session-replay filmstrip is attached when a run id is available.
     """
     if not FEATURES["sentry"]:
         return
@@ -239,6 +269,7 @@ def capture_message(
                     scope.set_tag(k, str(v))
             if context:
                 scope.set_context("execution", context)
+            _attach_replay(scope, run_id or (context or {}).get("run_id"))
             _link_phoenix(scope, trace_id)
             sentry_sdk.capture_message(message, level=level)
     except Exception as e:

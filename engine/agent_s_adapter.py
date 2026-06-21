@@ -105,6 +105,10 @@ class AgentSAdapter:
         # The model's reasoning for its most recent predict (gui-agents executor
         # info["plan"]). The engine reads this to log WHY each action ran.
         self.last_reasoning: str = ""
+        # The most recent screenshot the model was actually shown (PNG bytes). The
+        # engine pulls this into the Sentry session-replay filmstrip so a failure
+        # issue shows exactly what the agent saw on the turn it went wrong.
+        self.last_screenshot: bytes = b""
         # Running memory of the chained planner so it knows what it already did
         # (each direct vision call is otherwise stateless → it repeats itself).
         self._chain_history: list[str] = []
@@ -220,6 +224,7 @@ class AgentSAdapter:
         """Reset the free-form goal state (long-trajectory agent + chain memory)."""
         self._chain_history = []
         self.observations = []
+        self.last_screenshot = b""
         if self._autonomous_agent is None:
             return
         try:
@@ -256,6 +261,7 @@ class AgentSAdapter:
             return None
         try:
             obs, geom = self._observation()
+            self.last_screenshot = obs.get("screenshot") or self.last_screenshot
             act = (action or "").lower()
 
             # FaceTimeOS: dedicated grounding call for pointer actions
@@ -327,7 +333,9 @@ class AgentSAdapter:
             else:
                 history = "This is your first turn; nothing has been done yet.\n\n"
 
-            b64 = base64.standard_b64encode(self._capture()).decode()
+            png = self._capture()
+            self.last_screenshot = png
+            b64 = base64.standard_b64encode(png).decode()
             plan_block = f"{plan_hint}\n\n" if plan_hint else ""
             prompt = (
                 "You are an autonomous desktop agent on macOS pursuing this goal:\n"

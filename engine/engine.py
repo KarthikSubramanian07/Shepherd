@@ -13,6 +13,7 @@ The click path is synchronous and sacred.
 Nothing async, networked, or ML-based runs inside a routine's step sequence.
 """
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -54,6 +55,7 @@ from telemetry import audit_log
 from telemetry import request_log as rlog
 from telemetry.telemetry import current_trace_id
 from telemetry.sentry_init import capture as sentry_capture
+from telemetry import session_replay
 from engine.permissions import accessibility_ok, AccessibilityDenied
 from services import policy_engine
 from telemetry.agent_trace import (
@@ -67,6 +69,17 @@ pyautogui.FAILSAFE = True   # slam mouse to top-left corner to abort
 pyautogui.PAUSE    = 0.3    # deliberate, watchable motion — this is the wow factor
 
 _APP_SETTLE = 2.0           # seconds to wait after open_app
+
+_CLICK_RE = re.compile(r"click\(\s*(\d+)\s*,\s*(\d+)", re.IGNORECASE)
+
+
+def _first_click_coords(code: Optional[str]) -> Optional[tuple]:
+    """Pull the first pyautogui.click(x, y) coordinate out of agent code so the
+    session-replay frame can annotate WHERE the agent decided to click."""
+    if not code:
+        return None
+    m = _CLICK_RE.search(code)
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 @dataclass
@@ -557,6 +570,19 @@ class ShepherdExecutionEngine:
                         "reasoning": self._agent_s.last_reasoning or "",
                         "ops":       list(apps or []),
                     })
+                    # Session-replay frame: what the agent SAW + decided this turn.
+                    # Attached to any Sentry issue if this run later fails.
+                    session_replay.record(
+                        run_id,
+                        step_index=i,
+                        kind=result.outcome or "turn",
+                        label=goal,
+                        reasoning=self._agent_s.last_reasoning,
+                        coords=_first_click_coords(result.code),
+                        code=result.code,
+                        screenshot_png=self._agent_s.last_screenshot,
+                        status="error" if result.outcome == "fail" else "ok",
+                    )
                     step_status = "completed"
                     step_error: Optional[str] = None
 
@@ -1039,6 +1065,20 @@ class ShepherdExecutionEngine:
                             "description": step.description or step.action,
                         })
                     agent_code, step_instruction = self._live_execute(defined_step, i, routine)
+
+                    # Session-replay frame: what the agent SAW + planned for this step.
+                    # Rides along on any Sentry issue if this run later fails.
+                    session_replay.record(
+                        run_id,
+                        step_index=i,
+                        kind=step.action,
+                        label=step.description or step.action,
+                        reasoning=self._agent_s.last_reasoning,
+                        target=step.target,
+                        coords=_first_click_coords(agent_code),
+                        code=agent_code,
+                        screenshot_png=self._agent_s.last_screenshot,
+                    )
 
                     # Deviation detection: compare code action type vs defined step
                     deviation_desc: Optional[str] = (
