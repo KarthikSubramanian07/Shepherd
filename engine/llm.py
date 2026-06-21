@@ -59,6 +59,7 @@ def complete(
     prefill: Optional[str] = None,
     max_tokens: Optional[int] = None,
     timeout: Optional[float] = None,
+    temperature: Optional[float] = None,
 ) -> str:
     """
     Run a chat completion through the active provider and return the plain
@@ -68,16 +69,22 @@ def complete(
     Anthropic to force a shape; for Gemini it is best-effort only, so callers
     should still parse defensively (see `parse_json_array`). Raises on transport
     or API error — callers fall back to a heuristic.
+
+    `temperature` defaults to 0.0 for BOTH providers: every crystallization call
+    (segmentation, goal generalization, routing filter) must be deterministic, or
+    the same goal could generalize to two different keys across cache misses and
+    spawn duplicate graphs/workflows.
     """
     max_tokens = max_tokens if max_tokens is not None else _cfg.LLM_MAX_TOKENS
     timeout = timeout if timeout is not None else _cfg.LLM_TIMEOUT_S
+    temperature = 0.0 if temperature is None else temperature
     if provider() == "anthropic":
-        return _anthropic(system, messages, prefill, max_tokens, timeout)
-    return _gemini(system, messages, prefill, max_tokens, timeout)
+        return _anthropic(system, messages, prefill, max_tokens, timeout, temperature)
+    return _gemini(system, messages, prefill, max_tokens, timeout, temperature)
 
 
 # ── Anthropic ──────────────────────────────────────────────────────────────────
-def _anthropic(system, messages, prefill, max_tokens, timeout) -> str:
+def _anthropic(system, messages, prefill, max_tokens, timeout, temperature) -> str:
     import httpx
 
     msgs = [{"role": r, "content": c} for r, c in messages]
@@ -96,6 +103,7 @@ def _anthropic(system, messages, prefill, max_tokens, timeout) -> str:
             "max_tokens": max_tokens,
             "system": system,
             "messages": msgs,
+            "temperature": temperature,
         },
         timeout=timeout,
     )
@@ -107,7 +115,7 @@ def _anthropic(system, messages, prefill, max_tokens, timeout) -> str:
 
 
 # ── Gemini / Gemma ──────────────────────────────────────────────────────────────
-def _gemini(system, messages, prefill, max_tokens, timeout) -> str:
+def _gemini(system, messages, prefill, max_tokens, timeout, temperature) -> str:
     import httpx
 
     # NOTE: prefill is intentionally ignored for Gemini. Seeding a trailing
@@ -122,7 +130,7 @@ def _gemini(system, messages, prefill, max_tokens, timeout) -> str:
 
     body: dict = {
         "contents": contents,
-        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.0},
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temperature},
     }
     if system:
         body["systemInstruction"] = {"parts": [{"text": system}]}

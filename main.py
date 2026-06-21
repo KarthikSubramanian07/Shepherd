@@ -7,6 +7,7 @@ Front door is controlled by USE_ROUTER (config / .env):
   USE_ROUTER=false (default)  free-form autonomous Agent S goals (no routing)
   USE_ROUTER=true             match a saved workflow/routine first, autonomous on no match
   ROUTINE_REPLAY=vision|deterministic  how a matched routine is driven (LIVE|LOCKED)
+  MATCH_WORKFLOWS / MATCH_ROUTINES  enable each routing source separately (both on by default)
 
 Usage:
   python main.py
@@ -22,6 +23,7 @@ import threading
 from config import (
     FEATURES, EXECUTION_MODE, DASHBOARD_PORT, USE_ROUTER, ROUTINE_REPLAY,
     AUTONOMOUS_ON_UNMATCHED, EXIT_WHEN_DONE, BACKEND_URL, CONSOLE_LOG,
+    MATCH_WORKFLOWS, MATCH_ROUTINES,
 )
 from shepherd_types import Intent, ResolvedRoutine
 from router.router import ShepherdIntentRouter
@@ -175,7 +177,10 @@ def main() -> None:
     if "--mode" in sys.argv:
         front_door = f"--mode override: {mode}"
     elif USE_ROUTER:
-        front_door = f"router ON (replay={ROUTINE_REPLAY}, autonomous fallback) -> {mode}"
+        sources = "+".join(
+            s for s, on in (("workflows", MATCH_WORKFLOWS), ("routines", MATCH_ROUTINES)) if on
+        ) or "none"
+        front_door = f"router ON (match={sources}, replay={ROUTINE_REPLAY}, autonomous fallback) -> {mode}"
     else:
         front_door = f"router OFF (free-form autonomous) -> {mode}"
     print("\n=== THE SHEPHERD ===")
@@ -195,6 +200,16 @@ def main() -> None:
     memory    = ExecutionMemory()
     load_routines()          # pre-warm cache
     coords    = load_coords()
+    # Backfill: promote previously-crystallized task graphs into dispatchable
+    # workflows BEFORE the router indexes them, so they appear in the Workflows
+    # page and are matchable immediately (no manual bake-out). Idempotent.
+    from config import AUTO_PROMOTE_WORKFLOWS, AUTO_PROMOTE_MIN_NODES
+    if AUTO_PROMOTE_WORKFLOWS:
+        try:
+            from engine.workflow_promote import backfill_workflows
+            backfill_workflows(AUTO_PROMOTE_MIN_NODES)
+        except Exception as e:
+            print(f"[promote] backfill skipped (non-fatal): {e}")
     router    = ShepherdIntentRouter()
     evolution = RoutineEvolution()
     engine    = ShepherdExecutionEngine(coords=coords, telemetry=telemetry, mode=mode, evolution=evolution)

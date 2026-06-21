@@ -40,6 +40,7 @@ from engine.agent_s_adapter import AgentSAdapter
 from engine.routine_planner import RoutinePlanner, normalize_open_app_step
 from engine.task_graph import TaskGraphStore, summarize, milestone_key
 from engine.coalescer import submit as submit_trace
+from engine.generalize import generalize_goal
 from dashboard.events import event_bus
 from telemetry import audit_log
 from telemetry import request_log as rlog
@@ -513,7 +514,17 @@ class ShepherdExecutionEngine:
 
     @staticmethod
     def _autonomous_task_key(goal: str) -> str:
-        slug = "".join(c if c.isalnum() else "_" for c in (goal or "").lower()).strip("_")
+        # Key the graph by the GENERAL workflow, not the specific goal: "write a
+        # gmail message about meteorology" -> "write a gmail message". Every run
+        # of that kind of task then reinforces/branches ONE graph instead of
+        # spawning a fresh one per topic. The topic stays per-run payload (node
+        # values + the graph's intents provenance). Never raises.
+        try:
+            general = generalize_goal(goal)
+        except Exception as e:
+            print(f"[autonomous] goal generalization failed ({e}); using raw goal")
+            general = goal
+        slug = "".join(c if c.isalnum() else "_" for c in (general or "").lower()).strip("_")
         return "AUTONOMOUS::" + (slug[:48] or "goal")
 
     def execute(
