@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -9,6 +9,7 @@ import {
   GitBranch,
   Hand,
   KeyRound,
+  ListTree,
   Monitor,
   Pause,
   Play,
@@ -36,6 +37,7 @@ import { timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { MicCommandButton } from "@/components/remote/MicCommandButton";
 import { WorkflowGraph } from "@/components/graph/WorkflowGraph";
+import { TraceGraph } from "@/components/graph/TraceGraph";
 import {
   Badge,
   Button,
@@ -432,29 +434,114 @@ function WorkflowPane({
   onPickNode: (key: string) => void;
 }) {
   const wf = agent.workflow;
+  const trace = agent.trace;
+  // Default to whichever view has live data: the saved workflow if we're
+  // following one, otherwise the granular execution trace.
+  const [view, setView] = useState<"workflow" | "trace">(
+    wf ? "workflow" : trace ? "trace" : "workflow",
+  );
+  // Follow the run: snap to the view that actually has data as it changes.
+  const dataKey = `${wf ? "w" : ""}${trace ? "t" : ""}`;
+  useEffect(() => {
+    if (wf && !trace) setView("workflow");
+    else if (trace && !wf) setView("trace");
+  }, [dataKey, wf, trace]);
+
   return (
     <Card className="overflow-hidden">
       <div className="flex items-center gap-2 border-b border-edge px-3 py-2 text-xs text-muted">
-        <WorkflowIcon size={13} /> Live workflow graph
-        <span className="ml-auto">click a milestone to target a steer</span>
+        <div className="inline-flex overflow-hidden rounded-md border border-edge">
+          <ViewTab
+            active={view === "workflow"}
+            onClick={() => setView("workflow")}
+            icon={<WorkflowIcon size={12} />}
+          >
+            Workflow
+          </ViewTab>
+          <ViewTab
+            active={view === "trace"}
+            onClick={() => setView("trace")}
+            icon={<ListTree size={12} />}
+          >
+            Execution trace
+          </ViewTab>
+        </div>
+        <span className="ml-auto">
+          {view === "workflow"
+            ? "high-level milestones · click one to target a steer"
+            : "granular live steps as the agent operates"}
+        </span>
       </div>
       <div className="h-[60vh] min-h-[320px] bg-canvas">
-        {wf && wf.nodes.length > 0 ? (
-          <WorkflowGraph
-            workflow={wf}
-            nodeShots={nodeShots}
-            pickedNode={pickedNode}
-            onPickNode={onPickNode}
-          />
+        {view === "workflow" ? (
+          wf && wf.nodes.length > 0 ? (
+            <WorkflowGraph
+              workflow={wf}
+              nodeShots={nodeShots}
+              pickedNode={pickedNode}
+              onPickNode={onPickNode}
+            />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-muted">
+              <WorkflowIcon size={28} />
+              <span className="text-sm">Not following a saved workflow.</span>
+              <span className="text-[11px]">
+                This task didn&apos;t match an existing workflow — see the live
+                execution trace.
+              </span>
+            </div>
+          )
+        ) : trace && trace.nodes.length > 0 ? (
+          <div className="flex h-full flex-col">
+            {!wf && (
+              <div className="flex items-start gap-2 border-b border-edge bg-panel2 px-3 py-2 text-[12px] text-muted">
+                <Sparkles size={13} className="mt-0.5 shrink-0 text-accent" />
+                <span>
+                  {trace.known === false
+                    ? "New task — no saved workflow matched. A crystallized workflow is being recorded from this run; here is the live detailed execution trace."
+                    : "Running a task without a saved workflow. Here is the live detailed execution trace."}
+                </span>
+              </div>
+            )}
+            <div className="min-h-0 flex-1">
+              <TraceGraph trace={trace} nodeShots={nodeShots} />
+            </div>
+          </div>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-muted">
-            <WorkflowIcon size={28} />
-            <span className="text-sm">No workflow running yet.</span>
-            <span className="text-[11px]">Dispatch a workflow intent to build the graph live.</span>
+            <ListTree size={28} />
+            <span className="text-sm">No execution trace yet.</span>
+            <span className="text-[11px]">
+              Granular steps appear here as the agent acts on a task.
+            </span>
           </div>
         )}
       </div>
     </Card>
+  );
+}
+
+function ViewTab({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1 px-2.5 py-1 text-[12px] font-medium transition-colors ${
+        active ? "bg-accent text-white" : "bg-panel text-muted hover:text-ink"
+      }`}
+    >
+      {icon}
+      {children}
+    </button>
   );
 }
 

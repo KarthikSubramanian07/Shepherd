@@ -55,6 +55,52 @@ def test_coordinator_builds_workflow_graph_from_stream():
     assert {"from": "open", "to": "fill", "when": None} in snap["workflow"]["edges"]
 
 
+def test_coordinator_builds_execution_trace_for_new_task():
+    """A run not following a saved workflow builds a live step trace, flagged as
+    a brand-new task when no crystallized graph existed."""
+    hub = Hub()
+    conn = _conn()
+
+    hub.apply_event(conn, _ev("execution.start", run_id="r1", routine_id="AUTONOMOUS",
+                              mode="AUTONOMOUS", total_steps=10))
+    # no saved workflow is being followed
+    assert conn.snapshot()["workflow"] is None
+    tr = conn.snapshot()["trace"]
+    assert tr is not None and tr["runId"] == "r1" and tr["status"] == "running"
+
+    # task.graph.loaded says there was no prior graph → brand-new task
+    hub.apply_event(conn, _ev("task.graph.loaded", run_id="r1",
+                              routine_id="AUTONOMOUS", known=False, node_count=0))
+    assert conn.snapshot()["trace"]["known"] is False
+
+    hub.apply_event(conn, _ev("step.start", run_id="r1", index=0,
+                              action="agent_s", description="open browser", total=10))
+    assert conn.snapshot()["trace"]["current"] == 0
+
+    conn.last_frame, conn.last_frame_ts = "JPEG", 42.0
+    hub.apply_event(conn, _ev("step.complete", run_id="r1", index=0,
+                              status="completed", duration_ms=900))
+    node = conn.snapshot()["trace"]["nodes"][0]
+    assert node["status"] == "completed"
+    assert node["frameTs"] == 42.0
+    # internal index map is not leaked into the roster-safe view
+    assert "by_index" not in conn.snapshot()["trace"]
+
+    hub.apply_event(conn, _ev("execution.complete", run_id="r1", status="completed"))
+    assert conn.snapshot()["trace"]["status"] == "completed"
+
+
+def test_workflow_run_clears_any_stale_trace():
+    """Following a saved workflow drops the granular step trace."""
+    hub = Hub()
+    conn = _conn()
+    hub.apply_event(conn, _ev("execution.start", run_id="r1", mode="AUTONOMOUS"))
+    assert conn.snapshot()["trace"] is not None
+    hub.apply_event(conn, _ev("workflow.start", workflow_id="WF", name="Job App", start="open"))
+    assert conn.snapshot()["trace"] is None
+    assert conn.snapshot()["workflow"]["id"] == "WF"
+
+
 def test_coordinator_awaiting_sets_block():
     hub = Hub()
     conn = _conn()

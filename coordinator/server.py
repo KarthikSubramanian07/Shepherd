@@ -72,6 +72,11 @@ class AgentConn:
     # Most recent ad-hoc dispatch routing decision (intent → workflow / autonomous),
     # surfaced so the operator can see what the vector router matched.
     routing: Optional[dict] = None
+    # Live execution-trace graph, built on the fly from step.* events for runs that
+    # are NOT following a saved workflow (autonomous goals / routines). This is the
+    # granular "what is the agent actually doing right now" view; for a brand-new
+    # task it is the trace being crystallized into a future workflow.
+    trace: Optional[dict] = None
 
     def snapshot(self) -> dict:
         return {
@@ -92,6 +97,7 @@ class AgentConn:
             "hasFrame":         self.last_frame is not None,
             "workflow":         self._workflow_view(),
             "routing":          self.routing,
+            "trace":            self._trace_view(),
         }
 
     def _workflow_view(self) -> Optional[dict]:
@@ -111,6 +117,23 @@ class AgentConn:
             "baked":     wf.get("baked"),
             "finalize":  wf.get("finalize"),
             "finalized": wf.get("finalized"),
+        }
+
+    def _trace_view(self) -> Optional[dict]:
+        """Roster-safe view of the live execution trace (granular step graph)."""
+        if not self.trace:
+            return None
+        tr = self.trace
+        return {
+            "runId":     tr.get("run_id"),
+            "routineId": tr.get("routine_id"),
+            "kind":      tr.get("kind"),
+            # known=False means there was no prior task graph → a brand-new task
+            # whose trace is being crystallized into a future workflow.
+            "known":     tr.get("known", False),
+            "status":    tr.get("status", "running"),
+            "current":   tr.get("current"),
+            "nodes":     tr.get("nodes", []),
         }
 
     def _progress(self) -> float:
@@ -227,10 +250,19 @@ class Hub:
             conn.total_steps = d.get("total_steps")
             conn.step_index = None
             conn.block = None
-        elif t == "step.start":
-            conn.status = "running"
-            conn.step_index = d.get("index")
-            conn.total_steps = d.get("total", conn.total_steps)
+            # A routine/autonomous run is starting — it does NOT follow a saved
+            # workflow, so drop any stale workflow graph and open a fresh trace.
+            conn.workflow = None
+            conn.trace = _new_trace(d.get("run_id"), d.get("routine_id"), d.get("mode"))
+        elif t == "task.graph.loaded":
+            self._apply_trace_meta(conn, d)
+        elif t in ("step.start", "step.agent_s_thinking", "step.complete",
+                   "step.error", "step.deviation", "step.fallback"):
+            if t == "step.start":
+                conn.status = "running"
+                conn.step_index = d.get("index")
+                conn.total_steps = d.get("total", conn.total_steps)
+            self._apply_trace_event(conn, t, d)
         elif t == "monitor.alert":
             conn.status = "blocked"
             conn.block = {
@@ -249,10 +281,16 @@ class Hub:
             conn.status = {"completed": "completed", "failed": "failed"}.get(st, "idle")
             conn.block = None
             conn.routing = None
+            if conn.trace:
+                conn.trace["status"] = st
+                conn.trace["current"] = None
         elif t == "execution.halted":
             conn.status = "idle"
             conn.block = None
             conn.routing = None
+            if conn.trace:
+                conn.trace["status"] = "halted"
+                conn.trace["current"] = None
         elif t == "mode.changed":
             conn.mode = d.get("mode", conn.mode)
         elif t.startswith("workflow."):
@@ -266,6 +304,8 @@ class Hub:
             conn.run_id = None
             conn.step_index = None
             conn.block = None
+            # Following a saved workflow now → the granular step trace doesn't apply.
+            conn.trace = None
             conn.workflow = {
                 "id": d.get("workflow_id"), "name": d.get("name"),
                 "current": d.get("start"), "awaiting": False,
@@ -381,6 +421,57 @@ class Hub:
             # The dispatch routing decision is per-run; drop it so the banner
             # doesn't linger as stale after the run ends (re-set on next dispatch).
             conn.routing = None
+
+    # ── execution trace: build the live granular step graph from step.* events ──
+    def _apply_trace_meta(self, conn: AgentConn, d: dict) -> None:
+        """task.graph.loaded carries whether a crystallized graph already existed."""
+        if conn.trace is None:
+            conn.trace = _new_trace(d.get("run_id"), d.get("routine_id"), None)
+        tr = conn.trace
+        if d.get("run_id"):
+            tr["run_id"] = d.get("run_id")
+        if d.get("routine_id"):
+            tr["routine_id"] = d.get("routine_id")
+        tr["known"] = bool(d.get("known"))
+
+    def _apply_trace_event(self, conn: AgentConn, t: str, d: dict) -> None:
+        if conn.trace is None:
+            conn.trace = _new_trace(d.get("run_id"), None, None)
+        tr = conn.trace
+        idx = d.get("index")
+        if idx is None:
+            return
+        by = tr["by_index"]
+        node = by.get(idx)
+        if node is None:
+            node = {"index": idx, "status": "pending"}
+            by[idx] = node
+            tr["nodes"].append(node)
+
+        if t == "step.start":
+            node.update({"action": d.get("action"),
+                         "description": d.get("description"), "status": "running"})
+            tr["current"] = idx
+        elif t == "step.agent_s_thinking":
+            node["thinking"] = d.get("description") or node.get("thinking")
+        elif t == "step.complete":
+            node.update({"status": d.get("status", "completed"),
+                         "durationMs": d.get("duration_ms"),
+                         # pin the screenshot the UI captured from the frame stream.
+                         "frameTs": conn.last_frame_ts})
+        elif t == "step.error":
+            node.update({"status": "error", "error": d.get("error")})
+        elif t in ("step.deviation", "step.fallback"):
+            node["note"] = d.get("reason") or d.get("description") or t
+
+
+def _new_trace(run_id: Optional[str], routine_id: Optional[str],
+               kind: Optional[str]) -> dict:
+    return {
+        "run_id": run_id, "routine_id": routine_id, "kind": kind,
+        "known": None, "status": "running", "current": None,
+        "nodes": [], "by_index": {},
+    }
 
 
 hub = Hub()
