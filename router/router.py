@@ -92,7 +92,7 @@ class ShepherdIntentRouter:
                 ]
                 wf_candidates.insert(0, (wf_off.id, 0.99))
             return self._route_with_candidates(
-                text, wf_candidates, rt_candidates, mode=effective_mode
+                text, wf_candidates, rt_candidates
             )
 
         # ── Offline fallback: substring match on workflow intent_patterns ───
@@ -130,8 +130,6 @@ class ShepherdIntentRouter:
         text: str,
         wf_candidates: list[tuple[str, float]],
         rt_candidates: list[tuple[str, float]],
-        *,
-        mode: str | None = None,
     ) -> Plan:
         """Route using the retrieve→filter pipeline."""
         workflows = self._workflows.list()

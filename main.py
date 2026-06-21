@@ -351,7 +351,7 @@ def main() -> None:
                     continue
 
             if plan.kind != "ROUTINE":
-                if AUTONOMOUS_ON_UNMATCHED and engine._agent_s.available:
+                if effective_mode != "LOCKED" and AUTONOMOUS_ON_UNMATCHED and engine._agent_s.available:
                     print(f"[router] No routine matched — autonomous fallback for: {raw}")
                     event_bus.emit("intent.autonomous_fallback", {"raw_text": intent.raw_text})
                     event_bus.emit("routine.resolved", {
