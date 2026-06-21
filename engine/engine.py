@@ -990,6 +990,7 @@ class ShepherdExecutionEngine:
         # Parent span so Arize Phoenix traces THROUGH the workflow: each milestone's
         # workflow.node span nests under this workflow.execute span.
         with self._telemetry.span("workflow.execute") as _wspan:
+            self.last_trace_id = current_trace_id()
             _wspan.set_attribute("workflow.id", workflow.id)
             _wspan.set_attribute("workflow.name", workflow.name or "")
             _wspan.set_attribute("workflow.goal", goal)
