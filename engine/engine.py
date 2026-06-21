@@ -629,6 +629,11 @@ class ShepherdExecutionEngine:
                             status="blocked", started_at=step_t0, duration_ms=dur_ms,
                             error=help_msg,
                         ))
+                        event_bus.emit("step.complete", {
+                            "run_id": run_id, "index": i,
+                            "status": "blocked", "duration_ms": dur_ms,
+                            "deviation": "help_requested",
+                        })
                         event_bus.emit("step.help_requested", {
                             "run_id": run_id, "index": i, "help_message": help_msg,
                         })
@@ -1397,6 +1402,7 @@ class ShepherdExecutionEngine:
         # Detect agent-initiated help in workflow runs: the inner loop marks
         # blocked_on with a "__HELP__:" prefix so we can suspend instead of abort.
         is_help = (wf_run.blocked_on or "").startswith("__HELP__:")
+        help_msg = ""
         if is_help:
             help_msg = wf_run.blocked_on[len("__HELP__:"):]
             self._suspended_task = SuspendedTask(
