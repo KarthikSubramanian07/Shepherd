@@ -1653,10 +1653,27 @@ class ShepherdExecutionEngine:
                 except Exception as e:
                     print(f"[agentspan] research dispatch failed (non-fatal): {e}")
 
+            # Stagehand (Browserbase): natural-language extraction on a real cloud
+            # browser — the preferred web read when available, raw-CDP below as the
+            # deterministic fallback. Containment-gated inside stagehand_web.
+            live_view_url = None
+            if value is None and bstep.get("action") in ("read", "research"):
+                try:
+                    from services import stagehand_web
+                    if stagehand_web.available():
+                        instr = (bstep.get("extract") or bstep.get("instruction")
+                                 or "the key information or answer on this page")
+                        sv = stagehand_web.web_extract(target_url, instr)
+                        if sv:
+                            value, via = sv, "stagehand"
+                except Exception as e:
+                    print(f"[stagehand] read dispatch non-fatal: {e}")
+
             if value is None:
                 result = run_browser_step(bstep)
                 value = result.get("value")
                 via = result.get("status", "ok")
+                live_view_url = result.get("live_view_url")
 
             # A "read" feeds the next step: store its value into a variable so a
             # later {VAR} fill uses what the agent just read. If empty, fall back to
@@ -1670,6 +1687,7 @@ class ShepherdExecutionEngine:
                 "status":   via,
                 "value":    (value or "")[:160],
                 "store_as": store_as,
+                "live_view_url": live_view_url,
             })
 
         else:

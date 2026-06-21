@@ -195,6 +195,28 @@ export default function CommandCenterPage() {
             </div>
           )}
 
+          {/* Live cloud browser · the Browserbase session the agent is driving on
+              the open web, embedded and interactive — take over on a halt. */}
+          {state.cloudBrowserUrl && (
+            <div className="mt-4 rounded-xl border border-edge bg-canvas/50 p-4">
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                <span className="h-1.5 w-1.5 animate-pulseRing rounded-full bg-accent" />
+                Live cloud browser · Browserbase + Stagehand (interactive)
+              </div>
+              <iframe
+                src={state.cloudBrowserUrl}
+                title="Browserbase live view"
+                className="h-[420px] w-full rounded-lg border border-edge bg-white"
+                sandbox="allow-same-origin allow-scripts allow-forms"
+                allow="clipboard-read; clipboard-write"
+              />
+              <p className="mt-1.5 text-[11px] text-muted">
+                The agent is driving this real cloud browser. On a halt you can click
+                in and take control, then approve to hand it back.
+              </p>
+            </div>
+          )}
+
           {/* Live execution path · replays milestone-by-milestone as the run streams */}
           {state.graphNodes.length > 0 && (
             <div className="mt-4 rounded-xl border border-edge bg-canvas/50 p-4">

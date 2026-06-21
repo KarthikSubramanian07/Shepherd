@@ -60,6 +60,8 @@ export interface ExecutionState {
   verifierResult: VerifierResult | null;
   /** ArmorIQ pre-flight intent authorization for the active run (null until issued). */
   armoriqGate: { authorized: boolean; reason: string } | null;
+  /** Live, interactive Browserbase cloud-browser view (set while a web step runs). */
+  cloudBrowserUrl: string | null;
   /** Live milestone graph that replays node-by-node as the agent runs. */
   graphNodes: LiveGraphNode[];
   /** Maps a fine step index → graph node key (built from task.graph.loaded). */
@@ -77,6 +79,7 @@ const DEFAULT_STATE: ExecutionState = {
   monitorAlert: null,
   verifierResult: null,
   armoriqGate: null,
+  cloudBrowserUrl: null,
   graphNodes: [],
   stepToNode: {},
   totalSteps: 0,
@@ -130,6 +133,7 @@ function applyEvent(
         monitorAlert: null,
         verifierResult: null,
         armoriqGate: null,
+        cloudBrowserUrl: null,
         // Reset the live graph; task.graph.loaded (if any) re-seeds it below.
         graphNodes: [],
         stepToNode: {},
@@ -215,6 +219,7 @@ function applyEvent(
         stepIndex: null,
         monitorAlert: null,
         verifierResult: null,
+        cloudBrowserUrl: null,
         graphNodes: prev.graphNodes.map((n) =>
           n.status === "running" || n.status === "pending"
             ? { ...n, status: "done" }
@@ -347,6 +352,9 @@ function applyEvent(
           reason: (d.reason as string) ?? "ArmorIQ denied the plan",
         },
       };
+    // ── Browserbase cloud-browser live view ─────────────────────────────────
+    case "browser.live_view":
+      return { ...prev, cloudBrowserUrl: (d.live_view_url as string) ?? null };
     case "mode.changed":
       return { ...prev, mode: (d.mode as string) ?? prev.mode };
     default:

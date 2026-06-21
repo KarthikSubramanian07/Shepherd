@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and platform_machine == 'x86_64' and sys_platform == 'darwin'",
@@ -7788,6 +7788,9 @@ band = [
 voice = [
     { name = "pyaudio" },
 ]
+web = [
+    { name = "stagehand" },
+]
 webrtc = [
     { name = "aiortc" },
 ]
@@ -7828,11 +7831,12 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "redis", specifier = ">=5.0.4" },
     { name = "sentry-sdk", specifier = ">=2.8.0" },
+    { name = "stagehand", marker = "extra == 'web'", specifier = ">=3.0.0" },
     { name = "starlette", specifier = ">=0.47.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29.0" },
     { name = "websockets", specifier = ">=12.0" },
 ]
-provides-extras = ["voice", "agent-s", "webrtc", "band", "armoriq"]
+provides-extras = ["voice", "agent-s", "webrtc", "band", "armoriq", "web"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
@@ -8012,6 +8016,26 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7d/1f/29688479e7e57a4cd847ded630be27b3a96f64b379e7f0136f64020f6308/sseclient-py-1.7.2.tar.gz", hash = "sha256:ba3197d314766eccb72a1dda80b5fa14a0fbba07d796a287654c07edde88fe0f", size = 7709, upload-time = "2021-09-20T19:56:25.668Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/74/67/482889996a8a12767ca402e50e6abe1ecde497e7b2d3425b3ac452050a7c/sseclient_py-1.7.2-py2.py3-none-any.whl", hash = "sha256:a758653b13b78df42cdb696740635a26cb72ad433b75efb68dbbb163d099b6a9", size = 8377, upload-time = "2021-09-20T19:56:24.257Z" },
+]
+
+[[package]]
+name = "stagehand"
+version = "3.21.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d3/9e/9ef10edcb636c3df3faca08f1a5db3acba4e3823fe1b8b6b4012761c6250/stagehand-3.21.0.tar.gz", hash = "sha256:61a2eb63a0ae80ea9abdcd0763fe64d65f0ce0256c7d32f32d2dbf5850d04b9e", size = 288582, upload-time = "2026-05-29T18:58:11.364Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/69/a0c8dda211afa167d62d3a584210c13a491fa2d3eb21a95f7034d055093b/stagehand-3.21.0-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:9ea9b5c7f04d4272696ea9a1540ebfe5b42898b901b30233ca0eacac1e91ab66", size = 34440438, upload-time = "2026-05-29T18:58:00.081Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/b1/7c02be736d9bd528b5080e4bf180bc1bc3cfefd90a3108282af618e48467/stagehand-3.21.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:c52443f9c6794024d125095c97b45e12ad7de746d96de18d7d7e9ea415d98bd3", size = 33138242, upload-time = "2026-05-29T18:58:03.231Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/4c/ad560b9d211f478d44bf84bad7dcfbccba37fd41888a3d1027dbf69553ab/stagehand-3.21.0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:f66abc7c721747a4aafa010ea2120156343103d3c27d3bf8403862945e83898f", size = 37221780, upload-time = "2026-05-29T18:58:09.382Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/1d/6a290870a96c54ed0d49e9461ae3c0ddec472d9d9ef09a176dacd1dbc32b/stagehand-3.21.0-py3-none-win_amd64.whl", hash = "sha256:2757e9cb081b79aa14903f2b1e3c3db1178957e08c676af7517cf3e95af7e7bb", size = 30710662, upload-time = "2026-05-29T18:58:06.12Z" },
 ]
 
 [[package]]
