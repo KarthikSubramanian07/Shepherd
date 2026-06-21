@@ -47,7 +47,19 @@ class ShepherdIntentRouter:
         wf_candidates = self._vector.workflow_candidates(text)
         rt_candidates = self._vector.candidates(text)
 
+        # When vector search returned anything, also let an explicit intent_pattern
+        # match compete. A pattern hit is a deliberate, high-precision trigger, so
+        # it ranks above a fuzzy similarity, and the specifically-matched workflow
+        # may not be vector-indexed (or Redis may surface unrelated workflows). We
+        # merge it into the pool (deduped, top score) rather than depending on the
+        # index. The fully-offline case (no vector candidates at all) falls through
+        # to the dedicated pattern fallback below, which preserves source="pattern".
         if wf_candidates or rt_candidates:
+            off = self._match_workflow_offline(text)
+            if off is not None:
+                wf_off = off[0]
+                wf_candidates = [(cid, s) for (cid, s) in wf_candidates if cid != wf_off.id]
+                wf_candidates.insert(0, (wf_off.id, 0.99))
             return self._route_with_candidates(text, wf_candidates, rt_candidates)
 
         # ── Offline fallback: substring match on workflow intent_patterns ───
@@ -142,10 +154,12 @@ class ShepherdIntentRouter:
             workflows = self._workflows.list()
             by_id = {w.id: w for w in workflows}
             wf = by_id[target_id]
+            low = text.lower()
+            matched = [p for p in wf.intent_patterns if p.lower() in low]
             return Plan(
                 kind="WORKFLOW", target=wf.id,
                 params=self._extract_workflow_params(wf, text),
-                confidence=confidence, matched=[], source=source,
+                confidence=confidence, matched=matched, source=source,
             )
         else:
             spec = self._registry[target_id]
