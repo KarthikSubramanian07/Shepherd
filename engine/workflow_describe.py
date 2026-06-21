@@ -80,14 +80,23 @@ def _generate(
         description = (parsed.get("description") or "").strip()
         patterns = parsed.get("intent_patterns") or []
 
+        # Re-load the workflow fresh right before saving so we only patch the
+        # enriched fields onto the latest version — avoids overwriting concurrent
+        # modifications (teaching loop, re-promotion) made during the LLM wait.
+        fresh = store.get(workflow_id)
+        if fresh is None:
+            return
         if title:
-            wf.name = title[:80]
+            fresh.name = title[:80]
         if description:
-            wf.description = description[:300]
+            fresh.description = description[:300]
         if patterns and isinstance(patterns, list):
-            wf.intent_patterns = [str(p).strip()[:120] for p in patterns[:7] if str(p).strip()]
+            filtered = [str(p).strip()[:120] for p in patterns[:7] if str(p).strip()]
+            if filtered:
+                fresh.intent_patterns = filtered
 
-        store.save(wf)
+        store.save(fresh)
+        wf = fresh
         print(f"[workflow_describe] Updated {workflow_id}: {wf.name!r}")
 
         _reindex_vector_store(wf)
