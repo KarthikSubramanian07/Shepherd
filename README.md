@@ -20,13 +20,14 @@
 
 </div>
 
-Right now, somewhere, an AI agent is clicking through a real interface on
-someone's behalf. It is fast. It is capable. And the moment it does something
-nobody intended, the only honest answer to "what did it just do?" is a shrug. No
-rewind. No record. No proof. Teams are shipping these into production and quietly
-hoping for the best.
+We built an agent that could drive a desktop. Then we watched it do something we
+never asked it to, and the scary part was not the mistake. It was the silence
+after: no rewind, no record, no way to answer the only question that mattered,
+*what did it just do, and why?* The cursor had moved on its own, and the most
+honest answer we had was a shrug.
 
-Hoping is not a control.
+Teams are shipping agents like that into production and quietly hoping for the
+best. Hoping is not a control.
 
 **Shepherd is local mission control for AI desktop agents.** A shepherd does not
 cage the flock or walk every step for it. It knows the dangerous ground, runs out
@@ -272,14 +273,16 @@ build, not stubbed: none of it is a screenshot of a logo.
 
 ---
 
-## 🔌 Integrations
+## 🧱 The anatomy of the watch
 
-Ordered by how load-bearing each one actually is in the code. **Status** says what
-it takes to light up: _Core_ (always on, the product needs it), _On by default_,
-_Key-gated_ (needs a credential, else a graceful fallback runs), _Off by default_,
-or _Build-time_ (used to write the code, nothing runs at runtime).
+Shepherd is one system, not a coat of logos. Every layer below is load-bearing:
+pull one and a real capability goes dark. We built each in its intended shape and
+ran every one live, never stubbed, never a screenshot of a logo. The **Status**
+column is honest about what each takes to light up (_Core_ always on, _On by
+default_, _Key-gated_ needs a credential, _Off by default_, or _Build-time_), and
+every one degrades gracefully when its service is gone.
 
-| Sponsor | Status | How Shepherd actually uses it |
+| Layer | Status | What it is, and why the product needs it |
 |---|---|---|
 | **Simular (Agent S + SimuLang)** | Core | The execution engine, the only code that actuates. Real `gui-agents` AgentS3 (`engine/agent_s_adapter.py`): it plans each LIVE and autonomous action from a screenshot and drives the desktop via pyautogui. The cursor moving on its own is Agent S. Two Simular products composed in their intended shape: once a task is **learned**, Shepherd **graduates it into a deterministic SimuLang script** (`services/simulang_runner.py`) that replays off the accessibility tree with **zero LLM tokens per run** (compiled `.ts`, run with `npx tsx` against the real `@simular-ai/simulang-js` native runtime), with Agent S vision as the explorer and the fallback. Agent S learns; SimuLang replays cheaply and auditably. Nothing else here clicks. |
 | **Anthropic / Claude** | Core | The cognitive layer. Claude is the independent **verifier** (`services/verifier.py`) and the autonomous **routine planner** (`engine/routine_planner.py`), and the model behind the **Agentspan researcher**. It can also drive milestone segmentation and the Agent S planner, but those are provider-configurable (Gemini is the default segmenter to conserve budget; the Agent S provider is set per-config). The deployability thesis (agents in health, public services, finance) rests on this oversight. |
@@ -293,9 +296,10 @@ or _Build-time_ (used to write the code, nothing runs at runtime).
 | **Band (band.ai)** | Off by default | A live multi-agent **oversight council**, verified end to end. On an uncertain high-stakes flag the engine (as `shepherd-monitor`, the chair) posts the action into a Band room and a panel of independent specialist agents on Band's mesh, `shepherd-security`, `shepherd-privacy`, `shepherd-destructive`, each judge it from their own lane and reply with a **VOTE**, even @mentioning each other to escalate. The chair tallies the votes (any halt wins) into the human gate. It is Band's own DevSquad / Drafter-Reviewer pattern mapped onto Shepherd's oversight: genuine N-agent deliberation, not a single call. Boundary-only, roughly 5-second round-trip against the real Agent API. Off by default: with the council unconfigured it gracefully collapses to one `shepherd-verifier`, and with Band off entirely the identical verdict comes from the in-process Claude verifier. |
 | **Cognition / Devin** | Build-time | A coding agent used during development, not a runtime dependency, no Devin code runs in production. `devin-ai-integration[bot]` authored or co-authored several merged feature branches (WebRTC P2P remote, the live execution-trace graph, fleet session summaries), reviewed via Devin Review and resolved in-branch before merge. |
 
-Every runtime integration is feature-flagged and degrades gracefully. With all
-flags off, the core automation and Control Hub run fully offline, the only thing
-you can't remove is Agent S (the engine) and a planner/verifier model.
+Every layer is feature-flagged and degrades to a clean no-op when its service is
+absent, so with everything off the core automation and Control Hub still run fully
+offline. The only two you cannot remove are the hands (Agent S) and the judgment
+(a planner/verifier model).
 
 ---
 
