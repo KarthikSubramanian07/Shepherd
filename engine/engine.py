@@ -92,6 +92,9 @@ class ShepherdExecutionEngine:
         self._halt_flag.set()
 
     def effective_mode(self) -> str:
+        """The legacy LIVE/LOCKED/AUTONOMOUS enum for this run. Compatibility shim:
+        the canonical knobs are USE_ROUTER/ROUTINE_REPLAY (config derives the enum
+        from them). A /api/mode runtime override still wins when set."""
         if _cfg._runtime_mode:
             return _cfg._runtime_mode.upper()
         return self._mode.upper()

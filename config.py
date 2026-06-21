@@ -61,12 +61,28 @@ class Settings(BaseSettings):
     deepgram_language: str = "en-US"
 
     # ── Engine ─────────────────────────────────────────────────────────────
-    # LIVE = Agent S per routine step | LOCKED = deterministic replay
-    # AUTONOMOUS = Agent S plans freely from raw intent (no routines.json steps)
-    # Default AUTONOMOUS: every goal runs the reactive Agent S loop (screenshot ->
-    # act -> screenshot) and produces a response, with no memory recall.
-    execution_mode: str = "AUTONOMOUS"
-    # When LIVE/LOCKED and router finds no match, run autonomous if Agent S is up
+    # The front door for every intent. The old three-mode EXECUTION_MODE enum
+    # bundled TWO independent decisions; these un-bundle them:
+    #
+    #   use_router     — try to match a saved workflow/routine first?
+    #                      False (default) = skip routing entirely; run every intent
+    #                        as a free-form autonomous Agent S goal (was AUTONOMOUS).
+    #                      True            = route first; fall back to autonomous on
+    #                        no match (gated by autonomous_on_unmatched). Was LIVE/LOCKED.
+    #   routine_replay — when the router DOES match a routine, how to drive it:
+    #                      "vision"        = Agent S looks at each step (was LIVE)
+    #                      "deterministic" = replay recorded coordinates (was LOCKED)
+    #
+    # The autonomous_* knobs below tune the free-form loop, so they apply whenever
+    # autonomous execution runs (use_router off, OR on with no match). The legacy
+    # LIVE/LOCKED/AUTONOMOUS string (EXECUTION_MODE) is DERIVED from these at module
+    # level, so the engine, dashboard, and /api/mode override keep working unchanged.
+    use_router: bool = False
+    routine_replay: str = "vision"   # "vision" (LIVE) | "deterministic" (LOCKED)
+    # Legacy override: when set in .env, this LIVE/LOCKED/AUTONOMOUS string wins over
+    # the use_router/routine_replay knobs. Empty = derive from them (preferred).
+    execution_mode: str = ""
+    # When use_router and the router finds no match, run autonomous if Agent S is up
     autonomous_on_unmatched: bool = True
     autonomous_max_steps: int = 20
     # Feed this goal's prior milestone graph to the planner. Off by default — each
@@ -199,7 +215,24 @@ ORKES_API_KEY              = settings.orkes_api_key
 AGENTSPAN_SERVER_URL       = settings.agentspan_server_url
 AGENTSPAN_MODEL            = settings.agentspan_model
 
-EXECUTION_MODE = settings.execution_mode
+USE_ROUTER     = settings.use_router
+ROUTINE_REPLAY = settings.routine_replay
+
+
+def _derive_mode(use_router: bool, replay: str) -> str:
+    """Map the un-bundled knobs back to the legacy LIVE/LOCKED/AUTONOMOUS enum that
+    the engine, dashboard, and /api/mode override still speak."""
+    if not use_router:
+        return "AUTONOMOUS"
+    return "LOCKED" if replay.lower() == "deterministic" else "LIVE"
+
+
+# An explicit EXECUTION_MODE in .env wins (back-compat); otherwise derive it.
+EXECUTION_MODE = (
+    settings.execution_mode.upper()
+    if settings.execution_mode
+    else _derive_mode(USE_ROUTER, ROUTINE_REPLAY)
+)
 AUTONOMOUS_ON_UNMATCHED = settings.autonomous_on_unmatched
 AUTONOMOUS_MAX_STEPS = settings.autonomous_max_steps
 AUTONOMOUS_USE_MEMORY = settings.autonomous_use_memory
