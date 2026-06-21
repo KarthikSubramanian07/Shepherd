@@ -2,7 +2,6 @@
 build separate per-agent trace dicts and are served correctly via the REST endpoint."""
 import asyncio
 
-import pytest
 from httpx import ASGITransport, AsyncClient
 
 from dashboard import fleet_trace as ft
