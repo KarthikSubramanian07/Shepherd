@@ -86,6 +86,9 @@ export interface GraphMetrics {
   modalCoverage: number;
   /** Ordered node keys of the modal execution path. */
   modalPath: string[];
+  /** McCabe cyclomatic complexity (E - N + 2): the number of linearly-independent
+   *  paths through the workflow = how many genuinely distinct ways it can run. */
+  cyclomatic: number;
 }
 
 export interface GraphAnalysis {
@@ -334,6 +337,9 @@ export function analyzeGraph(graph: TaskGraph): GraphAnalysis {
     avgEntropy,
     modalCoverage: bestScore < 0 ? 0 : bestScore,
     modalPath,
+    // McCabe: E - N + 2 (single connected component). >=1 when the graph has
+    // nodes; rises by one per genuine decision point.
+    cyclomatic: keys.length ? Math.max(1, edgeStats.length - keys.length + 2) : 0,
   };
 
   return { pos, nodeStats, edgeStats, metrics };

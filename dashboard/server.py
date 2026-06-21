@@ -631,6 +631,97 @@ async def redis_stats() -> JSONResponse:
     return JSONResponse(out)
 
 
+@app.get("/api/integrations")
+async def integrations() -> JSONResponse:
+    """Live status of every integration so nothing is invisible: each reports
+    active (running now) / ready (built, key present) / off (graceful fallback)
+    plus a one-line detail. Read-only; every check is guarded."""
+    import config as _c
+
+    F = _c.FEATURES
+
+    def _ok(name, category, status, detail):
+        return {"name": name, "category": category, "status": status, "detail": detail}
+
+    out = []
+    # Core
+    out.append(_ok("Simular Agent S", "engine", "active", "Drives the desktop; the only code that actuates"))
+    out.append(_ok("Anthropic Claude", "brain", "active" if getattr(_c, "ANTHROPIC_API_KEY", "") else "ready",
+                    "Verifier, planner, research, judge"))
+    out.append(_ok("Policy engine", "oversight", "active", "Rule-based gate, hot-reloaded data/policy.yaml"))
+
+    # Band council
+    try:
+        from services import band_collab
+        members = band_collab._council_members()
+        if F["band"]:
+            n = len(members)
+            out.append(_ok("Band council", "oversight", "active",
+                           f"{n} agent{'s' if n != 1 else ''} deliberating over Band"))
+        else:
+            out.append(_ok("Band council", "oversight", "off", "Falls back to in-process verifier"))
+    except Exception:
+        out.append(_ok("Band council", "oversight", "off", "unavailable"))
+
+    out.append(_ok("ArmorIQ", "oversight", "ready" if F["armoriq"] else "off",
+                   "Signed intent-token gate at the run boundary"))
+
+    # Agentspan durable
+    try:
+        from services import agentspan_durable
+        s = agentspan_durable.stats()
+        out.append(_ok("Agentspan durable", "reliability",
+                       "active" if s.get("available") else "off",
+                       f"{s.get('runs_tracked', 0)} runs checkpointed; crash-resume" if s.get("available")
+                       else "Redis needed for crash-resume"))
+    except Exception:
+        out.append(_ok("Agentspan durable", "reliability", "off", "unavailable"))
+
+    out.append(_ok("Sentry", "reliability", "ready" if F["sentry"] else "off",
+                   "Runs = transactions, halts = issues"))
+    out.append(_ok("Arize Phoenix", "observability", "active",
+                   "OTel spans + LLM-judge evals annotate traces"))
+
+    # Redis memory
+    try:
+        from services import run_memory
+        s = run_memory.stats()
+        out.append(_ok("Redis agent memory", "memory",
+                       "active" if s.get("available") else "off",
+                       f"{s.get('runs_indexed', 0)} runs indexed for cross-run recall" if s.get("available")
+                       else "Vector recall needs Redis"))
+    except Exception:
+        out.append(_ok("Redis agent memory", "memory", "off", "unavailable"))
+
+    # Browserbase / Stagehand
+    try:
+        from services import stagehand_web
+        sg = stagehand_web.available()
+    except Exception:
+        sg = False
+    out.append(_ok("Browserbase + Stagehand", "web",
+                   "ready" if F["browserbase"] else "off",
+                   ("Stagehand NL web body + live view" if sg else "Cloud browser (CDP) + live view")
+                   if F["browserbase"] else "Local fallback"))
+
+    out.append(_ok("Deepgram voice", "voice",
+                   "active" if (F["deepgram"] and getattr(_c, "VOICE_OVERSIGHT", False)) else
+                   ("ready" if F["deepgram"] else "off"),
+                   "Spoken intent + Aura TTS approval gate"))
+
+    # SimuLang
+    try:
+        from services import simulang_runner
+        sl = simulang_runner.available()
+    except Exception:
+        sl = False
+    out.append(_ok("SimuLang", "engine", "ready" if sl else "off",
+                   "Deterministic zero-token replay of taught workflows" if sl
+                   else "CLI not installed (Agent S replay fallback)"))
+
+    return JSONResponse({"integrations": out})
+
+
 @app.post("/api/mode/{mode}")
 async def set_mode(mode: str) -> JSONResponse:
     mode = mode.upper()
@@ -844,6 +935,64 @@ _pending_intents: "_queue.Queue[str]" = _queue.Queue()
 def register_intent_queue(q) -> None:
     global _intent_queue
     _intent_queue = q
+
+
+# ── Fleet control: the Orchestrator (multi-agent mode) ──────────────────────
+_orchestrator = None
+
+
+def register_orchestrator(orch) -> None:
+    """Called by main.py in ENABLE_ORCHESTRATOR mode so REST endpoints can
+    dispatch agents, halt them, and read the live fleet + action-queue state."""
+    global _orchestrator
+    _orchestrator = orch
+
+
+@app.get("/api/fleet")
+async def fleet_snapshot() -> JSONResponse:
+    """Live fleet: every agent's status + the action-queue (who holds/awaits each
+    surface). Empty when the orchestrator isn't running."""
+    if _orchestrator is None:
+        return JSONResponse({"enabled": False, "agents": [], "backlog": [], "queue": []})
+    snap = _orchestrator.snapshot()
+    snap["enabled"] = True
+    return JSONResponse(snap)
+
+
+@app.post("/api/fleet/dispatch")
+async def fleet_dispatch(request: Request) -> JSONResponse:
+    """Spawn a new agent for a goal on a chosen surface (local | browserbase)."""
+    if _orchestrator is None:
+        return JSONResponse({"error": "orchestrator not running"}, status_code=409)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    goal = (body.get("goal") or body.get("text") or "").strip()
+    if not goal:
+        return JSONResponse({"error": "goal required"}, status_code=400)
+    surface_kind = (body.get("surface_kind") or "").strip().lower()
+    name = (body.get("name") or "").strip()
+    try:
+        agent_id = _orchestrator.dispatch(goal, surface_kind=surface_kind, name=name)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return JSONResponse({"ok": True, "agent_id": agent_id})
+
+
+@app.post("/api/fleet/halt/{agent_id}")
+async def fleet_halt(agent_id: str) -> JSONResponse:
+    if _orchestrator is None:
+        return JSONResponse({"error": "orchestrator not running"}, status_code=409)
+    ok = _orchestrator.halt(agent_id)
+    return JSONResponse({"ok": ok}, status_code=200 if ok else 404)
+
+
+@app.post("/api/fleet/halt_all")
+async def fleet_halt_all() -> JSONResponse:
+    if _orchestrator is None:
+        return JSONResponse({"error": "orchestrator not running"}, status_code=409)
+    return JSONResponse({"ok": True, "halted": _orchestrator.halt_all()})
 
 
 @app.post("/api/intent")

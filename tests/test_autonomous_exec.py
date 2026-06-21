@@ -28,11 +28,18 @@ class _Recorder:
         return _fn
 
 
-# _exec_agent_code never touches `self`, so we can drive it with a bare object().
+# _exec_agent_code only touches `self` via `_actuation_lease()`, so a minimal stub
+# with `_actuation_guard = None` (→ nullcontext, the solo-run path) is enough.
+class _StubEngine:
+    _actuation_guard = None
+    _actuation_lease = ShepherdExecutionEngine._actuation_lease
+    _exec_agent_code = ShepherdExecutionEngine._exec_agent_code
+
+
 def _run(code: str, monkeypatch) -> _Recorder:
     rec = _Recorder()
     monkeypatch.setattr(eng_mod, "pyautogui", rec)
-    ShepherdExecutionEngine._exec_agent_code(object(), code)
+    _StubEngine()._exec_agent_code(code)
     return rec
 
 
@@ -74,7 +81,7 @@ def test_blocking_dialogs_not_exposed_as_bare_names(monkeypatch):
         rec = _Recorder()
         monkeypatch.setattr(eng_mod, "pyautogui", rec)
         with pytest.raises(NameError):
-            ShepherdExecutionEngine._exec_agent_code(object(), f"{dialog}('x')")
+            _StubEngine()._exec_agent_code(f"{dialog}('x')")
         assert rec.calls == []
     # ...but the explicit pyautogui.-prefixed form is still reachable.
     rec = _run("pyautogui.alert('x')", monkeypatch)

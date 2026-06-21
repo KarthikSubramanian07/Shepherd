@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 import json
+from contextlib import nullcontext
 from typing import Optional
 
 import pyautogui
@@ -114,11 +115,23 @@ class ShepherdExecutionEngine:
         agent_s=None,
         evolution=None,
         planner=None,
+        actuation_guard=None,
+        agent_id: Optional[str] = None,
+        surface: Optional[str] = None,
     ) -> None:
         self._coords    = coords
         self._telemetry = telemetry
         self._mode      = mode
         self._agent_s   = agent_s if agent_s is not None else AgentSAdapter()
+        # Multi-agent serialization. When the orchestrator runs this engine, it
+        # injects an arbiter `actuation_guard` — a zero-arg factory returning a
+        # context manager that holds this agent's surface lease. Every actuation
+        # (focus + clicks/typing) runs inside it, so two agents can never drive
+        # the physical desktop at once. Solo runs pass None → a no-op guard, so
+        # behavior is byte-for-byte unchanged when the orchestrator is off.
+        self._actuation_guard = actuation_guard
+        self._agent_id  = agent_id
+        self._surface   = surface
         self._planner   = planner if planner is not None else RoutinePlanner()
         self._evolution = evolution  # RoutineEvolution | None — injected by main.py
         self._graphs    = TaskGraphStore()
@@ -218,6 +231,22 @@ class ShepherdExecutionEngine:
                 ],
             })
 
+            # Arize: LLM-judge the freshly drafted plan and annotate the Phoenix
+            # plan span (plan_quality). Fire-and-forget so the judge never blocks
+            # planning; the score shows up next to the trace in Phoenix.
+            try:
+                from services import phoenix_evals
+                if phoenix_evals.available():
+                    from telemetry.telemetry import _current_span_id
+                    _sid = _current_span_id()
+                    _steps = list(routine.steps)
+                    threading.Thread(
+                        target=lambda: phoenix_evals.score_plan(goal, _steps, span_id=_sid),
+                        daemon=True,
+                    ).start()
+            except Exception as _pe:
+                print(f"[phoenix-eval] plan dispatch non-fatal: {_pe}")
+
             # Hand the drafted plan to the reactive Agent S loop as guidance, then
             # execute it with screenshots at sensible intervals (chained), adapting
             # to the real screen — rather than blindly running a keyboard-only script.
@@ -261,6 +290,7 @@ class ShepherdExecutionEngine:
 
         event_bus.emit("execution.start", {
             "run_id":      run_id,
+            "agent_id":    self._agent_id,
             "routine_id":  AUTONOMOUS_ROUTINE_ID,
             "mode":        "AUTONOMOUS",
             "total_steps": max_steps,
@@ -404,6 +434,28 @@ class ShepherdExecutionEngine:
                             self._exec_agent_code(result.code)
                             steps_done += 1
                         except Exception as exc:
+                            # A halt (orchestrator) cancels this agent's queued
+                            # surface lease, which surfaces here while we were
+                            # waiting to actuate. That is a clean abort, not a
+                            # failure — don't mark it failed or page Sentry.
+                            if self._halt_flag.is_set():
+                                status = "aborted"
+                                dur_ms = int((time.time() - step_t0) * 1000)
+                                self.last_step_records.append(StepRecord(
+                                    index=i, action="agent_s", target=None,
+                                    status="aborted", started_at=step_t0,
+                                    duration_ms=dur_ms,
+                                ))
+                                event_bus.emit("execution.halted", {
+                                    "run_id": run_id, "step_index": i,
+                                    "reason": "halt_requested",
+                                })
+                                apply_tool_act_span(
+                                    s, goal=goal, code=result.code,
+                                    apps=apps or None, tools=tools or None,
+                                    status="aborted",
+                                )
+                                break
                             act_status = "error"
                             step_status = "failed"
                             step_error = str(exc)
@@ -592,6 +644,7 @@ class ShepherdExecutionEngine:
 
         event_bus.emit("execution.start", {
             "run_id":      run_id,
+            "agent_id":    self._agent_id,
             "routine_id":  resolved.routine_id,
             "mode":        self._mode,
             "total_steps": len(routine.steps),
@@ -903,6 +956,7 @@ class ShepherdExecutionEngine:
                         ts=step_t0,
                         target=step.target,
                         extra={"deviation": deviation_desc} if deviation_desc else None,
+                        agent_id=self._agent_id,
                     )
 
                     # Update evolution stats (non-blocking, best-effort)
@@ -1508,6 +1562,15 @@ class ShepherdExecutionEngine:
             )
         return code, instruction
 
+    def _actuation_lease(self):
+        """The surface lease held across one actuation batch (orchestrator), or a
+        no-op when running solo. Crucially this wraps the WHOLE exec'd batch —
+        which starts with `activate_app(...)` to grab focus — so a second agent
+        cannot steal window focus between this agent's focus call and its typing."""
+        if self._actuation_guard is None:
+            return nullcontext()
+        return self._actuation_guard()
+
     def _exec_agent_code(self, code: str) -> None:
         """
         Execute Agent S-generated Python/pyautogui code in a restricted namespace.
@@ -1546,9 +1609,14 @@ class ShepherdExecutionEngine:
             _fn = getattr(pyautogui, _verb, None)
             if callable(_fn):
                 ns[_verb] = _fn
-        exec(code, ns)  # noqa: S102
+        with self._actuation_lease():
+            exec(code, ns)  # noqa: S102
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
+        with self._actuation_lease():
+            self._dispatch_locked(step, variables)
+
+    def _dispatch_locked(self, step: RoutineStep, variables: dict) -> None:
         def sub(t: Optional[str]) -> Optional[str]:
             if t is None:
                 return None
