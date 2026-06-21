@@ -331,7 +331,7 @@ so the segmenter/coalescer don't care which model runs:
 
 | Concern | Module |
 |---|---|
-| Intent → Plan/route | `router/router.py`, `router/vector_router.py`, `router/registry.py` |
+| Intent → Plan/route | `router/router.py`, `router/vector_router.py`, `router/llm_filter.py`, `router/registry.py` |
 | Fine-step execution (hot path) | `engine/engine.py` |
 | Human intervention gate | `engine/approvals.py` |
 | Milestone segmentation (LLM + heuristic) | `engine/milestones.py` |
@@ -349,6 +349,37 @@ so the segmenter/coalescer don't care which model runs:
 | Milestone-graph executor (traversal) | `engine/workflow_executor.py` |
 | Workflow dispatch + executor wiring | `router/router.py`, `engine/engine.py` |
 | Control Hub steer/teach gate | `engine/workflow_control.py` |
+
+---
+
+## 9.1 Routing precision: retrieve → LLM filter
+
+The router's `resolve_plan()` uses a two-stage pipeline to prevent false-positive
+routing (e.g. a research intent incorrectly matching `ROUTINE_JOB_APPLICATION` at
+cosine 0.79):
+
+```
+Intent
+ └► Vector search (CANDIDATE GENERATION — recall)
+      • top-K (5) from workflows vectorset + top-K from routines vectorset
+      • low recall threshold (0.25) — favor recall, not precision
+ └► LLM filter (PRECISION)
+      • skip if top candidate ≥ 0.90 (obvious match, e.g. legit re-dispatch)
+      • skip if no candidates above recall threshold
+      • tiny prompt to fast model (Haiku via engine/llm.py):
+        "Which candidate, if any, satisfies the request? Reply id or NONE."
+      • returns chosen id → route; or NONE → GENERIC (autonomous)
+ └► Graceful degradation (LLM unavailable)
+      • fall back to conservative top-1 threshold (0.40)
+      • offline substring fallback unchanged (Redis down)
+```
+
+Key properties:
+- **Cold path only** — never on the hot per-step execution loop.
+- **Cost**: one LLM call with ~64 max tokens; skipped entirely on high-confidence
+  or empty candidates.
+- **Deterministic tests**: `tests/test_llm_filter.py` mocks the LLM to validate
+  both false-positive rejection and false-negative acceptance.
 
 ---
 

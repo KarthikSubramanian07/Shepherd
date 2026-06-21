@@ -12,6 +12,9 @@ EMBEDDING_DIM = 384
 VSET_KEY = "shepherd:routines"
 VSET_WF_KEY = "shepherd:workflows"
 SIMILARITY_THRESHOLD = 0.40   # below this, defer to keyword router
+CANDIDATE_RECALL_THRESHOLD = 0.25  # low bar for candidate generation (recall)
+CANDIDATE_K = 5  # top-K candidates to return
+HIGH_CONFIDENCE_THRESHOLD = 0.90  # skip LLM filter above this
 
 _singleton: Optional["VectorRouter"] = None  # set after init for re-index access
 
@@ -106,6 +109,48 @@ class VectorRouter:
         except Exception as e:
             print(f"[vector_router] workflow search failed (non-fatal): {e}")
             return None
+
+    def workflow_candidates(self, intent_text: str, k: int = CANDIDATE_K) -> list[tuple[str, float]]:
+        """Return up to k (id, score) workflow candidates above the recall threshold."""
+        if not self.available:
+            return []
+        try:
+            vec = self._embed(intent_text)
+            results = self._r.execute_command(
+                "VSIM", VSET_WF_KEY, "FP32", vec, "WITHSCORES", "COUNT", k
+            )
+            return self._parse_candidates(results)
+        except Exception as e:
+            print(f"[vector_router] workflow candidates failed (non-fatal): {e}")
+            return []
+
+    def candidates(self, intent_text: str, k: int = CANDIDATE_K) -> list[tuple[str, float]]:
+        """Return up to k (routine_id, score) candidates above the recall threshold."""
+        if not self.available:
+            return []
+        try:
+            vec = self._embed(intent_text)
+            results = self._r.execute_command(
+                "VSIM", VSET_KEY, "FP32", vec, "WITHSCORES", "COUNT", k
+            )
+            return self._parse_candidates(results)
+        except Exception as e:
+            print(f"[vector_router] routine candidates failed (non-fatal): {e}")
+            return []
+
+    @staticmethod
+    def _parse_candidates(results) -> list[tuple[str, float]]:
+        """Parse VSIM WITHSCORES results into (id, score) pairs above recall threshold."""
+        if not results:
+            return []
+        out: list[tuple[str, float]] = []
+        # Results come as [id1, score1, id2, score2, ...]
+        for i in range(0, len(results) - 1, 2):
+            cid = results[i].decode() if isinstance(results[i], bytes) else results[i]
+            score = float(results[i + 1])
+            if score >= CANDIDATE_RECALL_THRESHOLD:
+                out.append((cid, round(score, 4)))
+        return out
 
     def resolve(self, intent_text: str) -> Optional[tuple[str, float]]:
         """
