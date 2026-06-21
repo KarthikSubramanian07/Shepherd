@@ -171,6 +171,62 @@ def parse_json_array(text: str) -> list:
     raise ValueError("no JSON array in completion")
 
 
+def parse_json_object(text: str) -> dict:
+    """
+    Parse a single JSON object out of a model completion, tolerating code fences
+    and surrounding prose (same robustness as parse_json_array, for the worker's
+    single-message {did, status, next, …} response). Raises ValueError if none.
+    """
+    if text is None:
+        raise ValueError("empty completion")
+    s = text.strip()
+
+    try:
+        data = json.loads(s)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    obj = _first_balanced_object(s)
+    if obj is not None:
+        return obj
+
+    raise ValueError("no JSON object in completion")
+
+
+def _first_balanced_object(s: str) -> Optional[dict]:
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(s):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start != -1:
+                try:
+                    data = json.loads(s[start:i + 1])
+                    if isinstance(data, dict):
+                        return data
+                except (json.JSONDecodeError, ValueError):
+                    start = -1
+    return None
+
+
 def _first_balanced_array(s: str) -> Optional[list]:
     depth = 0
     start = -1

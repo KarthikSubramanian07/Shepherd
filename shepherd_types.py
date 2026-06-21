@@ -191,6 +191,45 @@ class TaskGraph:
 
 
 @dataclass
+class Workflow:
+    """
+    The opinionated, DISPATCHABLE artifact — a TaskGraph promoted to a named,
+    form-agnostic workflow the router can match an intent against and the
+    milestone executor can traverse.
+
+    Distinct from a TaskGraph (passively observed) and a Routine (exact demo):
+    a Workflow is curated/versioned, carries `intent_patterns` the router embeds,
+    and its nodes/edges (milestones + taught conditionals) are what the executor
+    walks node-by-node.
+    """
+    id: str                                   # e.g. "WF_JOB_APPLICATION"
+    name: str                                 # human label, e.g. "Apply to a job"
+    intent_patterns: list[str] = field(default_factory=list)  # router match text
+    params: list[str] = field(default_factory=list)           # variable names it accepts
+    nodes: list[TaskGraphNode] = field(default_factory=list)
+    edges: list[TaskGraphEdge] = field(default_factory=list)
+    version: int = 1
+    from_graph: str = ""                      # task_key of the graph it was promoted from
+    start_key: str = ""                       # entry node; derived if empty
+    created_at: float = 0.0
+    updated_at: float = 0.0
+
+
+@dataclass
+class Plan:
+    """
+    What the router returns: how to satisfy an intent. Prefer a saved WORKFLOW;
+    else a recorded ROUTINE; else free-form GENERIC agent pursuit.
+    """
+    kind: str                                 # "WORKFLOW" | "ROUTINE" | "GENERIC"
+    target: str                               # workflow id / routine id / "" for generic
+    params: dict[str, str] = field(default_factory=dict)
+    confidence: float = 0.0
+    matched: list[str] = field(default_factory=list)  # keywords/patterns that matched
+    source: str = ""                          # "vector" | "keyword" | "pattern" | "fallback"
+
+
+@dataclass
 class InterventionEvent:
     """
     A point where the agent blocked and a human resolved it. Captured cheaply on

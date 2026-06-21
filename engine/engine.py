@@ -344,6 +344,45 @@ class ShepherdExecutionEngine:
         self._step_ms = {}
         return result
 
+    # ── workflow dispatch (phase 4/5): traverse a saved Workflow ─────────────
+    def execute_workflow(
+        self,
+        workflow,
+        goal: str = "",
+        params: Optional[dict] = None,
+        profile: Optional[dict] = None,
+    ) -> ExecutionResult:
+        """Execute a dispatched Workflow by traversing its milestone graph rather
+        than replaying recorded clicks. Agent S grounds + actuates each milestone;
+        the executor's single-message advance picks the next node / conditional
+        branch from the previewed options (no extra round-trip). The click path
+        stays sacred — actuation goes through the same restricted exec helper."""
+        from engine.workflow_executor import WorkflowExecutor, AgentSWorker
+
+        self._halt_flag.clear()
+        self._agent_s.reset()
+        run_id = str(uuid.uuid4())[:8]
+        started_at = time.time()
+
+        worker = AgentSWorker(self._agent_s, self._exec_agent_code)
+        executor = WorkflowExecutor(worker, event_emit=event_bus.emit)
+        wf_run = executor.run(workflow, goal=goal, params=params, profile=profile)
+
+        ended_at = time.time()
+        status = {"completed": "completed", "blocked": "aborted"}.get(wf_run.status, "aborted")
+        result = ExecutionResult(
+            routine_id=workflow.id,
+            status=status,
+            steps_completed=len(wf_run.path),
+            error=wf_run.blocked_on if status != "completed" else None,
+            duration_ms=int((ended_at - started_at) * 1000),
+            variables=params or {},
+            started_at=started_at,
+            ended_at=ended_at,
+            run_id=run_id,
+        )
+        return result
+
     # ── step dispatcher — SYNCHRONOUS, no async, no network ─────────────────
 
     def _build_instruction(self, step: RoutineStep, index: int, routine) -> str:

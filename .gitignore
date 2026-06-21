@@ -6,4 +6,5 @@ __pycache__/
 .DS_Store
 data/events.db
 data/task_graphs.json
+data/workflows.json
 data/run_traces/

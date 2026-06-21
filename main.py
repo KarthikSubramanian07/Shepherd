@@ -13,7 +13,7 @@ import time
 import threading
 
 from config import FEATURES, EXECUTION_MODE, DASHBOARD_PORT
-from shepherd_types import Intent
+from shepherd_types import Intent, ResolvedRoutine
 from router.router import ShepherdIntentRouter
 from engine.engine import ShepherdExecutionEngine
 from engine.coords import load_coords
@@ -173,12 +173,34 @@ def main() -> None:
             intent = Intent(raw_text=raw, timestamp=time.time())
             event_bus.emit("intent.received", {"raw_text": intent.raw_text, "source": intent.source})
 
-            resolved = router.resolve(intent)
-            if resolved is None:
+            plan = router.resolve_plan(intent)
+            event_bus.emit("plan.resolved", {
+                "kind": plan.kind, "target": plan.target,
+                "confidence": plan.confidence, "source": plan.source,
+                "matched": plan.matched, "params": plan.params,
+            })
+
+            # ── Dispatch a saved WORKFLOW (preferred) — traverse the graph ─────
+            if plan.kind == "WORKFLOW":
+                workflow = router._workflows.get(plan.target)
+                if workflow is not None:
+                    print(f"[router] → WORKFLOW {plan.target}  confidence={plan.confidence} ({plan.source})")
+                    result = engine.execute_workflow(
+                        workflow, goal=intent.raw_text, params=plan.params
+                    )
+                    telemetry.record(result, engine.last_step_records)
+                    print(f"[shepherd] {result.status.upper()} — {result.steps_completed} milestones in {result.duration_ms}ms\n")
+                    continue
+
+            if plan.kind != "ROUTINE":
                 print("[router] No routine matched. Try: 'fill form', 'open browser', or 'demo'\n")
                 event_bus.emit("intent.unmatched", {"raw_text": intent.raw_text})
                 continue
 
+            resolved = ResolvedRoutine(
+                routine_id=plan.target, variables=plan.params,
+                confidence=plan.confidence, matched_keywords=plan.matched,
+            )
             print(f"[router] → {resolved.routine_id}  confidence={resolved.confidence}")
             event_bus.emit("routine.resolved", {
                 "routine_id":      resolved.routine_id,

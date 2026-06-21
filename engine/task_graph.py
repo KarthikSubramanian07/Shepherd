@@ -249,6 +249,49 @@ class TaskGraphStore:
             print(f"[task_graph] save failed (non-fatal): {e}")
 
 
+def serialize_node(n: TaskGraphNode) -> dict:
+    """Serialize one milestone node. Shared by TaskGraph + Workflow persistence."""
+    return {
+        "key":          n.key,
+        "kind":         n.kind,
+        "label":        n.label,
+        "value":        n.value,
+        "times_seen":   n.times_seen,
+        "last_status":  n.last_status,
+        "fine_steps":   n.fine_steps,
+        "first_run_id": n.first_run_id,
+        "last_run_id":  n.last_run_id,
+        "instruction":  n.instruction,
+        "requires":     n.requires,
+        "conditionals": [
+            {"when": c.when, "do": c.do, "goto": c.goto, "source": c.source}
+            for c in n.conditionals
+        ],
+        "procedure":    n.procedure,
+        "optional":     n.optional,
+        "source":       n.source,
+    }
+
+
+def serialize_edge(e: TaskGraphEdge) -> dict:
+    """Serialize one transition edge. Shared by TaskGraph + Workflow persistence."""
+    return {
+        "from":        e.from_key,
+        "to":          e.to_key,
+        "times_seen":  e.times_seen,
+        "last_run_id": e.last_run_id,
+        "condition":   e.condition,
+    }
+
+
+def edge_from_raw(e: dict) -> TaskGraphEdge:
+    return TaskGraphEdge(
+        from_key=e["from"], to_key=e["to"],
+        times_seen=e.get("times_seen", 0), last_run_id=e.get("last_run_id", ""),
+        condition=e.get("condition"),
+    )
+
+
 def _serialize(g: TaskGraph) -> dict:
     return {
         "task_key":    g.task_key,
@@ -259,39 +302,8 @@ def _serialize(g: TaskGraph) -> dict:
         "created_at":  g.created_at,
         "updated_at":  g.updated_at,
         "last_run_id": g.last_run_id,
-        "edges": [
-            {
-                "from":        e.from_key,
-                "to":          e.to_key,
-                "times_seen":  e.times_seen,
-                "last_run_id": e.last_run_id,
-                "condition":   e.condition,
-            }
-            for e in g.edges
-        ],
-        "nodes": [
-            {
-                "key":          n.key,
-                "kind":         n.kind,
-                "label":        n.label,
-                "value":        n.value,
-                "times_seen":   n.times_seen,
-                "last_status":  n.last_status,
-                "fine_steps":   n.fine_steps,
-                "first_run_id": n.first_run_id,
-                "last_run_id":  n.last_run_id,
-                "instruction":  n.instruction,
-                "requires":     n.requires,
-                "conditionals": [
-                    {"when": c.when, "do": c.do, "goto": c.goto, "source": c.source}
-                    for c in n.conditionals
-                ],
-                "procedure":    n.procedure,
-                "optional":     n.optional,
-                "source":       n.source,
-            }
-            for n in g.nodes
-        ],
+        "edges": [serialize_edge(e) for e in g.edges],
+        "nodes": [serialize_node(n) for n in g.nodes],
     }
 
 
@@ -306,14 +318,7 @@ def _deserialize(raw: dict) -> TaskGraph:
         updated_at=raw.get("updated_at", 0.0),
         last_run_id=raw.get("last_run_id", ""),
         nodes=[_node_from_raw(n) for n in raw.get("nodes", [])],
-        edges=[
-            TaskGraphEdge(
-                from_key=e["from"], to_key=e["to"],
-                times_seen=e.get("times_seen", 0), last_run_id=e.get("last_run_id", ""),
-                condition=e.get("condition"),
-            )
-            for e in raw.get("edges", [])
-        ],
+        edges=[edge_from_raw(e) for e in raw.get("edges", [])],
     )
 
 

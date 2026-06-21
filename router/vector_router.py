@@ -10,6 +10,7 @@ from typing import Optional
 
 EMBEDDING_DIM = 384
 VSET_KEY = "shepherd:routines"
+VSET_WF_KEY = "shepherd:workflows"
 SIMILARITY_THRESHOLD = 0.40   # below this, defer to keyword router
 
 
@@ -45,6 +46,40 @@ class VectorRouter:
     @property
     def available(self) -> bool:
         return self._r is not None and self._model is not None
+
+    def index_workflows(self, workflows: list) -> None:
+        """(Re-)index dispatchable Workflows into their own vectorset so the same
+        semantic search can prefer a saved workflow over a recorded routine.
+        No-op when Redis/fastembed are unavailable."""
+        if not self.available:
+            return
+        try:
+            self._r.delete(VSET_WF_KEY)
+            for wf in workflows:
+                text = wf.name + " " + " ".join(wf.intent_patterns)
+                self._r.execute_command("VADD", VSET_WF_KEY, "FP32", self._embed(text), wf.id)
+            print(f"[vector_router] {len(workflows)} workflows indexed in Redis vectorset")
+        except Exception as e:
+            print(f"[vector_router] workflow index failed (non-fatal): {e}")
+
+    def resolve_workflow(self, intent_text: str) -> Optional[tuple[str, float]]:
+        """Nearest saved workflow id + similarity, or None if below threshold."""
+        if not self.available:
+            return None
+        try:
+            results = self._r.execute_command(
+                "VSIM", VSET_WF_KEY, "FP32", self._embed(intent_text), "WITHSCORES", "COUNT", 1
+            )
+            if not results or len(results) < 2:
+                return None
+            wf_id = results[0].decode() if isinstance(results[0], bytes) else results[0]
+            similarity = float(results[1])
+            if similarity < SIMILARITY_THRESHOLD:
+                return None
+            return wf_id, round(similarity, 4)
+        except Exception as e:
+            print(f"[vector_router] workflow search failed (non-fatal): {e}")
+            return None
 
     def resolve(self, intent_text: str) -> Optional[tuple[str, float]]:
         """
