@@ -113,7 +113,8 @@ class ShepherdExecutionEngine:
         status = "completed"
         monitor_step = RoutineStep(action="agent_s", description=goal)
 
-        with self._telemetry.span("routine.execute") as span:
+        try:
+          with self._telemetry.span("routine.execute") as span:
             span.set_attribute("routine.id", AUTONOMOUS_ROUTINE_ID)
             span.set_attribute("routine.mode", "AUTONOMOUS")
             span.set_attribute("routine.goal", goal)
@@ -257,6 +258,15 @@ class ShepherdExecutionEngine:
                 status = "failed"
                 error = f"Step budget exhausted ({max_steps} steps)"
                 rlog.note(run_id, error)
+        except KeyboardInterrupt:
+            # Ctrl-C → treat as a graceful abort: fall through to record/emit/persist
+            # below so the run still shows on the frontend with what it did.
+            status = "aborted"
+            error = "interrupted by user (Ctrl-C)"
+            event_bus.emit("execution.halted", {
+                "run_id": run_id, "step_index": steps_done, "reason": "keyboard_interrupt",
+            })
+            rlog.note(run_id, "interrupted by user (Ctrl-C)")
 
         ended_at = time.time()
         result = ExecutionResult(
@@ -407,7 +417,8 @@ class ShepherdExecutionEngine:
                 pass
         monitored = set(routine.high_stakes_steps) | dynamic_risky
 
-        with self._telemetry.span("routine.execute") as span:
+        try:
+          with self._telemetry.span("routine.execute") as span:
             span.set_attribute("routine.id",   resolved.routine_id)
             span.set_attribute("routine.mode", self._mode)
             for k, v in variables.items():
@@ -601,6 +612,14 @@ class ShepherdExecutionEngine:
                     "duration_ms": dur_ms,
                     "deviation":  deviation_desc,
                 })
+        except KeyboardInterrupt:
+            # Ctrl-C → graceful abort: fall through to record/emit/persist below so
+            # the run still appears on the frontend with what it managed to do.
+            status = "aborted"
+            error = "interrupted by user (Ctrl-C)"
+            event_bus.emit("execution.halted", {
+                "run_id": run_id, "step_index": steps_done, "reason": "keyboard_interrupt",
+            })
 
         ended_at = time.time()
         result = ExecutionResult(
