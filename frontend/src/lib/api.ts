@@ -236,6 +236,60 @@ export const api = {
     });
     return res.json().catch(() => ({ error: `HTTP ${res.status}` }));
   },
+
+  // ── Fleet (multi-agent orchestration) ──────────────────────────────────────
+  getFleet: async (): Promise<FleetSnapshot> => {
+    const res = await fetch(`${BACKEND}/api/fleet`, { cache: "no-store" });
+    return res.json();
+  },
+  dispatchAgent: async (
+    goal: string,
+    surfaceKind: "local" | "browserbase",
+    name?: string,
+  ): Promise<{ ok?: boolean; agent_id?: string; error?: string }> => {
+    const res = await fetch(`${BACKEND}/api/fleet/dispatch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, surface_kind: surfaceKind, name }),
+    });
+    return res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  },
+  haltAgent: async (agentId: string): Promise<{ ok?: boolean }> => {
+    const res = await fetch(`${BACKEND}/api/fleet/halt/${agentId}`, { method: "POST" });
+    return res.json().catch(() => ({ ok: false }));
+  },
+  haltAllAgents: async (): Promise<{ ok?: boolean; halted?: number }> => {
+    const res = await fetch(`${BACKEND}/api/fleet/halt_all`, { method: "POST" });
+    return res.json().catch(() => ({ ok: false }));
+  },
 };
+
+export interface FleetAgent {
+  agent_id: string;
+  name: string;
+  goal: string;
+  surface_kind: string;
+  surface: string | null;
+  status: string;
+  error: string | null;
+  started_at: number;
+  duration_ms: number;
+}
+
+export interface QueueSurface {
+  surface: string;
+  holder: string | null;
+  held_ms: number;
+  waiters: { agent_id: string; priority: number }[];
+}
+
+export interface FleetSnapshot {
+  enabled: boolean;
+  agents: FleetAgent[];
+  backlog: { agent_id: string; goal: string; surface_kind: string }[];
+  queue: QueueSurface[];
+  max_agents?: number;
+  active?: number;
+}
 
 export type Api = typeof api;

@@ -276,3 +276,45 @@ off, so the core product runs without any of them. Several use placeholder API c
 | `ROUTINE_FORM_FILL` | "fill form", "apply", "job" | Form authored by demonstration; monitor **halts** at the planted credential step. |
 | `ROUTINE_BROWSER_SHOWPIECE` | "open browser", "search" | A live web action via a Browserbase cloud browser. |
 | `ROUTINE_LOCKED_FALLBACK` | "demo", "test" | Deterministic offline TextEdit routine — the safe floor. |
+
+---
+
+## 9. Multi-agent orchestration (`orchestrator/`)
+
+Run several agents at once, each in its own window, with an action queue between
+them so they never collide. Off by default; `ENABLE_ORCHESTRATOR=true` swaps the
+serial loop in `main.py` for the Orchestrator. Full design in `docs/MULTI_AGENT.md`.
+
+The model rests on one distinction — **a *surface* is a serialization domain**:
+
+- `LOCAL_DESKTOP` is a single shared surface. pyautogui drives one global
+  cursor/keyboard, so every local Agent S agent shares this one surface and is
+  serialized — only one actuates at a time.
+- Each Browserbase session is its **own** surface (`BROWSERBASE:<id>`), so
+  cloud-browser agents run in **parallel**.
+
+| File | Role |
+|---|---|
+| `orchestrator/surfaces.py` | The surface model (LOCAL vs per-session Browserbase). |
+| `orchestrator/arbiter.py` | **ActionArbiter — the action queue.** Per-surface FIFO lease; one holder at a time, fair within a priority lane, halt preemption, `arbiter.*` events + a timeline. Mutual exclusion here is what prevents the data race. |
+| `orchestrator/worker.py` | `AgentWorker` — one agent, one thread, one task. LOCAL workers run a per-worker engine whose actuation is wrapped in the arbiter guard; Browserbase workers drive an isolated session. |
+| `orchestrator/orchestrator.py` | `Orchestrator` — worker pool, dispatch (with concurrency + session caps + backlog), per-agent / global halt, fleet snapshot. |
+| `orchestrator/config.py` | Env flags: `ENABLE_ORCHESTRATOR`, `MAX_CONCURRENT_AGENTS`, `MAX_BROWSERBASE_SESSIONS`, `DEFAULT_SURFACE_KIND`. |
+| `services/browserbase_session.py` | Persistent session manager: real cloud session → local Chromium fallback → stub. |
+| `engine/browserbase_driver.py` | The Agent-S role on a Playwright page: screenshot → Claude vision JSON ops → actuate under the session lease (with policy/SSRF containment). |
+
+**Engine integration.** `ShepherdExecutionEngine` takes an optional
+`actuation_guard` (+ `agent_id`, `surface`); `_exec_agent_code` and `_dispatch`
+run inside it. The guard wraps the whole batch — which starts with
+`activate_app(...)` — so a second agent can't steal window focus mid-action.
+Solo runs pass no guard → a no-op, so single-agent behavior is unchanged.
+
+**Oversight under concurrency.** `telemetry/audit_log.py` serializes appends
+under a lock with a cached chain head and tags each entry with `agent_id` — one
+global tamper-evident chain across the whole fleet. The policy engine is
+stateless and reused per agent.
+
+**Control Hub.** `dashboard/server.py` exposes `/api/fleet`,
+`/api/fleet/dispatch`, `/api/fleet/halt/{id}`, `/api/fleet/halt_all`; the
+`/fleet` page renders per-agent panels beside a live action-queue view (who holds
+and who waits on each surface).

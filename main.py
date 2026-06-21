@@ -279,6 +279,16 @@ def main() -> None:
     except Exception as e:
         print(f"[durable] resume skipped (non-fatal): {e}")
 
+    # ── Orchestrated mode: many agents at once (ENABLE_ORCHESTRATOR) ──────────
+    # Instead of the serial single-agent loop below, hand every goal to the
+    # Orchestrator, which spawns an agent worker per task and serializes their
+    # actions through the ActionArbiter (the action queue). Local Agent S agents
+    # share the one desktop; Browserbase agents run in parallel cloud windows.
+    from orchestrator.config import ENABLE_ORCHESTRATOR, DEFAULT_SURFACE_KIND
+    if ENABLE_ORCHESTRATOR:
+        _run_orchestrated(coords, telemetry, remote_intents, listen, DEFAULT_SURFACE_KIND)
+        return
+
     # ── Main loop ─────────────────────────────────────────────────────────────
     # Goals flow into ONE queue from any producer: the command line (stdin thread
     # below, unless --listen), the frontend (POST /api/intent), the coordinator,
@@ -449,6 +459,71 @@ def main() -> None:
 
 
 _listen_mode = False  # set True by --listen; keeps the agent serving across goals
+
+
+def _run_orchestrated(coords, telemetry, remote_intents, listen, default_kind) -> None:
+    """Multi-agent loop: every goal becomes its own agent worker, all serialized
+    through the ActionArbiter. Goals can carry a surface prefix to pick the lane:
+        'browser: find the cheapest flight to NYC'   → a Browserbase agent
+        'local:  take my selfie in Photo Booth'       → a local Agent S agent
+    No prefix → DEFAULT_SURFACE_KIND."""
+    from orchestrator import Orchestrator, surfaces
+
+    orch = Orchestrator(
+        on_event=lambda t, d: event_bus.emit(t, d),
+        telemetry=telemetry, coords=coords,
+    )
+    # Let the dashboard's fleet endpoints reach this orchestrator.
+    try:
+        from dashboard.server import register_orchestrator
+        register_orchestrator(orch)
+    except Exception as e:
+        print(f"[orchestrator] dashboard not wired ({e}); REST fleet control off")
+
+    print("\n=== ORCHESTRATED (multi-agent) ===")
+    print("Each goal spawns its own agent. Prefix 'browser:' or 'local:' to pick "
+          "a lane; otherwise default is "
+          f"'{default_kind}'.  Ctrl-C to quit.\n")
+
+    def _dispatch(raw: str) -> None:
+        kind = default_kind
+        text = raw.strip()
+        for prefix, k in (("browser:", surfaces.KIND_BROWSERBASE),
+                          ("local:", surfaces.KIND_LOCAL)):
+            if text.lower().startswith(prefix):
+                kind, text = k, text[len(prefix):].strip()
+                break
+        if text:
+            agent_id = orch.dispatch(text, surface_kind=kind)
+            print(f"[orchestrator] dispatched {agent_id} ({kind}): {text}")
+
+    # Drain the shared intent queue (frontend / coordinator / poller) in the
+    # background so those producers spawn agents too.
+    def _drain() -> None:
+        while True:
+            raw = remote_intents.get()
+            if raw:
+                try:
+                    _dispatch(raw)
+                except Exception as e:
+                    print(f"[orchestrator] dispatch failed: {e}")
+    threading.Thread(target=_drain, daemon=True).start()
+
+    if listen:
+        print("[shepherd] --listen: goals come from the frontend/coordinator only.\n")
+        while True:
+            try:
+                time.sleep(3600)
+            except KeyboardInterrupt:
+                print("\n[shepherd] Bye."); return
+
+    while True:
+        try:
+            line = input("Goal → ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[shepherd] Bye."); return
+        if line:
+            _dispatch(line)
 
 
 def _port_in_use(port: int, host: str = "127.0.0.1") -> bool:

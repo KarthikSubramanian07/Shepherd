@@ -14,6 +14,7 @@ import {
   Radio,
   Shield,
   ShieldAlert,
+  Users,
   Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ import { useShepherd } from "@/lib/shepherd-ws";
 // unless dev mode is on · enable with `?dev=true`, disable with `?dev=false`.
 const NAV = [
   { href: "/command-center", label: "Command Center", icon: LayoutDashboard },
+  { href: "/fleet", label: "Fleet", icon: Users },
   { href: "/remote", label: "Remote Control", icon: Radio },
   { href: "/routines", label: "Routines", icon: GitBranch },
   { href: "/task-graph", label: "Task Graph", icon: Workflow },
