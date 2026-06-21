@@ -189,6 +189,10 @@ def test_coordinator_tracks_dispatch_routing():
     assert r["kind"] == "WORKFLOW" and r["target"] == "WF_LIVE_JOB_APPLICATION"
     assert r["confidence"] == 0.83
 
+    # a plan that resolves straight to AUTONOMOUS reads as autonomous, not unmatched
+    hub.apply_event(conn, _ev("plan.resolved", kind="AUTONOMOUS", target=None))
+    assert conn.snapshot()["routing"]["state"] == "autonomous"
+
     # a later unmatched intent falls back to autonomous
     hub.apply_event(conn, _ev("intent.autonomous_fallback", raw_text="do something new"))
     assert conn.snapshot()["routing"]["state"] == "autonomous"

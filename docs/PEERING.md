@@ -101,7 +101,7 @@ The current implementation uses a **hub-and-spoke** model: all agents and UIs co
 **Three discovery modes (checked in order):**
 
 1. **mDNS (LAN)** — the agent advertises `_shepherd._tcp.local` with its `agent_id`, `code`, and port. A peer on the same subnet discovers it without configuration.
-2. **Tailscale MagicDNS** — if both machines are on a tailnet, the agent registers a stable hostname (e.g. `shepherd-<agent_id>.<tailnet>.ts.net`). The operator resolves it directly.
+2. **Tailscale MagicDNS** — if both machines are on a tailnet, the agent registers a stable hostname (ex. `shepherd-<agent_id>.<tailnet>.ts.net`). The operator resolves it directly.
 3. **Coordinator rendezvous** — if a coordinator is available, the agent announces itself at `POST /api/peers/announce`. The operator queries `GET /api/peers?code=<session>` to get the agent's reachable address, then connects directly (the coordinator is only used for discovery, not relay).
 
 ### Connection Establishment (Handshake)

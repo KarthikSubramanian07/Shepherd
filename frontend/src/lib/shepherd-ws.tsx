@@ -160,7 +160,7 @@ function applyEvent(
       if (key) {
         nodes = advanceTo(nodes, key, "running");
       } else if (prev.graphNodes.length === 0) {
-        // No milestone plan (e.g. AUTONOMOUS) · build a linear graph live.
+        // No milestone plan (ex. AUTONOMOUS) · build a linear graph live.
         const k = `step:${index}`;
         if (!prev.graphNodes.some((n) => n.key === k)) {
           nodes = [

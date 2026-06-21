@@ -7,7 +7,7 @@ export interface StatusStyle {
   text: string;
   /** Tailwind bg color class (subtle). */
   bg: string;
-  /** Raw hex for non-Tailwind contexts (e.g. React Flow rings). */
+  /** Raw hex for non-Tailwind contexts (ex. React Flow rings). */
   hex: string;
 }
 

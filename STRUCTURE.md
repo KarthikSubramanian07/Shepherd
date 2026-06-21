@@ -76,7 +76,7 @@ to accept a route. Three routines are registered: `ROUTINE_FORM_FILL`,
 1. Lowercases the intent text and scores each routine by `matched_keywords / total_keywords`.
 2. Picks the highest scorer; returns `None` if below threshold.
 3. Extracts variables from the raw text using the routine's regex patterns, falling back to
-   defaults (e.g. applicant name/email, search query).
+   defaults (ex. applicant name/email, search query).
 4. Returns a `ResolvedRoutine` with id, variables, confidence, and matched keywords.
 
 ---
@@ -173,7 +173,7 @@ click sequence. `check_step(step, state)` returns `{"verdict": "ok"|"flag"|"halt
 
 1. **Planted trigger** — if a step carries a `monitor_trigger` (`credential`, `captcha`,
    `phishing`, `stuck`), returns the mapped verdict. 100% reliable, used for the demo beat
-   (e.g. the form-fill halts at the planted credential step).
+   (ex. the form-fill halts at the planted credential step).
 2. **Screenshot + OCR rules** — captures the screen, OCRs it (`pytesseract`), and pattern-matches
    for credential/password fields, CAPTCHAs, and prompt-injection/phishing text → `halt`; plus a
    "stuck state" detector (screen unchanged for >8s) → `flag`.

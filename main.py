@@ -30,59 +30,34 @@ from telemetry.evolution import RoutineEvolution
 from dashboard.events import event_bus
 
 
-def _get_intent_text(
+def _stdin_producer(
     engine: ShepherdExecutionEngine,
     remote_intents: "queue.Queue[str]",
-) -> str:
+) -> None:
     """
-    Returns the raw intent text from a remote Command Center, Deepgram (voice),
-    or typed input. Arms the stop-command listener before recording so 'stop'
-    halts during execution.
+    Read typed (or spoken) goals from the command line and feed them into the
+    SHARED intent queue — the same queue the frontend / coordinator / poller feed.
+    Runs in a background thread so the CLI and the frontend can both drive the agent
+    at the same time. Exits quietly if there's no interactive stdin (headless).
     """
-    # A command-center intent already waiting takes priority.
-    try:
-        return remote_intents.get_nowait()
-    except queue.Empty:
-        pass
-
-    # Remote-driven mode: the operated machine may be headless, so block on the
-    # relay's intent queue instead of local stdin. The voice 'stop' listener is
-    # still armed so a spoken halt works during execution.
-    if FEATURES["remote"]:
+    while True:
         if FEATURES["deepgram"]:
             try:
-                from services.deepgram_input import listen_for_stop_command
+                from services.deepgram_input import listen_and_transcribe, listen_for_stop_command
                 listen_for_stop_command(halt_callback=engine.request_halt)
-            except Exception:
-                pass
-        while True:
-            try:
-                return remote_intents.get(timeout=0.5)
-            except queue.Empty:
-                continue
-
-    if FEATURES["deepgram"]:
+                transcript = listen_and_transcribe()
+                if transcript:
+                    remote_intents.put(transcript)
+                    continue
+            except Exception as e:
+                print(f"[deepgram] {e} — using typed input.")
         try:
-            from services.deepgram_input import listen_and_transcribe
-            transcript = listen_and_transcribe()
-            if transcript:
-                return transcript
-            print("[deepgram] Empty transcript — falling back to typed input.")
-        except Exception as e:
-            print(f"[deepgram] {e} — falling back to typed input.")
-    try:
-        return input("Intent → ").strip()
-    except EOFError:
-        # No interactive stdin (headless / detached / piped). Don't busy-loop the
-        # outer while-True — block on the remote-intent queue instead, so the
-        # dashboard + Command Center stay live while we wait for an intent.
-        print("[shepherd] No interactive stdin — serving dashboard; "
-              "send intents from the Command Center. (Ctrl-C to quit.)")
-        while True:
-            try:
-                return remote_intents.get(timeout=1.0)
-            except queue.Empty:
-                continue
+            line = input("Intent → ").strip()
+        except EOFError:
+            print("[shepherd] No interactive stdin — taking goals from the frontend only.")
+            return
+        if line:
+            remote_intents.put(line)
 
 
 def _record_mode(routine_id: str) -> None:
@@ -201,16 +176,25 @@ def main() -> None:
     # If BACKEND_URL is set, a separate persistent backend owns the dashboard/API;
     # stream events to it (and don't bind the port here). Otherwise run the
     # all-in-one in-process dashboard as before.
-    if BACKEND_URL:
+    # Resolve where this agent's dashboard/API lives. Explicit BACKEND_URL wins;
+    # otherwise, if the port is already serving (e.g. ./scripts/serve.sh is up),
+    # attach to that backend instead of crashing on a bind conflict.
+    attach_url = BACKEND_URL
+    if not attach_url and _port_in_use(DASHBOARD_PORT):
+        attach_url = f"http://localhost:{DASHBOARD_PORT}"
+        print(f"[backend] :{DASHBOARD_PORT} already serving — attaching to it "
+              f"(not starting another dashboard).")
+
+    if attach_url:
         try:
             from dashboard.forwarder import start_forwarding, start_intent_polling
-            start_forwarding(BACKEND_URL)
-            # Pull goals submitted from the frontend (POST /api/intent on the backend)
-            # into this agent's queue — the reverse channel for separate agents.
-            start_intent_polling(BACKEND_URL, remote_intents)
-            print(f"[backend] streaming to persistent backend at {BACKEND_URL}\n")
+            start_forwarding(attach_url)
+            # Pull goals submitted from the frontend (POST /api/intent) into this
+            # agent's queue — the reverse channel for separately-running agents.
+            start_intent_polling(attach_url, remote_intents)
+            print(f"[backend] streaming to backend at {attach_url}\n")
         except Exception as e:
-            print(f"[backend] Could not start forwarder: {e}")
+            print(f"[backend] Could not attach to backend: {e}")
     else:
         try:
             from dashboard.server import start_dashboard, register_intent_queue
@@ -236,24 +220,29 @@ def main() -> None:
             print(f"[relay] Could not start: {e}")
 
     # ── Main loop ─────────────────────────────────────────────────────────────
-    print("Speak an intent or type it. Ctrl-C to quit.")
+    # Goals flow into ONE queue from any producer: the command line (stdin thread
+    # below, unless --listen), the frontend (POST /api/intent), the coordinator,
+    # and the backend poller. The loop just consumes the queue — so CLI and
+    # frontend both drive the agent at the same time.
     if mode == "AUTONOMOUS":
-        print("Mode AUTONOMOUS — planner drafts steps, then Agent S executes each one.\n")
+        print("Mode AUTONOMOUS — planner drafts steps, then Agent S executes each one.")
+    elif AUTONOMOUS_ON_UNMATCHED:
+        print("Routines: 'fill form', 'open browser', 'demo' — unmatched intents go autonomous.")
     else:
-        print("Routines: 'fill form', 'open browser', 'demo'")
-        if AUTONOMOUS_ON_UNMATCHED:
-            print("Unmatched intents fall back to autonomous Agent S.\n")
-        else:
-            print("Set AUTONOMOUS_ON_UNMATCHED=true or --mode AUTONOMOUS for free-form goals.\n")
+        print("Routines: 'fill form', 'open browser', 'demo'.")
 
     if listen:
-        print("[shepherd] --listen: waiting for goals from the frontend "
-              "(dashboard /api/intent or coordinator). Ctrl-C to quit.\n")
+        print("[shepherd] --listen: goals come from the frontend/coordinator only "
+              "(no command-line prompt). Ctrl-C to quit.\n")
+    else:
+        print("Type a goal at the prompt, or send one from the frontend. Ctrl-C to quit.")
+        threading.Thread(
+            target=_stdin_producer, args=(engine, remote_intents), daemon=True
+        ).start()
 
     while True:
         try:
-            # --listen: block on the intent queue (frontend-driven), no stdin prompt.
-            raw = remote_intents.get() if listen else _get_intent_text(engine, remote_intents)
+            raw = remote_intents.get()   # fed by CLI + frontend + coordinator + poller
             if not raw:
                 continue
 
@@ -372,6 +361,13 @@ def main() -> None:
 
 
 _listen_mode = False  # set True by --listen; keeps the agent serving across goals
+
+
+def _port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.3)
+        return s.connect_ex((host, port)) == 0
 
 
 def _should_end_session() -> bool:

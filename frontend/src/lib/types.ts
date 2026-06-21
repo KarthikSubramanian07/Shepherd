@@ -56,7 +56,7 @@ export interface RoutineStep {
   /** Ordinal position; also used for default linear layout. */
   index: number;
   action: ActionType;
-  /** Short node label, e.g. "Enter email". */
+  /** Short node label, ex. "Enter email". */
   title: string;
   /** Custom human instruction attached to this step (authored or learned). */
   instruction?: string;
@@ -81,7 +81,7 @@ export interface RoutineEdge {
   source: string;
   target: string;
   label?: string;
-  /** Optional branch condition, e.g. "if captcha solved". */
+  /** Optional branch condition, ex. "if captcha solved". */
   condition?: string;
 }
 

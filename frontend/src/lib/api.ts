@@ -1,7 +1,7 @@
 /**
  * Typed client for the dashboard API.
  *
- * When NEXT_PUBLIC_API_BASE is set (e.g. "http://localhost:8765") all calls go
+ * When NEXT_PUBLIC_API_BASE is set (ex. "http://localhost:8765") all calls go
  * directly to the FastAPI backend. Without it, calls fall through to the
  * Next.js API route handlers (mock data for offline development).
  */

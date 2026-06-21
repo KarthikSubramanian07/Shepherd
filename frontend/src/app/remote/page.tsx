@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -34,6 +34,7 @@ import {
 } from "@/lib/coordinator";
 import { agentStatusStyle } from "@/lib/status";
 import { timeAgo } from "@/lib/utils";
+import { useWebRTC, type WebRTCState } from "@/lib/webrtc";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { MicCommandButton } from "@/components/remote/MicCommandButton";
 import { WorkflowGraph } from "@/components/graph/WorkflowGraph";
@@ -56,6 +57,27 @@ export default function RemoteCommandCenterPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false);
   const [pickedNode, setPickedNode] = useState<string | null>(null);
+
+  // WebRTC P2P screen streaming.
+  const sendSignalForAgent = useCallback(
+    (type: string, data: unknown) => {
+      if (c.selectedId) c.sendSignal(c.selectedId, type, data);
+    },
+    [c],
+  );
+  const webrtc = useWebRTC(sendSignalForAgent, c.selectedId);
+
+  // Wire up incoming WebRTC signals from the coordinator.
+  const webrtcRef = useRef(webrtc);
+  webrtcRef.current = webrtc;
+  useEffect(() => {
+    c.onWebRTCSignal((type, agentId, data) => {
+      if (agentId === c.selectedId) {
+        webrtcRef.current.handleSignal(type, data);
+      }
+    });
+    return () => c.onWebRTCSignal(null);
+  }, [c, c.selectedId]);
 
   const running = c.agents.filter((a) => a.status === "running").length;
   const blocked = c.agents.filter((a) => a.status === "blocked").length;
@@ -231,7 +253,12 @@ export default function RemoteCommandCenterPage() {
 
                 {/* Live screen + live workflow graph, side by side */}
                 <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
-                  <LiveScreen frame={c.frame} agent={c.selected} />
+                  <LiveScreen
+                    frame={c.frame}
+                    agent={c.selected}
+                    webrtcState={webrtc.state}
+                    videoRef={webrtc.videoRef}
+                  />
                   <WorkflowPane
                     agent={c.selected}
                     nodeShots={c.nodeShots}
@@ -249,7 +276,7 @@ export default function RemoteCommandCenterPage() {
                       value={intent}
                       onChange={(e) => setIntent(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && send(intent)}
-                      placeholder={`Dispatch a task to ${c.selected.name}… (e.g. "apply to the job")`}
+                      placeholder={`Dispatch a task to ${c.selected.name}… (ex. "apply to the job")`}
                     />
                     <Button onClick={() => send(intent)} disabled={!intent.trim()}>
                       <Send size={15} /> Dispatch
@@ -401,21 +428,54 @@ function RosterCard({
   );
 }
 
-function LiveScreen({ frame, agent }: { frame: string | null; agent: RemoteAgent }) {
+function LiveScreen({
+  frame,
+  agent,
+  webrtcState,
+  videoRef,
+}: {
+  frame: string | null;
+  agent: RemoteAgent;
+  webrtcState: WebRTCState;
+  videoRef: (el: HTMLVideoElement | null) => void;
+}) {
+  const isWebRTC = webrtcState === "connected";
   return (
     <Card className="overflow-hidden">
       <div className="relative flex min-h-[320px] items-center justify-center bg-black/60">
-        {frame ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={frame} alt={`${agent.name} live screen`} className="max-h-[60vh] w-full object-contain" />
-        ) : (
-          <div className="flex flex-col items-center gap-2 py-16 text-muted">
-            <Monitor size={28} />
-            <span className="text-sm">{agent.online ? "Waiting for frames…" : "Agent offline"}</span>
-          </div>
+        {/* WebRTC video (hidden unless connected) */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className={[
+            "max-h-[60vh] w-full object-contain",
+            isWebRTC ? "" : "hidden",
+          ].join(" ")}
+        />
+        {/* Fallback: base64 frame relay */}
+        {!isWebRTC && (
+          <>
+            {frame ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={frame} alt={`${agent.name} live screen`} className="max-h-[60vh] w-full object-contain" />
+            ) : (
+              <div className="flex flex-col items-center gap-2 py-16 text-muted">
+                <Monitor size={28} />
+                <span className="text-sm">{agent.online ? "Waiting for frames…" : "Agent offline"}</span>
+              </div>
+            )}
+          </>
         )}
         <div className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white">
           <Radio size={11} className="text-red-400" /> LIVE · {agent.mode}
+          {isWebRTC && (
+            <span className="ml-1 rounded bg-green-600/80 px-1 text-[10px]">P2P</span>
+          )}
+          {webrtcState === "connecting" && (
+            <span className="ml-1 rounded bg-yellow-600/80 px-1 text-[10px]">P2P…</span>
+          )}
         </div>
       </div>
     </Card>
@@ -710,7 +770,7 @@ function FinalizePanel({
           <Input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="New workflow name (e.g. Apply to a job — taught)"
+            placeholder="New workflow name (ex. Apply to a job — taught)"
           />
           <Input
             value={newId}
@@ -850,14 +910,14 @@ function WorkflowIntervenePanel({
       <Textarea
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}
-        placeholder="Steer this milestone · e.g. “research the projects page and fill in the summary”"
+        placeholder="Steer this milestone · ex. “research the projects page and fill in the summary”"
         rows={2}
       />
       <Input
         className="mt-2"
         value={scenario}
         onChange={(e) => setScenario(e.target.value)}
-        placeholder="When does this apply? (the condition to remember, e.g. “the projects field is empty”)"
+        placeholder="When does this apply? (the condition to remember, ex. “the projects field is empty”)"
       />
 
       <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-ink">
