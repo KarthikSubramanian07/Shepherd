@@ -63,6 +63,47 @@ export interface ModeResult {
   mode: string;
 }
 
+export interface WorkflowSummary {
+  id: string;
+  name: string;
+  version: number;
+  intent_patterns: string[];
+  params: string[];
+  nodes: number;
+  updated_at: number;
+}
+
+export interface WorkflowNodeRaw {
+  key: string;
+  kind: string;
+  label: string;
+  instruction: string;
+  requires: string[];
+  conditionals: { when: string; do: string; goto: string | null; source?: string }[];
+  optional?: boolean;
+  source?: string;
+}
+
+export interface WorkflowEdgeRaw {
+  from: string;
+  to: string;
+  condition: string | null;
+}
+
+export interface WorkflowDetail {
+  id: string;
+  name: string;
+  intent_patterns: string[];
+  params: string[];
+  version: number;
+  from_graph: string;
+  start_key: string;
+  created_at: number;
+  updated_at: number;
+  nodes: WorkflowNodeRaw[];
+  edges: WorkflowEdgeRaw[];
+}
+
 export const api = {
   // Routines (the recorded "tools")
   listRoutines: () => http<RoutineSummary[]>("/routines"),
@@ -99,6 +140,26 @@ export const api = {
       throw new Error(`task-graph ${routineId} failed: ${res.status} ${res.statusText}`);
     }
     return res.json() as Promise<TaskGraph>;
+  },
+
+  // Workflows (REAL backend) — dispatchable, versioned snapshots of a task
+  // graph; this is what the executor runs and what remember-bake increments.
+  listWorkflows: async (): Promise<WorkflowSummary[]> => {
+    const res = await fetch(`${BACKEND}/api/workflows`, { cache: "no-store" });
+    if (!res.ok) {
+      throw new Error(`workflows failed: ${res.status} ${res.statusText}`);
+    }
+    return res.json() as Promise<WorkflowSummary[]>;
+  },
+  getWorkflow: async (id: string): Promise<WorkflowDetail | null> => {
+    const res = await fetch(`${BACKEND}/api/workflows/${id}`, {
+      cache: "no-store",
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new Error(`workflow ${id} failed: ${res.status} ${res.statusText}`);
+    }
+    return res.json() as Promise<WorkflowDetail>;
   },
 
   // Governance — audit + policy
