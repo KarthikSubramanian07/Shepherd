@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ChevronDown,
@@ -11,6 +12,7 @@ import {
   Hand,
   KeyRound,
   Loader2,
+  Maximize2,
   ListTree,
   Monitor,
   Pause,
@@ -24,6 +26,7 @@ import {
   Trash2,
   WifiOff,
   Workflow as WorkflowIcon,
+  X,
 } from "lucide-react";
 import {
   type RemoteAgent,
@@ -63,6 +66,7 @@ export default function RemoteCommandCenterPage() {
   const [halting, setHalting] = useState(false);
   const [bakeToggle, setBakeToggle] = useState(true);
   const [rosterOpen, setRosterOpen] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   // Track whether we've already fired the promote command for this run.
   // Keyed by "agentId:runId" to avoid re-firing after agent switch-back.
   const promotedRef = useRef<string | null>(null);
@@ -348,6 +352,17 @@ export default function RemoteCommandCenterPage() {
                     agent={c.selected}
                     webrtcState={webrtc.state}
                     videoRef={webrtc.videoRef}
+                    expanded={expanded}
+                    onToggleExpand={() => setExpanded((v) => !v)}
+                    onHalt={() => c.sendCommand(c.selected!.id, "halt")}
+                    onPause={() => {
+                      c.sendCommand(c.selected!.id, "workflow.pause");
+                      setToast("Pause requested · agent will wait at the next milestone");
+                    }}
+                    onResume={() => {
+                      c.sendCommand(c.selected!.id, "workflow.resume");
+                      setToast("Resumed · agent proceeds autonomously");
+                    }}
                   />
                   <WorkflowPane
                     agent={c.selected}
@@ -627,52 +642,181 @@ function LiveScreen({
   agent,
   webrtcState,
   videoRef,
+  expanded,
+  onToggleExpand,
+  onHalt,
+  onPause,
+  onResume,
 }: {
   frame: string | null;
   agent: RemoteAgent;
   webrtcState: WebRTCState;
   videoRef: (el: HTMLVideoElement | null) => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onHalt: () => void;
+  onPause: () => void;
+  onResume: () => void;
 }) {
   const isWebRTC = webrtcState === "connected";
+  const s = agentStatusStyle[agent.status];
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onToggleExpand();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded, onToggleExpand]);
+
   return (
-    <Card className="overflow-hidden">
-      <div className="relative flex min-h-[320px] items-center justify-center bg-black/60">
-        {/* WebRTC video (hidden unless connected) */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className={[
-            "max-h-[60vh] w-full object-contain",
-            isWebRTC ? "" : "hidden",
-          ].join(" ")}
-        />
-        {/* Fallback: base64 frame relay */}
-        {!isWebRTC && (
-          <>
-            {frame ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={frame} alt={`${agent.name} live screen`} className="max-h-[60vh] w-full object-contain" />
-            ) : (
-              <div className="flex flex-col items-center gap-2 py-16 text-muted">
-                <Monitor size={28} />
-                <span className="text-sm">{agent.online ? "Waiting for frames…" : "Agent offline"}</span>
-              </div>
+    <>
+      <Card className="overflow-hidden">
+        <div className="relative flex min-h-[320px] items-center justify-center bg-black/60">
+          {!expanded && (
+            <>
+              {/* WebRTC video (hidden unless connected) */}
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={[
+                  "max-h-[60vh] w-full object-contain",
+                  isWebRTC ? "" : "hidden",
+                ].join(" ")}
+              />
+              {/* Fallback: base64 frame relay */}
+              {!isWebRTC && (
+                <>
+                  {frame ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={frame} alt={`${agent.name} live screen`} className="max-h-[60vh] w-full object-contain" />
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 py-16 text-muted">
+                      <Monitor size={28} />
+                      <span className="text-sm">{agent.online ? "Waiting for frames…" : "Agent offline"}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+          {expanded && (
+            <span className="text-sm text-white/60">Live view expanded</span>
+          )}
+          <div className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white">
+            <Radio size={11} className="text-red-400" /> LIVE · {agent.mode}
+            {isWebRTC && (
+              <span className="ml-1 rounded bg-green-600/80 px-1 text-[10px]">P2P</span>
             )}
-          </>
-        )}
-        <div className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white">
-          <Radio size={11} className="text-red-400" /> LIVE · {agent.mode}
-          {isWebRTC && (
-            <span className="ml-1 rounded bg-green-600/80 px-1 text-[10px]">P2P</span>
-          )}
-          {webrtcState === "connecting" && (
-            <span className="ml-1 rounded bg-yellow-600/80 px-1 text-[10px]">P2P…</span>
-          )}
+            {webrtcState === "connecting" && (
+              <span className="ml-1 rounded bg-yellow-600/80 px-1 text-[10px]">P2P…</span>
+            )}
+          </div>
+          <button
+            onClick={onToggleExpand}
+            className="absolute right-2 top-2 rounded-md bg-black/60 p-1.5 text-white/80 transition-colors hover:text-white"
+            title="Expand live view"
+          >
+            <Maximize2 size={14} />
+          </button>
         </div>
-      </div>
-    </Card>
+      </Card>
+
+      {expanded &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex flex-col bg-black/95">
+            {/* Close button */}
+            <button
+              onClick={onToggleExpand}
+              className="absolute right-4 top-4 z-10 rounded-lg bg-white/10 p-2 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+              title="Close (Esc)"
+            >
+              <X size={20} />
+            </button>
+
+            {/* LIVE badge */}
+            <div className="absolute left-4 top-4 z-10 flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white">
+              <Radio size={11} className="text-red-400" /> LIVE · {agent.mode}
+              {isWebRTC && (
+                <span className="ml-1 rounded bg-green-600/80 px-1 text-[10px]">P2P</span>
+              )}
+            </div>
+
+            {/* Video / frame */}
+            <div className="flex flex-1 items-center justify-center p-4">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={[
+                  "max-h-[85vh] max-w-full object-contain",
+                  isWebRTC ? "" : "hidden",
+                ].join(" ")}
+              />
+              {!isWebRTC && (
+                <>
+                  {frame ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={frame}
+                      alt={`${agent.name} live screen`}
+                      className="max-h-[85vh] max-w-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 py-16 text-white/50">
+                      <Monitor size={40} />
+                      <span className="text-base">
+                        {agent.online ? "Waiting for frames…" : "Agent offline"}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Bottom toolbar */}
+            <div className="flex items-center justify-between bg-black/60 px-6 py-3 backdrop-blur-sm">
+              <div className="flex items-center gap-3">
+                <StatusDot
+                  hex={s.hex}
+                  pulse={agent.status === "running" || agent.status === "blocked"}
+                />
+                <span className="text-sm font-medium text-white">{agent.name}</span>
+                <Badge tone="accent">{agent.mode}</Badge>
+                <Badge
+                  tone={
+                    agent.status === "blocked" || agent.status === "failed"
+                      ? "halt"
+                      : agent.status === "completed"
+                        ? "ok"
+                        : agent.status === "running"
+                          ? "accent"
+                          : "neutral"
+                  }
+                >
+                  {s.label}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="danger" onClick={onHalt}>
+                  <Hand size={15} /> Halt
+                </Button>
+                <Button size="sm" variant="outline" onClick={onPause}>
+                  <Pause size={14} /> Pause
+                </Button>
+                <Button size="sm" variant="outline" onClick={onResume}>
+                  <Play size={14} /> Resume
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
