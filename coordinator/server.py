@@ -66,6 +66,8 @@ class AgentConn:
     last_activity: float = field(default_factory=time.time)
     last_frame: Optional[str] = None        # base64 JPEG
     last_frame_ts: float = 0.0
+    catalog: Optional[dict] = None         # cached routines/workflows/task-graphs
+    catalog_version: int = 0               # incremented on each catalog push
     history: deque = field(default_factory=lambda: deque(maxlen=_AGENT_EVENT_HISTORY))
     # Live workflow traversal state, built on the fly from workflow.* events so the
     # Command Center can render the milestone graph for this agent.
@@ -630,6 +632,45 @@ async def agent_screen(agent_id: str) -> JSONResponse:
     return JSONResponse({"data": conn.last_frame, "ts": conn.last_frame_ts})
 
 
+# ── Catalog endpoints (proxied from agent on connect) ─────────────────────────
+
+
+@app.get("/api/agents/{agent_id}/catalog")
+async def agent_catalog(agent_id: str) -> JSONResponse:
+    """Full cached catalog for an agent (routines, workflows, task_graphs)."""
+    conn = hub.agents.get(agent_id)
+    if not conn:
+        return JSONResponse({"error": "agent not found"}, status_code=404)
+    if not conn.catalog:
+        return JSONResponse({"routines": [], "workflows": [], "task_graphs": [],
+                             "version": 0})
+    return JSONResponse({**conn.catalog, "version": conn.catalog_version})
+
+
+@app.get("/api/agents/{agent_id}/routines")
+async def agent_routines(agent_id: str) -> JSONResponse:
+    conn = hub.agents.get(agent_id)
+    if not conn:
+        return JSONResponse({"error": "agent not found"}, status_code=404)
+    return JSONResponse(conn.catalog.get("routines", []) if conn.catalog else [])
+
+
+@app.get("/api/agents/{agent_id}/workflows")
+async def agent_workflows(agent_id: str) -> JSONResponse:
+    conn = hub.agents.get(agent_id)
+    if not conn:
+        return JSONResponse({"error": "agent not found"}, status_code=404)
+    return JSONResponse(conn.catalog.get("workflows", []) if conn.catalog else [])
+
+
+@app.get("/api/agents/{agent_id}/task-graphs")
+async def agent_task_graphs(agent_id: str) -> JSONResponse:
+    conn = hub.agents.get(agent_id)
+    if not conn:
+        return JSONResponse({"error": "agent not found"}, status_code=404)
+    return JSONResponse(conn.catalog.get("task_graphs", []) if conn.catalog else [])
+
+
 # ── Agent socket ──────────────────────────────────────────────────────────────
 
 
@@ -691,6 +732,9 @@ async def agent_ws(ws: WebSocket) -> None:
                     print(f"[coordinator] warning: agent '{agent_id}' speaks "
                           f"protocol v{client_version}, we only support v{PROTOCOL_VERSION}")
                 await hub.push_roster()
+            elif mtype == "catalog":
+                conn.catalog = msg.get("catalog")
+                conn.catalog_version += 1
             elif mtype in ("webrtc.offer", "webrtc.answer", "webrtc.ice"):
                 # WebRTC signaling: relay to the watching UI(s) for this agent.
                 await hub.broadcast_session(

@@ -113,6 +113,12 @@ class RelayClient:
                                  "host": AGENT_HOST, "mode": self._engine._mode,
                                  "protocol_version": PROTOCOL_VERSION}))
 
+            # Push the local catalog (routines, workflows, task-graphs) so the
+            # remote Command Center can browse them without hitting :8765 directly.
+            catalog = await self._loop.run_in_executor(None, _collect_catalog)
+            if catalog:
+                await ws.send(_json({"type": "catalog", "catalog": catalog}))
+
             # Start WebRTC P2P screen streaming if enabled.
             # Close any previous sender from a prior connection cycle.
             if getattr(self, '_webrtc', None):
@@ -340,6 +346,66 @@ def _capture_frame() -> Optional[str]:
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="JPEG", quality=RELAY_FRAME_QUALITY)
     return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _collect_catalog() -> Optional[dict]:
+    """Gather the agent's local catalog for the coordinator to cache.
+
+    Returns a dict with routines, workflows, and task_graphs — or None if
+    collection fails (non-fatal; the agent still works without catalog push).
+    """
+    catalog: dict = {}
+    try:
+        from engine.routines import load_routines, get_routine
+        routine_ids = load_routines()
+        routines_out = []
+        for rid in routine_ids:
+            try:
+                r = get_routine(rid)
+                name = (r.description or rid).split(" — ")[0].split(" – ")[0].strip()
+                routines_out.append({
+                    "id": r.routine_id, "name": name,
+                    "description": r.description or "",
+                    "mode": r.mode, "stepCount": len(r.steps),
+                    "version": 1,
+                })
+            except Exception:
+                pass
+        catalog["routines"] = routines_out
+    except Exception:
+        catalog["routines"] = []
+
+    try:
+        from engine.workflow_store import WorkflowStore
+        catalog["workflows"] = [
+            {"id": w.id, "name": w.name, "description": getattr(w, "description", None),
+             "version": w.version, "intent_patterns": w.intent_patterns,
+             "params": w.params, "nodes": len(w.nodes),
+             "updated_at": w.updated_at}
+            for w in WorkflowStore().list()
+        ]
+    except Exception:
+        catalog["workflows"] = []
+
+    try:
+        from engine.task_graph import TaskGraphStore
+        raw = TaskGraphStore().all_graphs()
+        catalog["task_graphs"] = [
+            {"task_key": key, "routine_id": g.get("routine_id"),
+             "run_count": g.get("run_count", 0),
+             "node_count": len(g.get("nodes", [])),
+             "edge_count": len(g.get("edges", [])),
+             "updated_at": g.get("updated_at", 0),
+             "intents": g.get("intents", []),
+             "labels": [n.get("label") for n in g.get("nodes", [])]}
+            for key, g in raw.items()
+        ]
+    except Exception:
+        catalog["task_graphs"] = []
+
+    if not catalog["routines"] and not catalog["workflows"] and not catalog["task_graphs"]:
+        return None
+    return catalog
 
 
 def _json(obj: dict) -> str:
