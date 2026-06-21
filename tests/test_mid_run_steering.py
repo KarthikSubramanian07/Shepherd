@@ -2,11 +2,9 @@
 Tests for mid-run steering: steer queue, SuspendedTask, resume, relay routing.
 """
 import queue
-import threading
 import time
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from engine.engine import ShepherdExecutionEngine, SuspendedTask
 

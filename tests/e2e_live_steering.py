@@ -231,7 +231,7 @@ def main():
     assert engine.is_suspended()
 
     ctx = engine._suspended_task
-    print(f"  ✓ SuspendedTask saved:")
+    print("  ✓ SuspendedTask saved:")
     print(f"    run_id: {ctx.run_id}")
     print(f"    goal: {ctx.goal[:50]}...")
     print(f"    step_index: {ctx.step_index}")
@@ -240,7 +240,7 @@ def main():
 
     suspended_events = [e for e in events_captured if e["type"] == "execution.suspended"]
     assert len(suspended_events) == 1
-    print(f"  ✓ execution.suspended event emitted")
+    print("  ✓ execution.suspended event emitted")
     print("  ✓ TEST 2 PASSED")
 
     # ══════════════════════════════════════════════════════════════════════
@@ -264,15 +264,15 @@ def main():
     # Verify __RESUME__ in queue
     sentinel = remote_intents.get(timeout=3)
     assert sentinel == "__RESUME__"
-    print(f"  ✓ __RESUME__ sentinel in intent queue")
+    print("  ✓ __RESUME__ sentinel in intent queue")
 
     # Verify goal was amended on the suspended task
     assert "[OPERATOR STEER]: skip form, upload resume instead" in ctx.goal
-    print(f"  ✓ Suspended task goal amended")
+    print("  ✓ Suspended task goal amended")
 
     # Verify chain_history marker added
     assert any("USER INTERVENED" in h for h in ctx.chain_history)
-    print(f"  ✓ Chain history marker added")
+    print("  ✓ Chain history marker added")
 
     # Simulate main loop consuming the resume
     print("  → Simulating main loop resume (calling _execute_autonomous_reactive with ctx)")
@@ -309,16 +309,16 @@ def main():
 
     # Verify reset_autonomous was NOT called (chain memory preserved)
     mock_agent.reset_autonomous.assert_not_called()
-    print(f"  ✓ reset_autonomous NOT called (memory preserved)")
+    print("  ✓ reset_autonomous NOT called (memory preserved)")
 
     # Verify agent saw the full amended goal
     assert any("skip form, upload resume instead" in g for g in goals_seen)
-    print(f"  ✓ Agent saw amended goal on resume")
+    print("  ✓ Agent saw amended goal on resume")
 
     # Verify execution.resumed event
     resumed_events = [e for e in events_captured if e["type"] == "execution.resumed"]
     assert len(resumed_events) == 1
-    print(f"  ✓ execution.resumed event emitted")
+    print("  ✓ execution.resumed event emitted")
     print("  ✓ TEST 3 PASSED")
 
     # ══════════════════════════════════════════════════════════════════════
@@ -348,7 +348,7 @@ def main():
 
     # Halt flag should be set
     assert engine._halt_flag.is_set()
-    print(f"  ✓ Halt flag set")
+    print("  ✓ Halt flag set")
 
     # New intent should be in queue
     intent = remote_intents.get(timeout=3)
@@ -386,13 +386,13 @@ def main():
     assert result.status == "suspended"
     assert engine.is_suspended()
     ctx = engine._suspended_task
-    print(f"  ✓ Fail produces suspended state (not terminal)")
-    print(f"    reason in event: agent_reported_fail")
+    print("  ✓ Fail produces suspended state (not terminal)")
+    print("    reason in event: agent_reported_fail")
 
     suspended_events = [e for e in events_captured if e["type"] == "execution.suspended"]
     assert len(suspended_events) == 1
     assert suspended_events[0]["data"]["reason"] == "agent_reported_fail"
-    print(f"  ✓ execution.suspended event with reason='agent_reported_fail'")
+    print("  ✓ execution.suspended event with reason='agent_reported_fail'")
     print("  ✓ TEST 5 PASSED")
 
     # ══════════════════════════════════════════════════════════════════════
@@ -438,14 +438,14 @@ def main():
     # The steer should have been consumed and visible in later predictions
     steer_seen = any("[OPERATOR STEER]: change to dark mode first" in g for g in goals_seen)
     assert steer_seen, f"Post-predict steer not consumed! Goals: {goals_seen}"
-    print(f"  ✓ Post-predict steer consumed and visible in subsequent predictions")
+    print("  ✓ Post-predict steer consumed and visible in subsequent predictions")
 
     # Verify step.complete with deviation was emitted
     step_completes = [e for e in events_captured
                       if e["type"] == "step.complete"
                       and e.get("data", {}).get("deviation") == "plan_discarded_steer"]
     assert len(step_completes) >= 1
-    print(f"  ✓ step.complete with deviation='plan_discarded_steer' emitted")
+    print("  ✓ step.complete with deviation='plan_discarded_steer' emitted")
     print("  ✓ TEST 6 PASSED")
 
     # ══════════════════════════════════════════════════════════════════════

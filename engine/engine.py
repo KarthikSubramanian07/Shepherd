@@ -319,8 +319,10 @@ class ShepherdExecutionEngine:
             # Do NOT call reset_autonomous() — preserve chain memory
             # Drain stale steers (the resume steer is already baked into goal)
             while not self._steer_queue.empty():
-                try: self._steer_queue.get_nowait()
-                except queue.Empty: break
+                try:
+                    self._steer_queue.get_nowait()
+                except queue.Empty:
+                    break
             event_bus.emit("execution.resumed", {
                 "run_id": run_id, "step_index": resume_ctx.step_index,
                 "amended_goal": goal,
@@ -335,8 +337,10 @@ class ShepherdExecutionEngine:
             self._agent_s.reset_autonomous()
             # Drain any stale steers from a previous task
             while not self._steer_queue.empty():
-                try: self._steer_queue.get_nowait()
-                except queue.Empty: break
+                try:
+                    self._steer_queue.get_nowait()
+                except queue.Empty:
+                    break
             run_id = str(uuid.uuid4())[:8]
             started_at = time.time()
             max_steps = AUTONOMOUS_MAX_STEPS

@@ -5,11 +5,9 @@ Tests the full flow: main loop → engine → steer/halt/resume → event propag
 Exercises both relay_client and dashboard API paths.
 """
 import queue
-import threading
 import time
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from engine.engine import ShepherdExecutionEngine, SuspendedTask
 from services.relay_client import RelayClient
@@ -369,7 +367,7 @@ class TestE2EInterventionPipeline:
         the milestone node after coalescing."""
         from shepherd_types import RunTrace, RoutineStep, InterventionEvent
         from engine.coalescer import coalesce_now
-        from engine.task_graph import TaskGraphStore, milestone_key
+        from engine.task_graph import TaskGraphStore
 
         store = TaskGraphStore()
 
@@ -470,7 +468,6 @@ class TestE2EInterventionPipeline:
     def test_taught_conditionals_surface_in_memory_hint(self):
         """On a re-run of the same goal, taught conditionals should appear
         in the memory_hint passed to predict_autonomous."""
-        from shepherd_types import TaskGraph, TaskGraphNode, Conditional
         from engine.task_graph import TaskGraphStore, milestone_key
         from engine.routine_planner import RoutinePlanner
 
