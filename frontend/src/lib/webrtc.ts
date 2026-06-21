@@ -62,6 +62,14 @@ export function useWebRTC(
 
   const videoRef = useCallback((el: HTMLVideoElement | null) => {
     videoElRef.current = el;
+    // Re-attach the active stream when the element swaps (e.g. fullscreen toggle).
+    if (el && pcRef.current) {
+      const receivers = pcRef.current.getReceivers();
+      const stream = receivers.length > 0 ? new MediaStream(receivers.map((r) => r.track).filter(Boolean)) : null;
+      if (stream && stream.getTracks().length > 0) {
+        el.srcObject = stream;
+      }
+    }
   }, []);
 
   const close = useCallback(() => {
