@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Acme Corp — Job Application</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, system-ui, Arial, sans-serif; background:#eef2f7;
+         margin:0; padding:48px; color:#111; }
+  .card { max-width:760px; margin:0 auto; background:#fff; border-radius:14px;
+          box-shadow:0 6px 24px rgba(0,0,0,.08); padding:40px 44px; }
+  h1 { font-size:30px; margin:0 0 4px; }
+  p.sub { color:#566; margin:0 0 28px; font-size:15px; }
+  label { display:block; font-weight:600; font-size:16px; margin:22px 0 8px; }
+  input[type=text], input[type=email], textarea {
+     width:100%; font-size:18px; padding:14px 16px; border:2px solid #c3ccd8;
+     border-radius:10px; background:#fbfdff; }
+  input:focus, textarea:focus { outline:none; border-color:#2f6df6; background:#fff; }
+  textarea { min-height:120px; resize:vertical; }
+  button { margin-top:30px; width:100%; font-size:20px; font-weight:700; color:#fff;
+     background:#2f6df6; border:none; border-radius:10px; padding:18px; cursor:pointer; }
+  button:hover { background:#235ad6; }
+  .ok { margin-top:22px; padding:16px; border-radius:10px; background:#e6f7ec;
+        color:#11703a; font-weight:700; font-size:18px; display:none; }
+  .ok.show { display:block; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Acme Corp — Software Engineer</h1>
+    <p class="sub">Apply below. All fields are required.</p>
+    <form id="app" onsubmit="event.preventDefault(); document.getElementById('done').classList.add('show');">
+      <label for="fullname">Full Name</label>
+      <input id="fullname" name="fullname" type="text" autocomplete="off" placeholder="Your full name" />
+
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="off" placeholder="you@example.com" />
+
+      <label for="projects">Notable Projects</label>
+      <textarea id="projects" name="projects" placeholder="Summarize your projects"></textarea>
+
+      <button id="submit" type="submit">Submit Application</button>
+      <div id="done" class="ok">Application submitted — thank you!</div>
+    </form>
+  </div>
+</body>
+</html>

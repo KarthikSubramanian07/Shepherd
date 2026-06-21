@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional, Protocol
 
-from shepherd_types import Workflow, TaskGraphNode
+from shepherd_types import Workflow, TaskGraphNode, InterventionEvent
 from engine import workflow_store as WS
 from engine import llm
 
@@ -55,6 +55,26 @@ class WorkerTurn:
     missing: list[str]               # required inputs it could NOT fill
     options: list[NextOption]        # successors + conditional branches
     profile: dict[str, str]          # known KB at this point
+    override_instruction: str = ""   # human-injected instruction for this milestone
+
+    @property
+    def instruction(self) -> str:
+        return self.override_instruction or self.node.instruction or self.node.label
+
+
+@dataclass
+class Intervention:
+    """A human steer from the Control Hub at a milestone boundary. It can override
+    the action (`instruction`), force a branch / next milestone (`next` — i.e.
+    "trigger the conditional case"), halt, and — when `remember` is set — be baked
+    into the workflow via the teaching loop so the branch becomes automatic."""
+    decision: str = "override"       # "override" | "halt" | "approve"
+    instruction: str = ""            # NL action to take here
+    next: str = ""                   # force this successor/branch key (optional)
+    scenario: str = ""               # NL guard this applies under (the `when`)
+    remember: bool = False           # True → save_as_rule → bake into the workflow
+    extracted: dict[str, str] = field(default_factory=dict)
+    target_node: str = ""            # apply only at this node key ("" = next milestone)
 
 
 @dataclass
@@ -92,6 +112,7 @@ class WorkflowRun:
     path: list[WorkflowStepRecord]
     profile: dict[str, str]
     blocked_on: Optional[str] = None
+    interventions: list[InterventionEvent] = field(default_factory=list)
     started_at: float = 0.0
     ended_at: float = 0.0
 
@@ -132,10 +153,14 @@ def options_for(workflow: Workflow, node: TaskGraphNode) -> list[NextOption]:
 
 # ── executor ───────────────────────────────────────────────────────────────────
 class WorkflowExecutor:
-    def __init__(self, worker: Worker, event_emit=None, max_steps: int = 50) -> None:
+    def __init__(self, worker: Worker, event_emit=None, max_steps: int = 50,
+                 gate=None) -> None:
         self._worker = worker
         self._max_steps = max_steps
         self._emit = event_emit or (lambda *_a, **_k: None)
+        # gate(turn) -> Optional[Intervention]: the human-in-the-loop hook checked
+        # at each milestone boundary so the Control Hub can steer / pause / teach.
+        self._gate = gate
 
     def run(
         self,
@@ -163,6 +188,7 @@ class WorkflowExecutor:
         status = "completed"
         blocked_on: Optional[str] = None
         visits: dict[str, int] = {}
+        interventions: list[InterventionEvent] = []
 
         for step_no in range(self._max_steps):
             visits[cur.key] = visits.get(cur.key, 0) + 1
@@ -175,7 +201,33 @@ class WorkflowExecutor:
                 resolved=resolved, missing=missing,
                 options=options, profile=dict(kb),
             )
-            result = self._worker.act(turn)
+
+            # Live monitor: announce the milestone + its forward preview BEFORE
+            # acting so the Control Hub can highlight the current node and the
+            # human can pause / steer here.
+            self._emit("workflow.node.enter", {
+                "workflow_id": workflow.id, "step_no": step_no,
+                "node_key": cur.key, "label": cur.label, "kind": cur.kind,
+                "instruction": turn.instruction, "missing": missing,
+                "conditionals": [{"when": c.when, "do": c.do, "goto": c.goto}
+                                 for c in cur.conditionals],
+                "options": [{"key": o.key, "label": o.label, "via": o.via, "when": o.when}
+                            for o in options],
+            })
+
+            # ── human gate: steer / pause / teach from the Control Hub ─────────
+            iv = self._gate(turn) if self._gate else None
+            result, iv_event = self._apply_intervention(iv, turn, options, cur, step_no)
+            if iv_event is not None:
+                interventions.append(iv_event)
+                self._emit("workflow.intervention", {
+                    "workflow_id": workflow.id, "step_no": step_no,
+                    "node_key": cur.key, "decision": iv_event.decision,
+                    "instruction": iv_event.instruction, "scenario": iv_event.scenario,
+                    "flag": iv_event.flag,
+                })
+            if result is None:                                 # not steered → worker acts
+                result = self._worker.act(turn)
 
             if result.extracted:
                 kb.update(result.extracted)
@@ -200,15 +252,20 @@ class WorkflowExecutor:
                 status, blocked_on = "blocked", result.reason or cur.label
                 break
 
-            # ── advance: validate the worker's chosen next against the preview ──
+            # ── advance: validate the chosen next against the preview ──────────
             nxt = (result.next or END).strip()
             if nxt == END or not options:
                 break
             chosen = self._resolve_next(nxt, options)
             if chosen is None:
-                # Worker named an unknown target — fall back to the common path
-                # (first option) so a fuzzy answer never strands the run.
-                chosen = options[0].key
+                # Not a previewed option, but allow routing to any REAL milestone
+                # (a human forced-branch / taught branch may introduce a target
+                # that isn't yet an edge). Only a truly unknown ref falls back to
+                # the common path so a fuzzy answer never strands the run.
+                if WS.node_by_key(workflow, nxt) is not None:
+                    chosen = nxt
+                else:
+                    chosen = options[0].key
             if visits.get(chosen, 0) >= 3:
                 status, blocked_on = "aborted", f"loop at {chosen}"
                 break
@@ -222,9 +279,57 @@ class WorkflowExecutor:
         self._emit("workflow.done", {
             "workflow_id": workflow.id, "status": status,
             "steps": len(path), "blocked_on": blocked_on,
+            "taught": sum(1 for iv in interventions if iv.flag == "save_as_rule"),
         })
         return WorkflowRun(workflow.id, status, path, kb, blocked_on,
+                           interventions=interventions,
                            started_at=started, ended_at=time.time())
+
+    def _apply_intervention(self, iv, turn, options, node, step_no):
+        """Turn a human Intervention into (WorkerResult|None, InterventionEvent|None).
+
+        Returns a WorkerResult when the human fully steers the milestone (route to a
+        branch and/or override the action); None when the worker should still act
+        (e.g. a pure instruction injection just augments the turn, or no
+        intervention at all). The InterventionEvent carries the teaching flag so a
+        `remember` directive is baked into the workflow after the run."""
+        if iv is None:
+            return None, None
+
+        flag = "save_as_rule" if iv.remember else "one_off"
+        scenario = iv.scenario or (turn.missing and f"missing {turn.missing}") or node.label
+        ev = InterventionEvent(
+            step_index=step_no, trigger="human", decision=iv.decision,
+            instruction=iv.instruction, flag=flag, node_key=node.key,
+            scenario=scenario, ts=time.time(),
+        )
+
+        if iv.decision == "halt":
+            return WorkerResult(did="[human] halted", status="blocked",
+                                reason="human halt", next=END), ev
+
+        # Pure instruction injection (no forced branch): let the worker act with
+        # the human's instruction layered onto this milestone.
+        if not iv.next:
+            if iv.instruction:
+                turn.override_instruction = (
+                    f"{turn.node.instruction or turn.node.label}\n"
+                    f"[human] {iv.instruction}"
+                )
+            return None, ev
+
+        # Forced branch — the human triggers a specific next milestone / the
+        # conditional case directly, in one message (no round-trip). The target
+        # need not already be a previewed option: a human can introduce a brand-new
+        # branch here, which `remember` then bakes into the workflow (goto carries
+        # the target so the conditional becomes routable next time).
+        chosen = self._resolve_next(iv.next, options) or iv.next
+        ev.goto = chosen
+        return WorkerResult(
+            did=f"[human] {iv.instruction or 'steered to ' + chosen}",
+            status="done", next=chosen, branch=scenario,
+            extracted=dict(iv.extracted),
+        ), ev
 
     @staticmethod
     def _resolve_next(ref: str, options: list[NextOption]) -> Optional[str]:

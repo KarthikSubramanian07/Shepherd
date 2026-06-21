@@ -247,6 +247,7 @@ class InterventionEvent:
     flag: str = "one_off"         # "one_off" | "save_as_rule"
     node_key: str = ""            # milestone the block attaches to (for EDIT-mode baking)
     scenario: str = ""            # NL description of the scenario, falls back to trigger
+    goto: str = ""                # target milestone when the steer triggered a branch
     ts: float = 0.0
 
 

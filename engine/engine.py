@@ -358,6 +358,8 @@ class ShepherdExecutionEngine:
         branch from the previewed options (no extra round-trip). The click path
         stays sacred — actuation goes through the same restricted exec helper."""
         from engine.workflow_executor import WorkflowExecutor, AgentSWorker
+        from engine import workflow_control
+        from engine.workflow_store import WorkflowStore
 
         self._halt_flag.clear()
         self._agent_s.reset()
@@ -365,8 +367,26 @@ class ShepherdExecutionEngine:
         started_at = time.time()
 
         worker = AgentSWorker(self._agent_s, self._exec_agent_code)
-        executor = WorkflowExecutor(worker, event_emit=event_bus.emit)
+        executor = WorkflowExecutor(
+            worker, event_emit=event_bus.emit, gate=workflow_control.review,
+        )
         wf_run = executor.run(workflow, goal=goal, params=params, profile=profile)
+
+        # Teaching loop — bake any `remember`-flagged human steers into the
+        # workflow so the branch/procedure is automatic next run, then persist the
+        # bumped version. one_off steers are journal-only (never baked).
+        try:
+            applied = workflow_control.bake(workflow, wf_run.interventions, run_id)
+            if applied:
+                store = WorkflowStore()
+                workflow.version += 1
+                store.save(workflow)
+                event_bus.emit("workflow.baked", {
+                    "workflow_id": workflow.id, "version": workflow.version,
+                    "ops": applied,
+                })
+        except Exception as exc:  # noqa: BLE001
+            print(f"[execute_workflow] bake failed (non-fatal): {exc}")
 
         ended_at = time.time()
         status = {"completed": "completed", "blocked": "aborted"}.get(wf_run.status, "aborted")

@@ -18,12 +18,18 @@ Setup:
 """
 import io
 import os
+import sys
 from typing import Optional
+
+# Map the host OS to a gui-agents platform tag so generated hotkeys are correct
+# (e.g. ctrl+a/ctrl+v on Linux vs command+a on macOS).
+_PLATFORM = {"linux": "linux", "darwin": "darwin", "win32": "windows"}.get(sys.platform, "linux")
 
 from config import (
     AGENT_S_ENGINE_TYPE, AGENT_S_MODEL, AGENT_S_BASE_URL,
     UITARS_BASE_URL, UITARS_MODEL,
     SCREEN_WIDTH, SCREEN_HEIGHT,
+    GEMINI_ENDPOINT_URL,
 )
 
 # Control tokens Agent S returns instead of pyautogui code. These are NOT
@@ -64,11 +70,12 @@ class AgentSAdapter:
         from gui_agents.s3.agents.agent_s import AgentS3
         from gui_agents.s3.agents.grounding import OSWorldACI
 
-        api_key = (
-            os.getenv("OPENAI_API_KEY")
-            if AGENT_S_ENGINE_TYPE == "openai"
-            else os.getenv("ANTHROPIC_API_KEY")
-        )
+        _KEY_ENV = {
+            "openai":    "OPENAI_API_KEY",
+            "anthropic": "ANTHROPIC_API_KEY",
+            "gemini":    "GEMINI_API_KEY",
+        }
+        api_key = os.getenv(_KEY_ENV.get(AGENT_S_ENGINE_TYPE, "OPENAI_API_KEY"))
 
         engine_params: dict = {
             "engine_type": AGENT_S_ENGINE_TYPE,
@@ -76,8 +83,13 @@ class AgentSAdapter:
         }
         if api_key:
             engine_params["api_key"] = api_key
-        if AGENT_S_BASE_URL:
-            engine_params["base_url"] = AGENT_S_BASE_URL
+        # gui-agents' Gemini engine talks to Google's OpenAI-compatible endpoint,
+        # so it needs a base_url (defaults to the Generative Language API).
+        base_url = AGENT_S_BASE_URL or (
+            GEMINI_ENDPOINT_URL if AGENT_S_ENGINE_TYPE == "gemini" else ""
+        )
+        if base_url:
+            engine_params["base_url"] = base_url
 
         # Grounding: UI-TARS endpoint if provided, else fall back to same LLM
         if UITARS_BASE_URL:
@@ -98,7 +110,7 @@ class AgentSAdapter:
 
         grounding_agent = OSWorldACI(
             env=None,
-            platform="darwin",
+            platform=_PLATFORM,
             engine_params_for_generation=engine_params,
             engine_params_for_grounding=grounding_params,
             width=SCREEN_WIDTH,
@@ -108,7 +120,7 @@ class AgentSAdapter:
         self._agent = AgentS3(
             engine_params,
             grounding_agent,
-            platform="darwin",
+            platform=_PLATFORM,
             max_trajectory_length=3,
             enable_reflection=False,
         )

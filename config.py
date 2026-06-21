@@ -7,6 +7,7 @@ existing `from config import DEEPGRAM_API_KEY` style imports.
 """
 import os
 
+import compat as _compat  # noqa: F401  (registers pyautogui/mouseinfo shim early)
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -71,11 +72,14 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 8192
 
     # ── Agent S (gui-agents package) ───────────────────────────────────────
-    agent_s_engine_type: str = "anthropic"   # "anthropic" | "openai"
+    agent_s_engine_type: str = "anthropic"   # "anthropic" | "openai" | "gemini"
     agent_s_model: str = "claude-haiku-4-5"   # cheap, fast default for dev testing
     agent_s_base_url: str = ""                # custom base URL (e.g. Ollama)
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    # Google's OpenAI-compatible endpoint — used when agent_s_engine_type=gemini
+    # so Agent S grounds/plans on Gemini (keeps actuation off Anthropic).
+    gemini_endpoint_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     uitars_base_url: str = ""                 # empty = use LLM for grounding
     uitars_model: str = "ui-tars-1.5-7b"
     screen_width: int = 1920
@@ -126,6 +130,7 @@ EVENTS_DB_PATH = settings.events_db_path
 LLM_PROVIDER        = settings.llm_provider
 GEMINI_API_KEY      = settings.gemini_api_key
 GEMINI_MODEL        = settings.gemini_model
+GEMINI_ENDPOINT_URL = settings.gemini_endpoint_url
 LLM_ANTHROPIC_MODEL = settings.llm_anthropic_model
 LLM_TIMEOUT_S       = settings.llm_timeout_s
 LLM_MAX_TOKENS      = settings.llm_max_tokens

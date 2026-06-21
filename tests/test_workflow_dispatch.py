@@ -12,7 +12,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shepherd_types import Intent, TaskGraph, TaskGraphNode, TaskGraphEdge, Conditional
+from shepherd_types import (
+    Intent, TaskGraph, TaskGraphNode, TaskGraphEdge, Conditional, Workflow,
+)
 from engine import llm
 from engine import workflow_store as WS
 from engine.workflow_store import WorkflowStore
@@ -131,6 +133,69 @@ def test_traversal_skips_branch_when_input_already_known(monkeypatch):
     assert run.status == "completed"
     assert RESEARCH not in run.visited_keys           # no need to research
     assert run.visited_keys == [OPEN, FILL, PROJECTS, SUBMIT]
+
+
+def test_intervention_forces_new_branch_then_remember_bakes_it():
+    """Control Hub end-to-end: an operator steers an UNTAUGHT milestone to a brand
+    new branch (not yet a previewed option), flags `remember`, and the teaching
+    loop bakes a routable conditional so the branch fires autonomously next time.
+    Covers the forced-branch routing + bake-with-goto fixes."""
+    from engine import workflow_control
+    from engine.workflow_executor import WorkerResult
+
+    P = "fill::projects::Fill projects"
+    R = "navigate::projects::Research"
+    S = "submit::::Submit"
+    wf = Workflow(
+        id="WF_TEST_BRANCH", name="t", intent_patterns=["t"], params=[],
+        nodes=[
+            TaskGraphNode(key=P, kind="fill", label="Fill projects",
+                          requires=["projects_summary"]),          # NO conditional yet
+            TaskGraphNode(key=R, kind="navigate", label="Research"),
+            TaskGraphNode(key=S, kind="submit", label="Submit"),
+        ],
+        edges=[
+            TaskGraphEdge(from_key=P, to_key=S, times_seen=2),     # common path only
+            TaskGraphEdge(from_key=R, to_key=P, times_seen=1),
+        ],
+        version=1, start_key=P,
+    )
+    # Research is NOT a previewed option from P initially.
+    assert R not in [o.key for o in options_for(wf, next(n for n in wf.nodes if n.key == P))]
+
+    class ScriptedWorker:
+        def act(self, turn):
+            if turn.node.key == R:
+                return WorkerResult(did="researched", status="done", next=P,
+                                    extracted={"projects_summary": "summary"})
+            if turn.node.key == P:                                  # 2nd visit, summary known
+                return WorkerResult(did="filled", status="done", next=S)
+            return WorkerResult(did="submitted", status="done", next="END")
+
+    workflow_control.reset()
+    workflow_control.submit_intervention(
+        instruction="open the projects page and summarize it",
+        next_key=R, scenario="the projects field is empty",
+        remember=True, target_node=P,
+    )
+    run = WorkflowExecutor(ScriptedWorker(), gate=workflow_control.review).run(
+        wf, params={})
+    workflow_control.reset()
+
+    # routed to the forced branch even though it wasn't a previewed option
+    assert run.status == "completed"
+    assert run.visited_keys == [P, R, P, S]
+    assert len(run.interventions) == 1
+    iv = run.interventions[0]
+    assert iv.flag == "save_as_rule" and iv.goto == R
+
+    # remember → baked into a routable conditional (carries goto)
+    applied = workflow_control.bake(wf, run.interventions, run_id="r1")
+    assert any(op["op"] == "add_conditional" and op["goto"] == R for op in applied)
+    proj = next(n for n in wf.nodes if n.key == P)
+    assert any(c.goto == R for c in proj.conditionals)
+    # now Research IS a previewed option → it would fire autonomously next run
+    assert R in [o.key for o in options_for(wf, proj)]
 
 
 def test_unknown_next_falls_back_to_common_path(monkeypatch):
