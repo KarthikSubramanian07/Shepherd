@@ -63,8 +63,7 @@ def _get_intent_text(
 
     if FEATURES["deepgram"]:
         try:
-            from services.deepgram_input import listen_and_transcribe, listen_for_stop_command
-            listen_for_stop_command(halt_callback=engine.request_halt)
+            from services.deepgram_input import listen_and_transcribe
             transcript = listen_and_transcribe()
             if transcript:
                 return transcript
@@ -243,6 +242,13 @@ def main() -> None:
                     "matched_keywords": [],
                     "variables":       {"GOAL": raw},
                 })
+                # Arm the spoken-stop listener now — mic is free since intent was already captured
+                if FEATURES["deepgram"]:
+                    try:
+                        from services.deepgram_input import listen_for_stop_command
+                        listen_for_stop_command(halt_callback=engine.request_halt)
+                    except Exception:
+                        pass
                 result = engine.execute_autonomous(raw)
                 _after_run(engine, telemetry, memory, result, confidence=1.0)
                 if _should_end_session():
@@ -284,6 +290,14 @@ def main() -> None:
                 threading.Thread(
                     target=_band_start, args=(resolved,), daemon=True
                 ).start()
+
+            # Arm the spoken-stop listener now — mic is free since intent was captured
+            if FEATURES["deepgram"]:
+                try:
+                    from services.deepgram_input import listen_for_stop_command
+                    listen_for_stop_command(halt_callback=engine.request_halt)
+                except Exception:
+                    pass
 
             # ── Execute (synchronous, blocking) ───────────────────────────────
             result = engine.execute(resolved)
