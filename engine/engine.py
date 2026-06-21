@@ -403,7 +403,7 @@ class ShepherdExecutionEngine:
             "node_count": len(graph.nodes),
         })
 
-        steps_done = 0
+        steps_done = resume_ctx.steps_done if resume_ctx else 0
         error: Optional[str] = None
         status = "completed"
         # Restore pre-suspension steps on resume so the final trace is complete.
