@@ -16,6 +16,7 @@ from unittest.mock import patch, MagicMock
 
 from shepherd_types import Intent, Workflow, TaskGraphNode
 from router import llm_filter
+from router.llm_filter import LLM_ERROR
 from router.vector_router import HIGH_CONFIDENCE_THRESHOLD
 
 
@@ -55,11 +56,11 @@ def test_select_returns_id_for_true_match():
     assert result == "WF_WIKIPEDIA_CREATORS"
 
 
-def test_select_returns_none_when_llm_unavailable():
-    """Graceful degradation: LLM unavailable → None."""
+def test_select_returns_error_when_llm_unavailable():
+    """Graceful degradation: LLM unavailable → LLM_ERROR sentinel."""
     with patch.object(llm_filter.llm, "available", return_value=False):
         result = llm_filter.select(RESEARCH_INTENT, [JOB_APP_CANDIDATE])
-    assert result is None
+    assert result == LLM_ERROR
 
 
 def test_select_returns_none_on_empty_candidates():
@@ -69,11 +70,11 @@ def test_select_returns_none_on_empty_candidates():
 
 
 def test_select_handles_llm_exception():
-    """LLM raises → graceful None."""
+    """LLM raises → LLM_ERROR sentinel (allows caller to degrade)."""
     with patch.object(llm_filter.llm, "available", return_value=True), \
          patch.object(llm_filter.llm, "complete", side_effect=Exception("timeout")):
         result = llm_filter.select(RESEARCH_INTENT, [JOB_APP_CANDIDATE])
-    assert result is None
+    assert result == LLM_ERROR
 
 
 # ── Integration tests: resolve_plan() end-to-end ─────────────────────────────────
@@ -182,11 +183,34 @@ def test_resolve_plan_llm_unavailable_degrades_to_threshold(tmp_path):
     router._vector.workflow_candidates.return_value = []
     router._vector.candidates.return_value = [("ROUTINE_JOB_APPLICATION", 0.79)]
 
-    with patch.object(llm_filter.llm, "available", return_value=False), \
-         patch.object(llm_filter, "select", return_value=None):
+    # LLM unavailable: select() returns LLM_ERROR sentinel
+    with patch.object(llm_filter.llm, "available", return_value=False):
         plan = router.resolve_plan(Intent(raw_text=RESEARCH_INTENT, timestamp=0.0))
 
     # Without LLM, falls back to conservative top-1 threshold (0.40)
+    assert plan.kind == "ROUTINE"
+    assert plan.target == "ROUTINE_JOB_APPLICATION"
+
+
+def test_resolve_plan_transient_llm_failure_degrades_to_threshold(tmp_path):
+    """Transient LLM failure (configured but call throws) → degrades to threshold."""
+    from router.router import ShepherdIntentRouter
+    from engine.workflow_store import WorkflowStore
+
+    router = ShepherdIntentRouter()
+    router._workflows = WorkflowStore(str(tmp_path / "empty.json"))
+
+    # Mock vector router: routine candidate at 0.79
+    router._vector = MagicMock()
+    router._vector.workflow_candidates.return_value = []
+    router._vector.candidates.return_value = [("ROUTINE_JOB_APPLICATION", 0.79)]
+
+    # LLM is configured (available=True) but call raises (transient failure)
+    with patch.object(llm_filter.llm, "available", return_value=True), \
+         patch.object(llm_filter.llm, "complete", side_effect=Exception("rate limited")):
+        plan = router.resolve_plan(Intent(raw_text=RESEARCH_INTENT, timestamp=0.0))
+
+    # Should degrade to threshold-based routing, NOT go GENERIC
     assert plan.kind == "ROUTINE"
     assert plan.target == "ROUTINE_JOB_APPLICATION"
 

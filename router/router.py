@@ -13,7 +13,6 @@ from shepherd_types import Intent, ResolvedRoutine, Plan
 from router.registry import REGISTRY, CONFIDENCE_THRESHOLD
 from router.vector_router import VectorRouter, HIGH_CONFIDENCE_THRESHOLD, SIMILARITY_THRESHOLD
 from router import llm_filter
-from engine import llm
 from engine.workflow_store import WorkflowStore
 
 
@@ -108,14 +107,15 @@ class ShepherdIntentRouter:
 
         chosen_id = llm_filter.select(text, candidate_infos)
 
+        if chosen_id == llm_filter.LLM_ERROR:
+            # LLM was unavailable or call failed — degrade to conservative threshold
+            if top_score >= SIMILARITY_THRESHOLD:
+                print(f"[router] LLM unavailable, degraded top-1: {top_id} (score={top_score:.3f})")
+                return self._plan_for(top_id, top_kind, top_score, text, source="vector")
+            return Plan(kind="GENERIC", target="", params={}, confidence=0.0, source="fallback")
+
         if chosen_id is None:
-            # LLM said NONE or was unavailable — check if degradation applies
-            if not llm.available():
-                # Graceful degradation: fall back to conservative top-1 threshold
-                if top_score >= SIMILARITY_THRESHOLD:
-                    print(f"[router] LLM unavailable, degraded top-1: {top_id} (score={top_score:.3f})")
-                    return self._plan_for(top_id, top_kind, top_score, text, source="vector")
-            # LLM explicitly said NONE or no candidate above threshold
+            # LLM explicitly said NONE — no candidate matches the intent
             return Plan(kind="GENERIC", target="", params={}, confidence=0.0, source="llm_filter")
 
         # Find the chosen candidate's kind
