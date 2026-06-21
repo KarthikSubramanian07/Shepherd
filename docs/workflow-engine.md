@@ -1,6 +1,6 @@
 # Shepherd Workflow Engine — Design
 
-Status: **design locked, foundation in progress** · Branch: `feat/llm-milestone-graph`
+Status: **implemented on `main` — phases 1–5 shipped** (built on the `feat/high-level-routine` foundation)
 
 This document describes how Shepherd moves from *replaying a recorded demonstration*
 to *executing a reusable, conditional, self-improving workflow*. It is the shared
@@ -48,8 +48,8 @@ lifecycle of "how to do a task".
 | Artifact | Granularity | Lifecycle | Source | Today |
 |---|---|---|---|---|
 | **Routine** (`data/routines.json`) | Every click / type / hotkey | Authored once | Human demonstration | Exists |
-| **Task Graph** (`data/task_graphs.json`) | High-level milestones | Auto-crystallized per run | Observed traces | Exists (this branch) |
-| **Workflow** | Milestones + conditional procedures | Saved, curated, versioned | Promoted graph + human teaching | Planned |
+| **Task Graph** (`data/task_graphs.json`) | High-level milestones | Auto-crystallized per run | Observed traces | Exists |
+| **Workflow** (`data/workflows.json`) | Milestones + conditional procedures | Saved, curated, versioned | Promoted graph + human teaching | Exists |
 
 - **Routine** = the cold-start *demonstration*. Form-specific, exact. Seeds everything.
 - **Task Graph** = *passively observed* memory — what milestones a task performed,
@@ -221,26 +221,35 @@ so the segmenter/coalescer don't care which model runs:
 - **Dev default**: `gemini` + `gemma-4-26b-a4b-it` — cheap/fast, conserves limited
   Anthropic tokens. Anthropic (`claude-haiku-4-5`) is a drop-in alternative.
 - The layer normalizes provider quirks (Anthropic `system` + assistant prefill;
-  Gemini `systemInstruction` + `contents` roles) and returns plain completion text;
-  the segmenter parses the JSON array robustly (tolerates code fences).
+  Gemini `systemInstruction` + `contents` roles, **filtering Gemma's `thought`
+  parts**) and returns plain completion text; callers parse JSON defensively via
+  `parse_json_array` / `parse_json_object` (string-aware balanced scan, tolerates
+  fences/prose).
+- **Gotcha**: Gemma-4 always reasons before answering (~90s/call), so `LLM_TIMEOUT_S`
+  defaults to 180s — fine on the cold path. Switch `GEMINI_MODEL` to a Flash-Lite
+  (e.g. `gemini-2.5-flash-lite`, ~5s) for fast dev iteration.
 
 ---
 
-## 8. Build phases
+## 8. Build phases — all shipped on `main`
 
 1. **Milestone graph (done)** — LLM segmenter + heuristic fallback (`engine/milestones.py`),
    nodes + edges (`engine/task_graph.py`), `/api/task-graph/{id}` + CORS, `/task-graph`
    frontend view.
-2. **Async foundation (in progress)** — `RunTrace` + `InterventionEvent` schema, durable
-   trace journal (`engine/trace_journal.py`), async coalescer worker
-   (`engine/coalescer.py`), and moving `segment()` off the hot path.
-3. **Teaching loop** — intervention `flag` (`one_off | save_as_rule`) + node `procedure`/
-   `conditionals`; engine injects saved clauses instead of re-blocking; CREATE/EDIT
-   coalescing; graph view renders taught/conditional nodes.
-4. **Workflow + dispatch** — promote a graph to a named Workflow; `Router.resolve` returns
-   a `Plan` and dispatches to a saved Workflow; Profile/KB layer; deviation prompts.
-5. **Milestone-graph executor** — execute by traversing the workflow (Agent S per
-   milestone, conditional branches) rather than replaying fine steps.
+2. **Async foundation (done)** — `RunTrace` + `InterventionEvent` schema, durable trace
+   journal (`engine/trace_journal.py`), async coalescer worker (`engine/coalescer.py`)
+   with CREATE/EDIT modes; `segment()` runs off the hot path.
+3. **Teaching loop (done)** — intervention `flag` (`one_off | save_as_rule`) + node
+   `procedure`/`conditionals`; EDIT-mode patch ops bake taught clauses without rebuilding
+   (`engine/workflow_edit.py`); the executor injects saved clauses instead of re-blocking.
+4. **Workflow + dispatch (done)** — promote a graph to a named, versioned Workflow
+   (`engine/workflow_store.py`, `data/workflows.json`); `Router.resolve_plan` returns a
+   `Plan{WORKFLOW | ROUTINE | GENERIC}` preferring a saved Workflow (`router/router.py`),
+   indexed into the same vector search.
+5. **Milestone-graph executor (done)** — traverses the workflow node-by-node with a
+   single-message advance and pluggable workers (AgentS / LLM / Scripted)
+   (`engine/workflow_executor.py`); Control Hub steer/teach gate
+   (`engine/workflow_control.py`); wired into `engine/engine.py` on a WORKFLOW dispatch.
 
 ---
 
@@ -259,6 +268,11 @@ so the segmenter/coalescer don't care which model runs:
 | API (task-graph, control, status) | `dashboard/server.py` |
 | Frontend graph view | `frontend/src/app/task-graph/`, `frontend/src/components/graph/TaskGraphView.tsx` |
 | Modular LLM layer | `engine/llm.py` |
+| Workflow store (promotion + versioning) | `engine/workflow_store.py` → `data/workflows.json` |
+| Teaching loop (EDIT-mode bake) | `engine/workflow_edit.py` |
+| Milestone-graph executor (traversal) | `engine/workflow_executor.py` |
+| Workflow dispatch + executor wiring | `router/router.py`, `engine/engine.py` |
+| Control Hub steer/teach gate | `engine/workflow_control.py` |
 
 ---
 
