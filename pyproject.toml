@@ -32,6 +32,7 @@ dependencies = [
     "starlette>=0.47.2",
     "arize-phoenix>=8.0.0",
     "agentspan>=0.1.10",
+    "armoriq-sdk>=0.3.7",
 ]
 
 [project.optional-dependencies]

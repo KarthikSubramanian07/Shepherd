@@ -46,6 +46,17 @@ def _current_span_id() -> str | None:
     return None
 
 
+def current_trace_id() -> Optional[str]:
+    """Hex trace id of the active OTel span, or None when there's no live trace.
+
+    Used to cross-link Phoenix traces into Sentry events.
+    """
+    ctx = trace.get_current_span().get_span_context()
+    if ctx.is_valid:
+        return format_trace_id(ctx.trace_id)
+    return None
+
+
 def _emit_span_start(name: str, trace_id: str, span_id: str, parent_span_id: str | None) -> None:
     event_bus.emit("trace.span.start", {
         "trace_id":       trace_id,

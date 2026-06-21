@@ -24,7 +24,11 @@ from engine.engine import ShepherdExecutionEngine
 from engine.coords import load_coords
 from engine.routines import load_routines
 from telemetry.telemetry import ShepherdTelemetry
-from telemetry.sentry_init import init_sentry
+from telemetry.sentry_init import (
+    init_sentry,
+    capture as sentry_capture,
+    capture_message as sentry_capture_message,
+)
 from telemetry.memory import ExecutionMemory
 from telemetry.evolution import RoutineEvolution
 from dashboard.events import event_bus
@@ -371,9 +375,7 @@ def main() -> None:
             break
         except Exception as e:
             print(f"[shepherd] Unhandled error: {e}")
-            if FEATURES["sentry"]:
-                import sentry_sdk
-                sentry_sdk.capture_exception(e)
+            sentry_capture(e, tags={"scope": "main_loop"})
         finally:
             idle.set()   # run finished (or errored) → let the CLI prompt return
 
@@ -412,6 +414,26 @@ def _after_run(engine, telemetry, memory, result, confidence: float) -> None:
 
     telemetry.record(result, engine.last_step_records)
     memory.store(result, engine.last_step_records, confidence=confidence)
+
+    # Failed runs that were swallowed by the engine (status set, no exception
+    # raised) still surface in Sentry as a message with full run context.
+    if result.status == "failed":
+        sentry_capture_message(
+            f"Run failed: {result.routine_id} — {result.error or 'unknown error'}",
+            tags={
+                "routine_id": result.routine_id,
+                "status": result.status,
+            },
+            context={
+                "run_id": result.run_id,
+                "error": result.error,
+                "steps_completed": result.steps_completed,
+                "duration_ms": result.duration_ms,
+                "variables": result.variables,
+            },
+            trace_id=engine.last_trace_id,
+        )
+
     print(f"[shepherd] {result.status.upper()} — {result.steps_completed} steps in {result.duration_ms}ms\n")
 
 

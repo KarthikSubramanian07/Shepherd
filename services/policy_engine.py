@@ -108,7 +108,8 @@ def check_containment(action_type: str, target: Optional[str]) -> Optional[dict]
 
     if action_type == "open_app" and not looks_like_url:
         allowed = c.get("allowed_apps", [])
-        if allowed and target not in allowed:
+        # URLs belong in text, not target — skip app-name check if mis-placed.
+        if allowed and "://" not in target and target not in allowed:
             return {
                 "verdict": "halt",
                 "reason":  f"App '{target}' not in containment allowlist",
