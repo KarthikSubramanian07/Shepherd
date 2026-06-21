@@ -75,7 +75,7 @@ def select(intent_text: str, candidates: list[CandidateInfo]) -> Optional[str]:
         return LLM_ERROR
 
     answer = raw.strip().strip('"').strip("'")
-    if not answer or answer.upper().startswith("NONE"):
+    if not answer or "NONE" in answer.upper():
         return None
 
     # Validate the answer is one of the candidate ids
