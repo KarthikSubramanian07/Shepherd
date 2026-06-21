@@ -181,17 +181,24 @@ class ShepherdExecutionEngine:
         """
         self._halt_flag.clear()
         self.last_step_records = []
+        self._interventions = []
         self._agent_s.reset_autonomous()
         run_id = str(uuid.uuid4())[:8]
         started_at = time.time()
         max_steps = AUTONOMOUS_MAX_STEPS
         variables = {"GOAL": goal}
 
-        # Per-goal task graph — each executed step appends a node; persisted at end.
+        # Per-goal memory graph: load this goal's prior milestones and feed them to
+        # the planner (use); the executed trace is handed to the coalescer at the end
+        # (generate) — same milestone+edge scheme as the planned path.
         task_key = self._autonomous_task_key(goal)
         graph = self._graphs.load(task_key, variables)
         self._active_graph = graph
         was_known = self._graphs.is_known(graph)
+        memory_hint = RoutinePlanner._memory_hint([n.label for n in graph.nodes])
+        if graph.nodes:
+            print(f"[autonomous] recalled {len(graph.nodes)} milestone(s) from memory "
+                  f"(run #{graph.run_count})")
 
         event_bus.emit("execution.start", {
             "run_id":      run_id,
@@ -214,6 +221,7 @@ class ShepherdExecutionEngine:
         steps_done = 0
         error: Optional[str] = None
         status = "completed"
+        executed: list[RoutineStep] = []   # one step per action turn → coalescer
         monitor_step = RoutineStep(action="agent_s", description=goal)
 
         try:
@@ -252,7 +260,7 @@ class ShepherdExecutionEngine:
 
                     apps, tools = None, None
                     with self._telemetry.span("agent_s.plan", oi_kind="LLM") as plan_span:
-                        result = self._agent_s.predict_autonomous(goal, i)
+                        result = self._agent_s.predict_autonomous(goal, i, memory_hint)
                         apps, tools = summarize_agent_code(result.code)
                         apply_llm_plan_span(
                             plan_span,
@@ -360,19 +368,13 @@ class ShepherdExecutionEngine:
 
                     dur_ms = int((time.time() - step_t0) * 1000)
                     rlog.step_result(run_id, i, step_status, dur_ms, step_error or "")
-                    # Each executed step adds a node to the task graph (value=step index
-                    # keeps every step a distinct node rather than collapsing duplicates).
-                    label = self._autonomous_node_label(self._agent_s.last_reasoning, result.code)
-                    fine  = len((result.code or "").splitlines())
-                    self._graphs.record_milestone(
-                        graph, "step", label, str(i), fine, step_status, run_id)
-                    # Persist immediately so the graph is viewable mid-run and survives
-                    # an interrupt before the run formally completes.
-                    self._graphs.flush(graph)
-                    event_bus.emit("task.graph.node", {
-                        "run_id": run_id, "index": i, "label": label,
-                        "kind": "step", "status": step_status,
-                    })
+                    # Record what this turn did as one trace step; the coalescer
+                    # LLM-segments the whole trace into milestones + edges at the end
+                    # (same scheme as the planned path — no per-step node dump).
+                    executed.append(RoutineStep(
+                        action="agent_s",
+                        description=self._agent_s.last_reasoning or "action",
+                    ))
                     self.last_step_records.append(StepRecord(
                         index=i, action="agent_s", target=None,
                         status=step_status, started_at=step_t0, duration_ms=dur_ms, error=step_error,
@@ -419,35 +421,34 @@ class ShepherdExecutionEngine:
             "duration_ms":     result.duration_ms,
         })
 
-        # Persist the graph this run built (one node per executed step).
-        self._graphs.save(graph, intent_text=goal, variables=variables, run_id=run_id)
-        event_bus.emit("task.graph.saved", {
-            "run_id":     run_id,
-            "routine_id": task_key,
-            "run_count":  graph.run_count,
-            "node_count": len(graph.nodes),
-            "milestones": [n.label for n in graph.nodes],
-        })
+        # Hand the executed trace to the coalescer (COLD PATH): it LLM-segments into
+        # milestones + edges and persists under task_key — the same per-goal memory
+        # graph the planner consulted. Runs async; survives interrupt via the journal.
+        deviations = [
+            {"step_index": r.index, "reason": r.deviation}
+            for r in self.last_step_records if r.deviation
+        ]
+        submit_trace(RunTrace(
+            run_id=run_id,
+            routine_id=task_key,
+            variables=variables,
+            status=status,
+            started_at=started_at,
+            ended_at=ended_at,
+            executed=executed,
+            interventions=list(self._interventions),
+            deviations=deviations,
+        ))
         self._active_graph = None
 
         rlog.request_finished(run_id, status, steps_done, result.duration_ms,
-                              [n.label for n in graph.nodes])
+                              [s.description for s in executed])
         return result
 
     @staticmethod
     def _autonomous_task_key(goal: str) -> str:
         slug = "".join(c if c.isalnum() else "_" for c in (goal or "").lower()).strip("_")
         return "AUTONOMOUS::" + (slug[:48] or "goal")
-
-    @staticmethod
-    def _autonomous_node_label(reasoning: str, code: Optional[str]) -> str:
-        """A concise human-readable label for a step's graph node: the first line of
-        the agent's reasoning, else the first action it ran."""
-        r = " ".join((reasoning or "").split())
-        if r:
-            return (r[:77] + "…") if len(r) > 78 else r
-        first = (code or "").strip().splitlines()[0] if (code or "").strip() else "action"
-        return first[:78]
 
     def execute(
         self,

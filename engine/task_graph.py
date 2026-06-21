@@ -233,19 +233,6 @@ class TaskGraphStore:
         node.source = "taught"
         return True
 
-    def flush(self, graph: TaskGraph) -> None:
-        """
-        Write the graph's CURRENT state to disk WITHOUT counting a completed run
-        (no run_count / timestamp bump). Lets a long run persist nodes as they're
-        added, so the graph is viewable mid-run and survives interruption.
-        """
-        try:
-            all_graphs = self._load_all()
-            all_graphs[graph.task_key] = _serialize(graph)
-            self._save_all(all_graphs)
-        except Exception as e:
-            print(f"[task_graph] flush failed (non-fatal): {e}")
-
     def save(self, graph: TaskGraph, intent_text: str, variables: dict, run_id: str) -> None:
         graph.run_count += 1
         graph.updated_at = time.time()
