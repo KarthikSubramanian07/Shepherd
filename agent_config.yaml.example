@@ -1,0 +1,22 @@
+# Band (band.ai / Thenvoi) agent credentials.
+#
+# Copy this file to `agent_config.yaml` (gitignored) and fill in the values from
+# app.band.ai/agents. Register TWO external agents there:
+#
+#   1. "shepherd-verifier"  — the oversight verifier peer (runs band_verifier.py)
+#   2. "shepherd-monitor"   — the engine peer (Shepherd posts flagged actions as it)
+#
+# For each agent, copy the API Key from the popup (shown once) and the Agent UUID
+# from its settings page.
+#
+# The verifier process reads this file via load_agent_config("shepherd-verifier").
+# The engine side reads its key + the verifier's UUID + the room id from .env
+# (BAND_ENGINE_API_KEY, BAND_VERIFIER_AGENT_ID, BAND_ROOM_ID, BAND_ENABLED=true).
+
+shepherd-verifier:
+  agent_id: "uuid-for-shepherd-verifier"
+  api_key:  "band-api-key-for-shepherd-verifier"
+
+shepherd-monitor:
+  agent_id: "uuid-for-shepherd-monitor"
+  api_key:  "band-api-key-for-shepherd-monitor"

@@ -490,6 +490,27 @@ wheels = [
 ]
 
 [[package]]
+name = "band-sdk"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "phoenix-channels-python-client" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "thenvoi-client-rest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/60/44/911cee490e6d352c8a0151cc42a21cd5b45a73d58760ea7c8569fc5c887e/band_sdk-1.0.0.tar.gz", hash = "sha256:583c6040fb307e84cecccd0519f76cacd21aae4875d4de3cdbb002c33bba7aec", size = 398567, upload-time = "2026-06-11T13:44:25.645Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ce/0c/1b14b211e31f8b43e7f49b543a7a9b81c88fbc0909508f2e7fa1025570db/band_sdk-1.0.0-py3-none-any.whl", hash = "sha256:d5a107129ad118e7865cffba4bc730d003b38f30e41aa8a9ee8ccf5b5183f8aa", size = 417264, upload-time = "2026-06-11T13:44:23.745Z" },
+]
+
+[package.optional-dependencies]
+anthropic = [
+    { name = "anthropic" },
+]
+
+[[package]]
 name = "bashkit"
 version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3003,6 +3024,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/31/89/8fc1c268969fac43688d65fd92e67df24bd128d53cb4d2eee534cd307399/pandas-3.0.3-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:9c39be2d709d01fa972a0cabc522389fceca4f3969332ba25a7d6c5802cf976a", size = 11828897, upload-time = "2026-05-11T18:54:17.146Z" },
     { url = "https://files.pythonhosted.org/packages/56/3b/e7d20dea247a3e6dc0bd8a6953854afbedc03951def4e7371e05e7263e25/pandas-3.0.3-cp314-cp314t-win_amd64.whl", hash = "sha256:4db8c527972a821cf5286b40ccc57642a39bc62e62022b42f99f8a67fca8c3a1", size = 10900855, upload-time = "2026-05-11T18:54:19.72Z" },
     { url = "https://files.pythonhosted.org/packages/0f/54/68a0978d1ef8502b8492099beaa6e7a0c1b32e3b5d4f677f5810cb08711c/pandas-3.0.3-cp314-cp314t-win_arm64.whl", hash = "sha256:b2c95f8bfc1ee412bf482605d7bfd30c12d1d26bd59fdd91efeef1d4718decb1", size = 9466464, upload-time = "2026-05-11T18:54:22.754Z" },
+]
+
+[[package]]
+name = "phoenix-channels-python-client"
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ad/53/dbabc21137c7f9657d5f02ac020aa1fab97747a409b393dca9a1ba752945/phoenix_channels_python_client-0.2.1.tar.gz", hash = "sha256:a5ff329d4ed0ce850c3568e39ec29beaf82540d18016d4934837374a612151a1", size = 29245, upload-time = "2026-04-12T12:46:38.53Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/06/1a37e48ead532b123ed71c5a5e4fd78d4fc93c11622887f41e18d14fedb6/phoenix_channels_python_client-0.2.1-py3-none-any.whl", hash = "sha256:24606551dfbcae35f3052f1573091c25b4da1deded4d6f62d171ff2820ed8ad4", size = 23930, upload-time = "2026-04-12T12:46:39.593Z" },
 ]
 
 [[package]]
@@ -7605,6 +7638,9 @@ dependencies = [
 agent-s = [
     { name = "gui-agents" },
 ]
+band = [
+    { name = "band-sdk", extra = ["anthropic"] },
+]
 voice = [
     { name = "pyaudio" },
 ]
@@ -7619,6 +7655,7 @@ requires-dist = [
     { name = "agentspan", specifier = ">=0.1.10" },
     { name = "arize-phoenix", specifier = ">=8.0.0" },
     { name = "arize-phoenix-otel", specifier = ">=0.9.0" },
+    { name = "band-sdk", extras = ["anthropic"], marker = "extra == 'band'", specifier = ">=1.0.0" },
     { name = "browserbase", specifier = "==0.3.0" },
     { name = "deepgram-sdk", specifier = ">=3.2.7" },
     { name = "fastapi", specifier = ">=0.115.0" },
@@ -7645,7 +7682,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29.0" },
     { name = "websockets", specifier = ">=12.0" },
 ]
-provides-extras = ["voice", "agent-s"]
+provides-extras = ["voice", "agent-s", "band"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
@@ -7878,6 +7915,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/46/79/cf31d7a93a8fdc6aa0fbb665be84426a8c5a557d9240b6239e9e11e35fc5/termcolor-3.3.0.tar.gz", hash = "sha256:348871ca648ec6a9a983a13ab626c0acce02f515b9e1983332b17af7979521c5", size = 14434, upload-time = "2025-12-29T12:55:21.882Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/33/d1/8bb87d21e9aeb323cc03034f5eaf2c8f69841e40e4853c2627edf8111ed3/termcolor-3.3.0-py3-none-any.whl", hash = "sha256:cf642efadaf0a8ebbbf4bc7a31cec2f9b5f21a9f726f4ccbb08192c9c26f43a5", size = 7734, upload-time = "2025-12-29T12:55:20.718Z" },
+]
+
+[[package]]
+name = "thenvoi-client-rest"
+version = "0.0.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/54/b8/077727592881e2bce52d9cd4198ddff4d2109eb30a456fe29bdd84eacba0/thenvoi_client_rest-0.0.7.tar.gz", hash = "sha256:1f793a96449556c304bbecce79db0ae2d8044e32b6c137e50c608d09cd97ddb3", size = 95101, upload-time = "2026-04-12T13:22:44.949Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/41/f4/61b5a86a1f3bbaeb09f46a01d019a2c0df0f6bf57494745ee670eee9e68b/thenvoi_client_rest-0.0.7-py3-none-any.whl", hash = "sha256:60b572ed3b64d2acaf447e50f36ea064506c14ca6c7d6ca9b3b197ccbc68c70f", size = 233953, upload-time = "2026-04-12T13:22:43.351Z" },
 ]
 
 [[package]]

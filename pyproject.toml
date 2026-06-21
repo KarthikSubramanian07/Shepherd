@@ -37,6 +37,9 @@ dependencies = [
 [project.optional-dependencies]
 voice   = ["pyaudio==0.2.14"]
 agent_s = ["gui-agents"]
+# Band multi-agent oversight. Only the verifier *peer* process needs the SDK;
+# the engine side talks to Band's free Agent API over httpx (already a core dep).
+band    = ["band-sdk[anthropic]>=1.0.0"]
 
 [tool.uv]
 package = false

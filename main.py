@@ -417,16 +417,24 @@ def _after_run(engine, telemetry, memory, result, confidence: float) -> None:
 
 def _band_start(resolved) -> None:
     try:
-        from services.band_boundary import publish_routine_start
-        publish_routine_start(resolved)
+        from services import band_collab
+        band_collab.publish_event(
+            "run.start",
+            f"Shepherd starting {resolved.routine_id} "
+            f"(confidence {resolved.confidence:.2f}).",
+        )
     except Exception as e:
         print(f"[band] start non-fatal: {e}")
 
 
 def _band_complete(result) -> None:
     try:
-        from services.band_boundary import publish_routine_complete
-        publish_routine_complete(result)
+        from services import band_collab
+        band_collab.publish_event(
+            "run.complete",
+            f"Shepherd finished {result.routine_id}: {result.status} "
+            f"({result.steps_completed} steps, {result.duration_ms}ms).",
+        )
     except Exception as e:
         print(f"[band] complete non-fatal: {e}")
 

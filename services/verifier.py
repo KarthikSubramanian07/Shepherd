@@ -35,7 +35,22 @@ def verify(
 
     On any failure (no API key, network error, parse error) returns a safe
     "flag" verdict so the human still sees the approval gate.
+
+    When Band is configured, the second opinion is sourced from the independent
+    shepherd-verifier *peer* over Band's agentic mesh (a genuine two-agent
+    handoff); if Band is unavailable or doesn't answer in time, this falls back
+    to the in-process Haiku call below. Either way the rubric is identical.
     """
+    try:
+        from services import band_collab
+        if band_collab.available():
+            v = band_collab.request_verdict(reason)
+            if v:
+                print(f"[verifier] second opinion via Band peer: {v['verdict']}")
+                return v
+    except Exception as e:
+        print(f"[verifier] Band path skipped (non-fatal): {e}")
+
     try:
         from anthropic import Anthropic
         from config import ANTHROPIC_API_KEY
