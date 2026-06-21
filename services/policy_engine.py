@@ -101,7 +101,12 @@ def check_containment(action_type: str, target: Optional[str]) -> Optional[dict]
     p = _load()
     c: dict = p.get("containment", {})
 
-    if action_type == "open_app":
+    # A URL target (even on an open_app step) is governed by the domain allowlist
+    # below, not the app-name allowlist — otherwise an allowed host like localhost
+    # gets wrongly rejected as an "app".
+    looks_like_url = ("://" in target) or ("http" in target) or ("localhost" in target)
+
+    if action_type == "open_app" and not looks_like_url:
         allowed = c.get("allowed_apps", [])
         if allowed and target not in allowed:
             return {
