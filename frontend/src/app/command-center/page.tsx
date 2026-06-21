@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Play, ShieldAlert, Square } from "lucide-react";
 import { api } from "@/lib/api";
@@ -74,6 +75,9 @@ export default function CommandCenterPage() {
               {state.mode}
             </Badge>
           </div>
+
+          {/* Run a goal — sends the local agent off via POST /api/intent */}
+          <RunGoalForm disabled={isRunning} />
 
           {/* Monitor alert — the signature moment: the lantern catches the danger */}
           {state.monitorAlert && (
@@ -201,6 +205,46 @@ export default function CommandCenterPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function RunGoalForm({ disabled }: { disabled: boolean }) {
+  const [goal, setGoal] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  const send = async () => {
+    const text = goal.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setMsg(null);
+    const res = await api.runGoal(text).catch(() => ({ error: "backend unreachable" }));
+    setSending(false);
+    if (res.error) {
+      setMsg(res.error);
+    } else {
+      setMsg(`Sent: "${text}"`);
+      setGoal("");
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-xl border border-edge bg-canvas/50 p-3">
+      <div className="flex items-center gap-2">
+        <input
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && send()}
+          placeholder='Run a goal… (e.g. "draft an email")'
+          className="flex-1 rounded-lg border border-edge bg-panel px-3 py-2 text-sm text-ink outline-none placeholder:text-muted focus:border-accent/50"
+        />
+        <Button onClick={send} disabled={!goal.trim() || sending}>
+          <Play size={14} className="mr-1" />
+          {disabled ? "Run (queued)" : "Run"}
+        </Button>
+      </div>
+      {msg && <div className="mt-2 text-xs text-muted">{msg}</div>}
     </div>
   );
 }

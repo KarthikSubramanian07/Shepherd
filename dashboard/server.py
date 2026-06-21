@@ -651,6 +651,38 @@ async def ingest_event(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "ingested": n})
 
 
+# ── Run a goal from the frontend ────────────────────────────────────────────
+# An in-process agent (main.py, all-in-one mode) registers its intent queue here
+# so POST /api/intent can hand it a goal. A standalone/persistent backend has no
+# local agent attached, so the endpoint reports that and you use the coordinator.
+_intent_queue = None
+
+
+def register_intent_queue(q) -> None:
+    global _intent_queue
+    _intent_queue = q
+
+
+@app.post("/api/intent")
+async def submit_intent(request: Request) -> JSONResponse:
+    """Queue a goal for the local in-process agent to run."""
+    if _intent_queue is None:
+        return JSONResponse(
+            {"error": "no local agent attached to this backend — drive it via the coordinator"},
+            status_code=503,
+        )
+    try:
+        body = await request.json()
+        text = (body.get("text") or "").strip()
+    except Exception:
+        text = ""
+    if not text:
+        return JSONResponse({"error": "text required"}, status_code=400)
+    _intent_queue.put(text)
+    event_bus.emit("remote.intent", {"text": text, "source": "dashboard"})
+    return JSONResponse({"ok": True, "queued": text})
+
+
 def start_dashboard() -> None:
     """Run the FastAPI backend. Used both as a daemon thread (in-process, from
     main.py) and as a standalone persistent server (python -m dashboard.server)."""

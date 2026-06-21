@@ -173,6 +173,10 @@ def main() -> None:
         if idx + 1 < len(sys.argv):
             mode = sys.argv[idx + 1].upper()
 
+    # --listen: don't prompt on stdin; take goals only from the dashboard /api/intent
+    # (or coordinator). Lets you drive the agent entirely from the frontend.
+    listen = "--listen" in sys.argv
+
     print("\n=== THE SHEPHERD ===")
     print(f"Mode: {mode}  |  Active features: {[k for k, v in FEATURES.items() if v]}\n")
 
@@ -204,7 +208,10 @@ def main() -> None:
             print(f"[backend] Could not start forwarder: {e}")
     else:
         try:
-            from dashboard.server import start_dashboard
+            from dashboard.server import start_dashboard, register_intent_queue
+            # Let the dashboard's POST /api/intent enqueue goals for this agent —
+            # this is what "run an agent from the frontend" rides on locally.
+            register_intent_queue(remote_intents)
             threading.Thread(target=start_dashboard, daemon=True).start()
             print(f"[dashboard] Control Hub → http://localhost:{DASHBOARD_PORT}\n")
         except Exception as e:
@@ -234,9 +241,14 @@ def main() -> None:
         else:
             print("Set AUTONOMOUS_ON_UNMATCHED=true or --mode AUTONOMOUS for free-form goals.\n")
 
+    if listen:
+        print("[shepherd] --listen: waiting for goals from the frontend "
+              "(dashboard /api/intent or coordinator). Ctrl-C to quit.\n")
+
     while True:
         try:
-            raw = _get_intent_text(engine, remote_intents)
+            # --listen: block on the intent queue (frontend-driven), no stdin prompt.
+            raw = remote_intents.get() if listen else _get_intent_text(engine, remote_intents)
             if not raw:
                 continue
 

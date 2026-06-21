@@ -113,6 +113,17 @@ export const api = {
     http<{ ok: boolean }>("/control/approve", { method: "POST" }),
   haltExecution: () =>
     http<{ ok: boolean }>("/control/halt", { method: "POST" }),
+
+  // Run a goal on the local in-process agent (POST /api/intent on the backend).
+  // Hits BACKEND directly so it works whether or not NEXT_PUBLIC_API_BASE is set.
+  runGoal: async (text: string): Promise<{ ok?: boolean; error?: string }> => {
+    const res = await fetch(`${BACKEND}/api/intent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    return res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  },
 };
 
 export type Api = typeof api;
