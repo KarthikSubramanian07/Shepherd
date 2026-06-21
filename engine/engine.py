@@ -464,6 +464,12 @@ class ShepherdExecutionEngine:
                                 ))
                         except queue.Empty:
                             pass
+                        # Close the step.start that was already emitted for this index
+                        dur_ms = int((time.time() - step_t0) * 1000)
+                        event_bus.emit("step.complete", {
+                            "run_id": run_id, "index": i, "status": "completed",
+                            "duration_ms": dur_ms, "deviation": "plan_discarded_steer",
+                        })
                         # Steer arrived during API call — plan is stale, re-predict
                         continue
                     rlog.agent_turn(run_id, i, self._agent_s.last_reasoning,

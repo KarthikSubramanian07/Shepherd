@@ -904,6 +904,8 @@ async def steer_task(request: Request) -> JSONResponse:
         event_bus.emit("remote.steer", {"text": text, "source": "dashboard", "resumed": True})
         return JSONResponse({"ok": True, "action": "resumed", "text": text})
     else:
+        # Running or idle — enqueue steer. If running, consumed at next step boundary.
+        # If idle, drained on next task start (harmless; UI gates Steer to running state).
         _engine_ref.request_steer(text, remember)
         event_bus.emit("remote.steer", {"text": text, "source": "dashboard", "resumed": False})
         return JSONResponse({"ok": True, "action": "steered", "text": text})
