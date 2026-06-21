@@ -219,7 +219,7 @@ export default function CommandCenterPage() {
               <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
                 <span
                   aria-hidden="true"
-                  className="h-1.5 w-1.5 animate-pulseRing rounded-full bg-accent motion-reduce:animate-none"
+                  className="h-1.5 w-1.5 animate-pulseRing rounded-full bg-accent"
                 />
                 Live cloud browser · Browserbase + Stagehand (interactive)
               </div>

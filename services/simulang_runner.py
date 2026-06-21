@@ -123,7 +123,10 @@ def _render(workflow_id: str, nodes) -> str:
         label = _node_attr(node, "label") or _node_attr(node, "key") or "step"
         value = _node_attr(node, "value")
         safe = _re_escape(label)
-        comment = f"// {label}"
+        # Flatten the label for the single-line JS comment so a newline in a
+        # milestone name can't spill into executable code in the compiled .ts.
+        flat_label = " ".join(str(label).split())
+        comment = f"// {flat_label}"
         if kind in ("fill", "type") or value:
             lines.append(comment)
             lines.append(f"{{ const el = byLabel(/{safe}/i, AriaRole.Textbox); "
@@ -132,16 +135,20 @@ def _render(workflow_id: str, nodes) -> str:
             lines.append(comment)
             lines.append(f"{{ const el = byLabel(/{safe}/i); if (el) tree.activate(el.refId) }}")
         else:
-            lines.append(f"// (skipped non-actionable milestone: {label})")
+            lines.append(f"// (skipped non-actionable milestone: {flat_label})")
         lines.append("")
     lines.append("// End of compiled workflow.")
     return "\n".join(lines) + "\n"
 
 
 def _re_escape(text: str) -> str:
-    # Escape for embedding inside a JS regex literal /.../
+    # Escape for embedding inside a single-line JS regex literal /.../. Collapse
+    # any whitespace (newlines, tabs) to single spaces first so a multi-line label
+    # can never break out of the regex/comment line into executable code when the
+    # compiled script is run with `npx tsx`.
+    flat = " ".join(str(text).split())
     out = []
-    for ch in str(text)[:60]:
+    for ch in flat[:60]:
         if ch in r"\\/.^$*+?()[]{}|":
             out.append("\\" + ch)
         else:

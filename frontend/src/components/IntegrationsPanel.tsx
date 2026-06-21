@@ -60,7 +60,7 @@ export function IntegrationsPanel() {
             <span
               aria-hidden="true"
               className={`mt-1 h-2 w-2 shrink-0 rounded-full ${DOT[it.status]} ${
-                it.status === "active" ? "animate-pulseRing motion-reduce:animate-none" : ""
+                it.status === "active" ? "animate-pulseRing" : ""
               }`}
             />
             <div className="min-w-0">
