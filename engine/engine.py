@@ -1087,18 +1087,28 @@ class ShepherdExecutionEngine:
 
         elif a == "browser":
             # Invoked only at routine boundaries, never mid-sequence
-            target_url = (step.browser_step or {}).get("url", "")
+            bstep = step.browser_step or {}
+            target_url = bstep.get("url", "")
             if target_url:
                 blocked = policy_engine.check_containment("browser", target_url)
                 if blocked:
                     raise ValueError(f"[containment] {blocked['reason']}")
-            if FEATURES["browserbase"] and step.browser_step:
-                from services.browserbase_routine import run_browser_step
-                run_browser_step(step.browser_step)
-            else:
-                import webbrowser
-                webbrowser.open("http://localhost:8765/demo-web")
-                time.sleep(2.0)
+            from services.browserbase_routine import run_browser_step
+            result = run_browser_step(bstep)
+            # A "read" can feed the next step: store its value into a variable so a
+            # later {VAR} fill uses what the agent just read off the live web. This
+            # is the research digression — real Browserbase read → fills the form.
+            store_as = bstep.get("store_as")
+            value = result.get("value")
+            if store_as and value:
+                variables[store_as] = value
+            event_bus.emit("step.browser", {
+                "url":      result.get("url", target_url),
+                "action":   bstep.get("action", "navigate"),
+                "status":   result.get("status", "ok"),
+                "value":    (value or "")[:160],
+                "store_as": store_as,
+            })
 
         else:
             raise ValueError(f"Unknown action: '{a}'")

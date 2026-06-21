@@ -1,14 +1,23 @@
 """
 Browserbase web action — invoked ONLY as the "browser" action at a routine boundary.
 VERIFY: confirm current Browserbase Python SDK + Playwright pairing at event.
+
+Used two ways:
+  - "navigate"/"click": drive a real cloud browser as a visible web beat.
+  - "read": pull live content off a real page (e.g. the research digression in
+    ROUTINE_JOB_APPLICATION) and hand it back so the engine can store it into a
+    variable the next step fills. Degrades to a deterministic fallback value so
+    the beat still works offline.
 """
 from config import FEATURES, BROWSERBASE_API_KEY
 
 
 def run_browser_step(step: dict) -> dict:
     """
-    step keys: url, action ("navigate"|"click"|"read"), selector (optional)
-    Returns small result dict: {status, url, action, value?}
+    step keys: url, action ("navigate"|"click"|"read"), selector (optional),
+               store_as (optional — variable name the engine sets from `value`),
+               fallback_value (optional — value returned when offline).
+    Returns: {status, url, action, value?}
     """
     if not FEATURES["browserbase"]:
         return _local_fallback(step)
@@ -27,13 +36,14 @@ def run_browser_step(step: dict) -> dict:
             url     = step.get("url", "https://example.com")
             page.goto(url, wait_until="domcontentloaded", timeout=15000)
 
-            result = {"status": "ok", "url": url, "action": step.get("action", "navigate")}
+            action = step.get("action", "navigate")
+            result = {"status": "ok", "url": url, "action": action}
 
-            if step.get("action") == "click" and step.get("selector"):
+            if action == "click" and step.get("selector"):
                 page.click(step["selector"])
                 result["clicked"] = step["selector"]
-            elif step.get("action") == "read" and step.get("selector"):
-                result["value"] = (page.text_content(step["selector"]) or "").strip()[:200]
+            elif action == "read":
+                result["value"] = _read_content(page, step.get("selector"))
 
             browser.close()
             # VERIFY: correct session teardown method
@@ -44,9 +54,34 @@ def run_browser_step(step: dict) -> dict:
         return _local_fallback(step)
 
 
+def _read_content(page, selector) -> str:
+    """Extract something useful from the page. With a selector, read it; without,
+    fall back to the title + the first couple of headings so a read never comes
+    back empty."""
+    try:
+        if selector:
+            return (page.text_content(selector) or "").strip()[:240]
+        title = (page.title() or "").strip()
+        heads = page.eval_on_selector_all(
+            "h1, h2", "els => els.slice(0,3).map(e => e.textContent.trim()).join(' · ')"
+        )
+        return (f"{title} — {heads}" if heads else title)[:240]
+    except Exception:
+        return ""
+
+
 def _local_fallback(step: dict) -> dict:
+    action = step.get("action", "navigate")
+    # A read offline still returns a deterministic value so the flow continues.
+    if action == "read":
+        return {
+            "status": "local_fallback",
+            "url": step.get("url", ""),
+            "action": "read",
+            "value": step.get("fallback_value", ""),
+        }
     import webbrowser, time
     url = "http://localhost:8765/demo-web"
     webbrowser.open(url)
     time.sleep(2.0)
-    return {"status": "local_fallback", "url": url}
+    return {"status": "local_fallback", "url": url, "action": action}

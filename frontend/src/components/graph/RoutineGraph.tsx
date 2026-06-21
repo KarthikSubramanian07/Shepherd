@@ -85,7 +85,7 @@ export function RoutineGraph({ routine, run, agents = [] }: RoutineGraphProps) {
         minZoom={0.15}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={22} size={1} color="#1b2230" />
+        <Background gap={22} size={1} color="#ddd5c8" />
         <Controls
           showInteractive={false}
           className="overflow-hidden rounded-lg border border-edge bg-panel text-ink"
@@ -94,7 +94,7 @@ export function RoutineGraph({ routine, run, agents = [] }: RoutineGraphProps) {
           pannable
           zoomable
           className="rounded-lg border border-edge"
-          style={{ background: "#11151f" }}
+          style={{ background: "#f0ece4" }}
           maskColor="rgba(0,0,0,0.6)"
           nodeColor={(n) => {
             const d = n.data as StepNodeData;

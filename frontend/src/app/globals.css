@@ -5,7 +5,7 @@
 @import "@xyflow/react/dist/style.css";
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
@@ -16,39 +16,73 @@ body {
 body {
   @apply bg-canvas text-ink antialiased;
   font-feature-settings: "cv11", "ss01";
+  /* Daybreak — a soft warm light from the top, like morning over a field.
+     Carried by the accent hue, not a beige tint on the body itself. */
+  background-image:
+    radial-gradient(1200px 520px at 50% -10%, rgba(221, 106, 31, 0.05), transparent 70%),
+    radial-gradient(900px 600px at 100% 0%, rgba(122, 92, 68, 0.04), transparent 60%);
+  background-attachment: fixed;
 }
 
-/* React Flow overrides to match the dark command-center theme */
+::selection {
+  background: rgba(221, 106, 31, 0.18);
+}
+
+/* React Flow — Daybreak Watch light theme */
 .react-flow__background {
-  background-color: #0b0e14;
+  background-color: transparent;
 }
 .react-flow__edge-path {
-  stroke: #2b3445;
+  stroke: #c9bfae;
   stroke-width: 2;
 }
 .react-flow__edge.animated .react-flow__edge-path {
-  stroke: #3b82f6;
+  stroke: #dd6a1f;
 }
 .react-flow__handle {
   width: 8px;
   height: 8px;
-  background: #3b82f6;
-  border: 2px solid #0b0e14;
+  background: #dd6a1f;
+  border: 2px solid #fffefb;
+}
+.react-flow__controls {
+  box-shadow: 0 8px 24px -16px rgba(42, 35, 29, 0.3);
+}
+.react-flow__controls-button {
+  background: #fffefb;
+  border-bottom: 1px solid #e2dcd0;
+  color: #2a231d;
+}
+.react-flow__controls-button:hover {
+  background: #f0ece4;
 }
 .react-flow__attribution {
   display: none;
 }
 
-/* Thin scrollbars */
+/* Thin scrollbars — warm */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #222a39 transparent;
+  scrollbar-color: #ddd5c8 transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #222a39;
+  background: #ddd5c8;
   border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #cabda8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

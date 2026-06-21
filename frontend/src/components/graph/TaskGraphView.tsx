@@ -213,7 +213,7 @@ export function TaskGraphView({ graph }: { graph: TaskGraph }) {
         minZoom={0.2}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={22} size={1} color="#1b2230" />
+        <Background gap={22} size={1} color="#ddd5c8" />
         <Controls
           showInteractive={false}
           className="overflow-hidden rounded-lg border border-edge bg-panel text-ink"

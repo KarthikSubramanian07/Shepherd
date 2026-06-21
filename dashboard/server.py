@@ -328,6 +328,12 @@ async def demo_form() -> HTMLResponse:
     return f.read_text() if f.exists() else HTMLResponse("<h1>demo_form.html missing</h1>")
 
 
+@app.get("/demo-mail", response_class=HTMLResponse)
+async def demo_mail() -> HTMLResponse:
+    f = Path(__file__).parent.parent / "data" / "demo_mail.html"
+    return f.read_text() if f.exists() else HTMLResponse("<h1>demo_mail.html missing</h1>")
+
+
 @app.get("/demo-web", response_class=HTMLResponse)
 async def demo_web() -> HTMLResponse:
     return HTMLResponse("""

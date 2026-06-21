@@ -9,3 +9,6 @@ data/task_graphs.json
 data/workflows.json
 data/run_traces/
 data/requests.log
+
+# impeccable design tool (local install) + local agent settings
+.claude/

@@ -52,14 +52,24 @@ screen_rules:
     action: flag
     reason: "Payment authorization detected — requires human approval"
 
+  - name: no-external-send
+    match_text:
+      - "send to external"
+      - "external recipient"
+      - "send email"
+      - "send message"
+    action: halt
+    reason: "Outbound send to an external recipient — irreversible, requires human approval"
+
 # ── Planted trigger overrides ─────────────────────────────────────────────────
 # Deterministic overrides for pre-planted demo/test triggers (no OCR needed).
 triggers:
-  credential: halt
-  captcha:    halt
-  phishing:   halt
-  payment:    flag
-  stuck:      flag
+  credential:     halt
+  captcha:        halt
+  phishing:       halt
+  payment:        flag
+  stuck:          flag
+  external_send:  halt
 
 # ── Containment — limits on what the agent may open or visit ─────────────────
 containment:
