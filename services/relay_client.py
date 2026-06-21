@@ -202,7 +202,7 @@ class RelayClient:
                 set_decision("approve")
         elif command == "mode":
             mode = (payload.get("mode") or "").upper()
-            if mode in ("LIVE", "LOCKED"):
+            if mode in ("LIVE", "LOCKED", "AUTONOMOUS"):
                 _cfg._runtime_mode = mode
                 event_bus.emit("mode.changed", {"mode": mode})
         elif command in ("workflow.pause", "workflow.resume", "workflow.intervene",

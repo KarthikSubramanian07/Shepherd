@@ -2,8 +2,12 @@
 ShepherdExecutionEngine
 
 LIVE mode       — Agent S plans actions against the recorded demonstration; pyautogui actuates.
+                  Router generates WORKFLOW + ROUTINE candidates → LLM filter → autonomous fallback.
 LOCKED mode     — Deterministic verbatim replay of pre-mapped steps (offline demo floor).
+                  Router uses keyword-only routine resolution (zero-API, fully offline).
 AUTONOMOUS mode — Agent S receives the raw user goal and loops until DONE/FAIL/max steps.
+                  Router generates WORKFLOW candidates only (no routines); if a saved workflow
+                  matches it is dispatched, otherwise free-form autonomous execution proceeds.
 
 The click path is synchronous and sacred.
 Nothing async, networked, or ML-based runs inside a routine's step sequence.

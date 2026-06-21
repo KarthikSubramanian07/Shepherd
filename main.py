@@ -284,8 +284,27 @@ def main() -> None:
 
             effective_mode = engine.effective_mode()
 
-            # ── AUTONOMOUS mode — any intent runs as a free-form Agent S goal ──
+            # ── AUTONOMOUS mode — prefer a saved WORKFLOW, else free-form Agent S goal
             if effective_mode == "AUTONOMOUS":
+                plan = router.resolve_plan(intent, mode="AUTONOMOUS")
+                event_bus.emit("plan.resolved", {
+                    "kind": plan.kind, "target": plan.target,
+                    "confidence": plan.confidence, "source": plan.source,
+                    "matched": plan.matched, "params": plan.params,
+                })
+
+                if plan.kind == "WORKFLOW":
+                    workflow = router._workflows.get(plan.target)
+                    if workflow is not None:
+                        print(f"[router] → WORKFLOW {plan.target}  confidence={plan.confidence} ({plan.source})")
+                        result = engine.execute_workflow(
+                            workflow, goal=intent.raw_text, params=plan.params
+                        )
+                        telemetry.record(result, engine.last_step_records)
+                        print(f"[shepherd] {result.status.upper()} — {result.steps_completed} milestones in {result.duration_ms}ms\n")
+                        continue
+
+                # No workflow matched — fall through to free-form autonomous
                 if not engine._agent_s.available:
                     print("[autonomous] Agent S unavailable — set AGENT_S_* keys in .env\n")
                     event_bus.emit("intent.unmatched", {"raw_text": intent.raw_text, "reason": "agent_s_unavailable"})
@@ -304,6 +323,7 @@ def main() -> None:
                         listen_for_stop_command(halt_callback=engine.request_halt)
                     except Exception:
                         pass
+                event_bus.emit("intent.autonomous_fallback", {"raw_text": intent.raw_text})
                 result = engine.execute_autonomous(raw)
                 _after_run(engine, telemetry, memory, result, confidence=1.0)
                 if _should_end_session():
@@ -311,7 +331,7 @@ def main() -> None:
                     break
                 continue
 
-            plan = router.resolve_plan(intent)
+            plan = router.resolve_plan(intent, mode=effective_mode)
             event_bus.emit("plan.resolved", {
                 "kind": plan.kind, "target": plan.target,
                 "confidence": plan.confidence, "source": plan.source,
