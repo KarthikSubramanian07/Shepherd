@@ -1822,6 +1822,9 @@ class ShepherdExecutionEngine:
                     "run_id": run_id, "step_index": index,
                     "verdict": vr["verdict"], "confidence": vr["confidence"],
                     "explanation": vr["explanation"], "model": vr["model"],
+                    # Per-agent breakdown when the second opinion came from the
+                    # Band oversight council (absent for the in-process verifier).
+                    "votes": vr.get("votes") or [],
                 })
                 if vr["verdict"] == "halt" and vr["confidence"] >= 0.7:
                     # Both layers agree — halt immediately, no approval gate needed

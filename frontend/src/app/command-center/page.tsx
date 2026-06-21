@@ -112,15 +112,38 @@ export default function CommandCenterPage() {
                     <span
                       className="mr-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-accent-ink"
                       style={{ background: "var(--accent-soft, #cf6a4322)" }}
-                      title="Second opinion came from an independent shepherd-verifier agent over Band's mesh"
+                      title="Second opinion came from independent agent(s) deliberating over Band's mesh"
                     >
-                      via Band peer
+                      {state.verifierResult.model === "band:council"
+                        ? "via Band council"
+                        : "via Band peer"}
                     </span>
                   )}
                   <span className="text-muted">
                     {Math.round(state.verifierResult.confidence * 100)}% conf ·{" "}
                     {state.verifierResult.explanation}
                   </span>
+
+                  {/* Live council tally · each specialist's vote over Band */}
+                  {state.verifierResult.votes.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5 border-t border-edge pt-2">
+                      {state.verifierResult.votes.map((v, i) => (
+                        <span
+                          key={i}
+                          title={v.reason}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            v.verdict === "halt"
+                              ? "bg-halt/15 text-halt"
+                              : v.verdict === "ok"
+                                ? "bg-ok/15 text-ok"
+                                : "bg-accent/15 text-accent-ink"
+                          }`}
+                        >
+                          {v.handle.replace(/^shepherd-/, "")}: {v.verdict}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
