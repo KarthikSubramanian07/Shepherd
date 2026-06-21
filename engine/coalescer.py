@@ -82,7 +82,12 @@ def _coalesce(trace: RunTrace) -> None:
     was_known = _store.is_known(graph)
     prior_labels = [n.label for n in graph.nodes]
 
-    executed_ms = segment(trace.executed, trace.variables, prior_labels=prior_labels)
+    executed_ms = segment(
+        trace.executed, trace.variables,
+        prior_labels=prior_labels,
+        interventions=trace.interventions if trace.interventions else None,
+        prior_nodes=list(graph.nodes) if graph.nodes else None,
+    )
 
     # Compress wrong turns into the milestone they backed out to: the graph stores
     # the canonical FORWARD path (each node the next correct step), not the
