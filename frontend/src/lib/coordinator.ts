@@ -24,12 +24,69 @@ export type RemoteAgentStatus =
   | "completed"
   | "failed";
 
+export interface RemoteOption {
+  key: string;
+  label?: string;
+  via?: string;
+  when?: string | null;
+}
+
 export interface RemoteBlock {
   stepIndex: number | null;
-  verdict: string | null;
+  verdict?: string | null;
   trigger: string | null;
   reason: string | null;
   suggestions: { label: string; action: string }[];
+  /** Set when the block is a workflow milestone awaiting an operator directive. */
+  workflow?: boolean;
+  nodeKey?: string | null;
+  label?: string | null;
+  options?: RemoteOption[];
+}
+
+export interface RemoteWorkflowConditional {
+  when: string;
+  do: string;
+  goto: string | null;
+}
+
+export interface RemoteWorkflowNode {
+  key: string;
+  label?: string;
+  kind?: string;
+  instruction?: string;
+  status?: "pending" | "running" | "done" | "blocked" | "awaiting";
+  missing?: string[];
+  conditionals?: RemoteWorkflowConditional[];
+  options?: RemoteOption[];
+  did?: string;
+  branch?: string | null;
+  next?: string | null;
+  extracted?: string[];
+  intervention?: {
+    decision?: string;
+    instruction?: string;
+    scenario?: string;
+    flag?: string;
+  };
+  /** Coordinator timestamp of the frame captured when this milestone completed. */
+  frameTs?: number;
+}
+
+export interface RemoteWorkflowEdge {
+  from: string;
+  to: string;
+  when?: string | null;
+}
+
+export interface RemoteWorkflow {
+  id: string | null;
+  name: string | null;
+  current: string | null;
+  awaiting: boolean;
+  nodes: RemoteWorkflowNode[];
+  edges: RemoteWorkflowEdge[];
+  status?: string;
 }
 
 export interface RemoteAgent {
@@ -48,6 +105,7 @@ export interface RemoteAgent {
   block: RemoteBlock | null;
   lastActivityAt: string;
   hasFrame: boolean;
+  workflow: RemoteWorkflow | null;
 }
 
 export interface RemoteEvent {
@@ -55,7 +113,24 @@ export interface RemoteEvent {
   data: Record<string, unknown>;
 }
 
-export type RemoteCommand = "intent" | "approve" | "halt" | "override" | "mode";
+export interface WorkflowIntervenePayload {
+  instruction?: string;
+  next_key?: string;
+  scenario?: string;
+  remember?: boolean;
+  decision?: string;
+  target_node?: string;
+}
+
+export type RemoteCommand =
+  | "intent"
+  | "approve"
+  | "halt"
+  | "override"
+  | "mode"
+  | "workflow.pause"
+  | "workflow.resume"
+  | "workflow.intervene";
 
 export type ConnState = "connecting" | "open" | "closed";
 
@@ -97,6 +172,9 @@ export interface CoordinatorApi extends CoordinatorState {
     payload?: Record<string, unknown>,
   ) => void;
   selected: RemoteAgent | null;
+  /** Per-milestone screenshots captured from the live frame stream, keyed by
+   * workflow node key, for the currently watched agent. */
+  nodeShots: Record<string, string>;
   /** Session/pairing code this Command Center is scoped to ("" = all). */
   code: string;
   setCode: (code: string) => void;
@@ -115,6 +193,10 @@ export function useCoordinator(): CoordinatorApi {
   const selectedRef = useRef<string | null>(null);
   const codeRef = useRef<string>("");
   const eventsRef = useRef<Map<string, RemoteEvent[]>>(new Map());
+  const frameRef = useRef<string | null>(null);
+  // Per-agent, per-node screenshots snapshotted from the live frame stream at
+  // each workflow.step so the graph can show what the agent did at each milestone.
+  const nodeShotsRef = useRef<Map<string, Map<string, string>>>(new Map());
   const [, bump] = useReducer((n: number) => n + 1, 0);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -166,9 +248,24 @@ export function useCoordinator(): CoordinatorApi {
         list.push(msg.event);
         if (list.length > MAX_EVENTS) list.splice(0, list.length - MAX_EVENTS);
         eventsRef.current.set(msg.agent_id, list);
+        // Pin the latest live frame to the milestone the agent just finished, so
+        // the graph node shows what the agent did there.
+        if (msg.event.type === "workflow.step") {
+          const nodeKey = msg.event.data?.node_key as string | undefined;
+          const shot = frameRef.current;
+          if (nodeKey && shot) {
+            const shots = nodeShotsRef.current.get(msg.agent_id) ?? new Map();
+            shots.set(nodeKey, shot);
+            nodeShotsRef.current.set(msg.agent_id, shots);
+          }
+        } else if (msg.event.type === "workflow.start") {
+          nodeShotsRef.current.delete(msg.agent_id);
+        }
         if (msg.agent_id === selectedRef.current) bump();
       } else if (msg.type === "frame" && msg.agent_id === selectedRef.current && msg.data) {
-        setFrame(`data:image/jpeg;base64,${msg.data}`);
+        const url = `data:image/jpeg;base64,${msg.data}`;
+        frameRef.current = url;
+        setFrame(url);
         setFrameTs(msg.ts ?? Date.now());
       }
     };
@@ -196,10 +293,12 @@ export function useCoordinator(): CoordinatorApi {
       window.localStorage.setItem(CODE_STORAGE_KEY, c);
       // Reset scoped state and reconnect under the new code.
       eventsRef.current.clear();
+      nodeShotsRef.current.clear();
       selectedRef.current = null;
       setSelectedId(null);
       setAgents([]);
       setFrame(null);
+      frameRef.current = null;
       if (retryRef.current) clearTimeout(retryRef.current);
       wsRef.current?.close(); // onclose schedules reconnect with the new code
     },
@@ -210,9 +309,11 @@ export function useCoordinator(): CoordinatorApi {
     selectedRef.current = agentId;
     setSelectedId(agentId);
     setFrame(null);
+    frameRef.current = null;
     // The coordinator replays this agent's history on watch, so drop anything
     // we accumulated from the live broadcast to avoid duplicate log lines.
     eventsRef.current.delete(agentId);
+    nodeShotsRef.current.delete(agentId);
     bump();
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -232,6 +333,9 @@ export function useCoordinator(): CoordinatorApi {
 
   const events = selectedId ? eventsRef.current.get(selectedId) ?? [] : [];
   const selected = agents.find((a) => a.id === selectedId) ?? null;
+  const nodeShots: Record<string, string> = selectedId
+    ? Object.fromEntries(nodeShotsRef.current.get(selectedId) ?? new Map())
+    : {};
 
   return {
     conn,
@@ -243,6 +347,7 @@ export function useCoordinator(): CoordinatorApi {
     watch,
     sendCommand,
     selected,
+    nodeShots,
     code,
     setCode,
   };

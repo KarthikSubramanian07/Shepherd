@@ -3,24 +3,34 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
+  ChevronDown,
+  ChevronRight,
   Cpu,
+  GitBranch,
   Hand,
   KeyRound,
   Monitor,
+  Pause,
+  Play,
   Radio,
   Send,
   ShieldCheck,
+  Sparkles,
   WifiOff,
+  Workflow as WorkflowIcon,
 } from "lucide-react";
 import {
   type RemoteAgent,
   type RemoteEvent,
+  type RemoteOption,
+  type WorkflowIntervenePayload,
   useCoordinator,
 } from "@/lib/coordinator";
 import { agentStatusStyle } from "@/lib/status";
 import { timeAgo } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { MicCommandButton } from "@/components/remote/MicCommandButton";
+import { WorkflowGraph } from "@/components/graph/WorkflowGraph";
 import {
   Badge,
   Button,
@@ -30,14 +40,15 @@ import {
   Progress,
   Stat,
   StatusDot,
-  Tabs,
+  Textarea,
 } from "@/components/ui/primitives";
 
 export default function RemoteCommandCenterPage() {
   const c = useCoordinator();
-  const [tab, setTab] = useState("screen");
   const [intent, setIntent] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [showActivity, setShowActivity] = useState(false);
+  const [pickedNode, setPickedNode] = useState<string | null>(null);
 
   const running = c.agents.filter((a) => a.status === "running").length;
   const blocked = c.agents.filter((a) => a.status === "blocked").length;
@@ -54,11 +65,24 @@ export default function RemoteCommandCenterPage() {
     [c],
   );
 
+  const intervene = useCallback(
+    (payload: WorkflowIntervenePayload) => {
+      if (!c.selectedId) return;
+      c.sendCommand(c.selectedId, "workflow.intervene", { ...payload });
+      setToast(
+        `Sent steer to ${c.selected?.name}${payload.remember ? " (remembered for future runs)" : ""}`,
+      );
+    },
+    [c],
+  );
+
+  const wf = c.selected?.workflow ?? null;
+
   return (
     <div>
       <PageHeader
         title="Remote Command Center"
-        subtitle="Observe every operated machine, watch its live screen, and steer or intervene from anywhere."
+        subtitle="Watch an agent operate another machine — its live screen beside the workflow it builds as it goes — and steer or teach it inline."
         actions={
           <div className="flex items-center gap-2">
             <SessionCode code={c.code} onSubmit={c.setCode} />
@@ -75,9 +99,9 @@ export default function RemoteCommandCenterPage() {
           <Stat label="Coordinator" value={c.conn === "open" ? "Linked" : "—"} />
         </div>
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
           {/* Roster */}
-          <div className="space-y-2 lg:col-span-1">
+          <div className="space-y-2 xl:col-span-1">
             <h2 className="text-sm font-semibold text-muted">Fleet</h2>
             {c.agents.length === 0 ? (
               <EmptyState
@@ -95,23 +119,26 @@ export default function RemoteCommandCenterPage() {
                   key={a.id}
                   agent={a}
                   active={a.id === c.selectedId}
-                  onClick={() => c.watch(a.id)}
+                  onClick={() => {
+                    c.watch(a.id);
+                    setPickedNode(null);
+                  }}
                 />
               ))
             )}
           </div>
 
-          {/* Detail */}
-          <div className="lg:col-span-2">
+          {/* Detail — unified live view */}
+          <div className="xl:col-span-3">
             {!c.selected ? (
               <EmptyState
                 icon={<Monitor size={20} />}
                 title="Select an agent"
-                description="Pick a machine from the fleet to view its live screen and take control."
+                description="Pick a machine from the fleet to watch its live screen and the workflow graph it traverses."
               />
             ) : (
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <StatusDot
                       hex={agentStatusStyle[c.selected.status].hex}
@@ -119,18 +146,49 @@ export default function RemoteCommandCenterPage() {
                     />
                     <span className="font-medium text-ink">{c.selected.name}</span>
                     <span className="text-xs text-muted">{c.selected.host}</span>
+                    {wf?.name && (
+                      <Badge tone="accent">
+                        <WorkflowIcon size={12} /> {wf.name}
+                      </Badge>
+                    )}
                   </div>
-                  <Tabs
-                    value={tab}
-                    onValueChange={setTab}
-                    items={[
-                      { value: "screen", label: "Live screen" },
-                      { value: "activity", label: "Activity" },
-                    ]}
-                  />
+                  {wf && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          c.sendCommand(c.selected!.id, "workflow.pause");
+                          setToast("Pause requested — agent will wait at the next milestone");
+                        }}
+                      >
+                        <Pause size={14} /> Pause
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          c.sendCommand(c.selected!.id, "workflow.resume");
+                          setToast("Resumed — agent proceeds autonomously");
+                        }}
+                      >
+                        <Play size={14} /> Resume
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
-                {c.selected.block && (
+                {/* Inline intervention */}
+                {c.selected.block?.workflow ? (
+                  <WorkflowIntervenePanel
+                    agent={c.selected}
+                    options={c.selected.block.options ?? wf?.nodes.find((n) => n.key === wf.current)?.options ?? []}
+                    targetNode={pickedNode}
+                    onClearTarget={() => setPickedNode(null)}
+                    onIntervene={intervene}
+                    onResume={() => c.sendCommand(c.selected!.id, "workflow.resume")}
+                  />
+                ) : c.selected.block ? (
                   <InterventionBanner
                     agent={c.selected}
                     onApprove={() => c.sendCommand(c.selected!.id, "approve")}
@@ -139,13 +197,20 @@ export default function RemoteCommandCenterPage() {
                       c.sendCommand(c.selected!.id, "override", { instruction })
                     }
                   />
-                )}
+                ) : null}
 
-                {tab === "screen" ? (
+                {/* Live screen + live workflow graph, side by side */}
+                <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
                   <LiveScreen frame={c.frame} agent={c.selected} />
-                ) : (
-                  <ActivityFeed events={c.events} />
-                )}
+                  <WorkflowPane
+                    agent={c.selected}
+                    nodeShots={c.nodeShots}
+                    pickedNode={pickedNode}
+                    onPickNode={(k) =>
+                      setPickedNode((prev) => (prev === k ? null : k))
+                    }
+                  />
+                </div>
 
                 {/* Command bar */}
                 <Card className="p-3">
@@ -159,14 +224,8 @@ export default function RemoteCommandCenterPage() {
                     <Button onClick={() => send(intent)} disabled={!intent.trim()}>
                       <Send size={15} /> Send
                     </Button>
-                    <MicCommandButton
-                      onTranscript={send}
-                      onError={(m) => setToast(m)}
-                    />
-                    <Button
-                      variant="danger"
-                      onClick={() => c.sendCommand(c.selected!.id, "halt")}
-                    >
+                    <MicCommandButton onTranscript={send} onError={(m) => setToast(m)} />
+                    <Button variant="danger" onClick={() => c.sendCommand(c.selected!.id, "halt")}>
                       <Hand size={15} /> Halt
                     </Button>
                   </div>
@@ -174,6 +233,19 @@ export default function RemoteCommandCenterPage() {
                     Typed or spoken commands start/steer the agent. Mid-run, Halt
                     stops it at the next safe step boundary.
                   </p>
+                </Card>
+
+                {/* Raw activity (collapsible secondary pane) */}
+                <Card className="p-0">
+                  <button
+                    onClick={() => setShowActivity((v) => !v)}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-muted hover:text-ink"
+                  >
+                    {showActivity ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    Raw activity log
+                    <span className="ml-auto text-[11px] text-muted">{c.events.length} events</span>
+                  </button>
+                  {showActivity && <ActivityFeed events={c.events} />}
                 </Card>
               </div>
             )}
@@ -193,13 +265,7 @@ export default function RemoteCommandCenterPage() {
   );
 }
 
-function SessionCode({
-  code,
-  onSubmit,
-}: {
-  code: string;
-  onSubmit: (code: string) => void;
-}) {
+function SessionCode({ code, onSubmit }: { code: string; onSubmit: (code: string) => void }) {
   const [draft, setDraft] = useState(code);
   useEffect(() => setDraft(code), [code]);
   return (
@@ -282,7 +348,9 @@ function RosterCard({
           {agent.online ? s.label : "Offline"}
         </Badge>
       </div>
-      <div className="mt-1 text-xs text-muted">{agent.routineId ?? "idle"}</div>
+      <div className="mt-1 text-xs text-muted">
+        {agent.workflow?.name ?? agent.routineId ?? "idle"}
+      </div>
       <Progress className="mt-2" value={agent.progress} tone={s.hex} />
       {agent.block?.reason && (
         <div className="mt-2 rounded-lg border border-halt/30 bg-halt/10 px-2 py-1 text-[11px] text-halt">
@@ -311,9 +379,7 @@ function LiveScreen({ frame, agent }: { frame: string | null; agent: RemoteAgent
         ) : (
           <div className="flex flex-col items-center gap-2 py-16 text-muted">
             <Monitor size={28} />
-            <span className="text-sm">
-              {agent.online ? "Waiting for frames…" : "Agent offline"}
-            </span>
+            <span className="text-sm">{agent.online ? "Waiting for frames…" : "Agent offline"}</span>
           </div>
         )}
         <div className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white">
@@ -324,10 +390,48 @@ function LiveScreen({ frame, agent }: { frame: string | null; agent: RemoteAgent
   );
 }
 
+function WorkflowPane({
+  agent,
+  nodeShots,
+  pickedNode,
+  onPickNode,
+}: {
+  agent: RemoteAgent;
+  nodeShots: Record<string, string>;
+  pickedNode: string | null;
+  onPickNode: (key: string) => void;
+}) {
+  const wf = agent.workflow;
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-edge px-3 py-2 text-xs text-muted">
+        <WorkflowIcon size={13} /> Live workflow graph
+        <span className="ml-auto">click a milestone to target a steer</span>
+      </div>
+      <div className="h-[60vh] min-h-[320px] bg-canvas">
+        {wf && wf.nodes.length > 0 ? (
+          <WorkflowGraph
+            workflow={wf}
+            nodeShots={nodeShots}
+            pickedNode={pickedNode}
+            onPickNode={onPickNode}
+          />
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-muted">
+            <WorkflowIcon size={28} />
+            <span className="text-sm">No workflow running yet.</span>
+            <span className="text-[11px]">Dispatch a workflow intent to build the graph live.</span>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function ActivityFeed({ events }: { events: RemoteEvent[] }) {
   const recent = [...events].slice(-120).reverse();
   return (
-    <Card className="max-h-[60vh] overflow-auto p-3">
+    <div className="max-h-[40vh] overflow-auto px-3 pb-3">
       {recent.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted">No activity yet.</p>
       ) : (
@@ -340,7 +444,7 @@ function ActivityFeed({ events }: { events: RemoteEvent[] }) {
           ))}
         </ul>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -355,8 +459,18 @@ function describeEvent(e: RemoteEvent): string {
       return `${d.verdict as string}: ${d.reason as string}`;
     case "monitor.decision":
       return `decision: ${d.decision as string}`;
-    case "step.deviation":
-      return `${(d.reason as string) ?? "deviation"}`;
+    case "workflow.node.enter":
+      return `▸ ${(d.label as string) ?? (d.node_key as string)}`;
+    case "workflow.step":
+      return `${(d.label as string) ?? ""} → ${(d.status as string) ?? ""}${d.branch ? ` (branch: ${d.branch as string})` : ""}`;
+    case "workflow.awaiting":
+      return `awaiting you at ${(d.label as string) ?? (d.node_key as string)}`;
+    case "workflow.intervention":
+      return `steer: ${(d.instruction as string) ?? (d.decision as string)}`;
+    case "workflow.baked":
+      return `crystallized ${(d.ops as unknown[])?.length ?? ""} edit(s)`;
+    case "workflow.done":
+      return `${d.status as string} · ${d.steps as number} steps`;
     case "remote.intent":
       return `“${d.text as string}”`;
     case "execution.complete":
@@ -368,6 +482,121 @@ function describeEvent(e: RemoteEvent): string {
         return "";
       }
   }
+}
+
+function WorkflowIntervenePanel({
+  agent,
+  options,
+  targetNode,
+  onClearTarget,
+  onIntervene,
+  onResume,
+}: {
+  agent: RemoteAgent;
+  options: RemoteOption[];
+  targetNode: string | null;
+  onClearTarget: () => void;
+  onIntervene: (payload: WorkflowIntervenePayload) => void;
+  onResume: () => void;
+}) {
+  const b = agent.block!;
+  const [instruction, setInstruction] = useState("");
+  const [scenario, setScenario] = useState("");
+  const [branch, setBranch] = useState<string>("");
+  const [remember, setRemember] = useState(false);
+
+  const submit = () => {
+    if (!instruction.trim() && !branch) return;
+    onIntervene({
+      instruction: instruction.trim(),
+      next_key: branch,
+      scenario: scenario.trim(),
+      remember,
+      target_node: targetNode ?? "",
+    });
+    setInstruction("");
+    setScenario("");
+    setBranch("");
+    setRemember(false);
+  };
+
+  return (
+    <Card className="border-flag/50 bg-flag/5 p-4">
+      <div className="mb-2 flex items-center gap-2 text-flag">
+        <AlertTriangle size={16} />
+        <span className="text-sm font-semibold">
+          Milestone “{b.label ?? b.nodeKey}” is awaiting you
+        </span>
+      </div>
+      <p className="mb-3 text-sm text-ink">{b.reason}</p>
+
+      {targetNode && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] text-accent">
+          <GitBranch size={12} /> Targeting milestone: <span className="font-mono">{targetNode}</span>
+          <button onClick={onClearTarget} className="ml-auto underline">
+            clear
+          </button>
+        </div>
+      )}
+
+      {options.length > 0 && (
+        <div className="mb-3">
+          <div className="mb-1 text-[11px] font-medium text-muted">Force a branch (optional)</div>
+          <div className="flex flex-wrap gap-1.5">
+            {options.map((o) => (
+              <button
+                key={o.key}
+                onClick={() => setBranch((prev) => (prev === o.key ? "" : o.key))}
+                className={[
+                  "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+                  branch === o.key
+                    ? "border-accent bg-accent/20 text-accent"
+                    : "border-edge text-muted hover:border-accent/50",
+                ].join(" ")}
+                title={o.when ?? undefined}
+              >
+                {o.label ?? o.key}
+                {o.when ? ` · if ${o.when}` : ""}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Textarea
+        value={instruction}
+        onChange={(e) => setInstruction(e.target.value)}
+        placeholder="Steer this milestone — e.g. “research the projects page and fill in the summary”"
+        rows={2}
+      />
+      <Input
+        className="mt-2"
+        value={scenario}
+        onChange={(e) => setScenario(e.target.value)}
+        placeholder="When does this apply? (the condition to remember, e.g. “the projects field is empty”)"
+      />
+
+      <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-ink">
+        <input
+          type="checkbox"
+          checked={remember}
+          onChange={(e) => setRemember(e.target.checked)}
+          className="h-4 w-4 rounded border-edge accent-accent"
+        />
+        <Sparkles size={14} className="text-accent" />
+        Remember this as a default answer for future agents running this workflow
+      </label>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button onClick={submit} disabled={!instruction.trim() && !branch}>
+          <Send size={15} /> Send steer
+        </Button>
+        <Button variant="outline" onClick={onResume}>
+          <Play size={15} /> Resume without steering
+        </Button>
+      </div>
+    </Card>
+  );
 }
 
 function InterventionBanner({

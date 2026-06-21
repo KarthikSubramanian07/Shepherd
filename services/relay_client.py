@@ -168,6 +168,30 @@ class RelayClient:
             if mode in ("LIVE", "LOCKED"):
                 _cfg._runtime_mode = mode
                 event_bus.emit("mode.changed", {"mode": mode})
+        elif command in ("workflow.pause", "workflow.resume", "workflow.intervene"):
+            self._apply_workflow_command(command, payload)
+
+    def _apply_workflow_command(self, command: str, payload: dict) -> None:
+        """Drive the milestone executor's control gate from the Command Center.
+
+        Mirrors the local Control Hub's /api/workflow/* endpoints but over the
+        relay command-down path, so a remote operator can pause / resume / steer
+        a live traversal and crystallize a steer into the workflow ('remember')."""
+        from engine import workflow_control
+
+        if command == "workflow.pause":
+            workflow_control.request_pause()
+        elif command == "workflow.resume":
+            workflow_control.clear_pause()
+        elif command == "workflow.intervene":
+            workflow_control.submit_intervention(
+                instruction=(payload.get("instruction") or "").strip(),
+                next_key=(payload.get("next_key") or payload.get("next") or "").strip(),
+                scenario=(payload.get("scenario") or "").strip(),
+                remember=bool(payload.get("remember")),
+                decision=(payload.get("decision") or "override").strip() or "override",
+                target_node=(payload.get("target_node") or "").strip(),
+            )
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

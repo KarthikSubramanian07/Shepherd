@@ -66,6 +66,9 @@ class AgentConn:
     last_frame: Optional[str] = None        # base64 JPEG
     last_frame_ts: float = 0.0
     history: deque = field(default_factory=lambda: deque(maxlen=_AGENT_EVENT_HISTORY))
+    # Live workflow traversal state, built on the fly from workflow.* events so the
+    # Command Center can render the milestone graph for this agent.
+    workflow: Optional[dict] = None
 
     def snapshot(self) -> dict:
         return {
@@ -84,6 +87,22 @@ class AgentConn:
             "block":            self.block,
             "lastActivityAt":   _iso(self.last_activity),
             "hasFrame":         self.last_frame is not None,
+            "workflow":         self._workflow_view(),
+        }
+
+    def _workflow_view(self) -> Optional[dict]:
+        """Roster-safe view of the live workflow graph (no frames; the UI captures
+        per-node screenshots client-side from the frame stream)."""
+        if not self.workflow:
+            return None
+        wf = self.workflow
+        return {
+            "id":       wf.get("id"),
+            "name":     wf.get("name"),
+            "current":  wf.get("current"),
+            "awaiting": wf.get("awaiting", False),
+            "nodes":    [wf["nodes"][k] for k in wf.get("order", []) if k in wf["nodes"]],
+            "edges":    wf.get("edges", []),
         }
 
     def _progress(self) -> float:
@@ -206,6 +225,114 @@ class Hub:
             conn.block = None
         elif t == "mode.changed":
             conn.mode = d.get("mode", conn.mode)
+        elif t.startswith("workflow."):
+            self._apply_workflow_event(conn, t, d)
+
+    # ── workflow traversal: build the live milestone graph from the stream ──────
+    def _apply_workflow_event(self, conn: AgentConn, t: str, d: dict) -> None:
+        if t == "workflow.start":
+            conn.status = "running"
+            conn.routine_id = d.get("workflow_id")
+            conn.run_id = None
+            conn.step_index = None
+            conn.block = None
+            conn.workflow = {
+                "id": d.get("workflow_id"), "name": d.get("name"),
+                "current": d.get("start"), "awaiting": False,
+                "nodes": {}, "order": [], "edges": [],
+            }
+            return
+
+        wf = conn.workflow
+        if wf is None:
+            wf = conn.workflow = {"id": d.get("workflow_id"), "name": None,
+                                  "current": None, "awaiting": False,
+                                  "nodes": {}, "order": [], "edges": []}
+
+        def _node(key: str) -> dict:
+            node = wf["nodes"].get(key)
+            if node is None:
+                node = {"key": key, "status": "pending"}
+                wf["nodes"][key] = node
+                if key not in wf["order"]:
+                    wf["order"].append(key)
+            return node
+
+        def _edge(frm: str, to: str, when: Optional[str]) -> None:
+            if not frm or not to:
+                return
+            for e in wf["edges"]:
+                if e["from"] == frm and e["to"] == to:
+                    if when:
+                        e["when"] = when
+                    return
+            wf["edges"].append({"from": frm, "to": to, "when": when})
+
+        if t == "workflow.node.enter":
+            conn.status = "running"
+            key = d.get("node_key")
+            node = _node(key)
+            node.update({
+                "key": key, "label": d.get("label"), "kind": d.get("kind"),
+                "instruction": d.get("instruction"), "missing": d.get("missing", []),
+                "conditionals": d.get("conditionals", []),
+                "options": d.get("options", []), "status": "running",
+            })
+            for o in d.get("options", []):
+                _edge(key, o.get("key"), o.get("when"))
+            wf["current"] = key
+            wf["awaiting"] = False
+            conn.step_index = d.get("step_no")
+            conn.block = None
+        elif t == "workflow.intervention":
+            key = d.get("node_key")
+            node = _node(key)
+            node["intervention"] = {
+                "decision": d.get("decision"), "instruction": d.get("instruction"),
+                "scenario": d.get("scenario"), "flag": d.get("flag"),
+            }
+            wf["awaiting"] = False
+            conn.block = None
+        elif t == "workflow.step":
+            key = d.get("node_key")
+            node = _node(key)
+            st = d.get("status")
+            node.update({
+                "label": d.get("label", node.get("label")),
+                "kind": d.get("kind", node.get("kind")),
+                "status": "blocked" if st == "blocked" else "done",
+                "did": d.get("did"), "branch": d.get("branch"),
+                "next": d.get("next"), "extracted": d.get("extracted", []),
+                # frame timestamp lets the UI pin the screenshot it captured for
+                # this milestone from the live frame stream.
+                "frameTs": conn.last_frame_ts,
+            })
+            for o in d.get("options", []):
+                _edge(key, o.get("key"), o.get("when"))
+            if d.get("next") and d.get("next") != "END":
+                _edge(key, d.get("next"), d.get("branch"))
+        elif t == "workflow.awaiting":
+            conn.status = "blocked"
+            key = d.get("node_key")
+            _node(key)["status"] = "awaiting"
+            wf["awaiting"] = True
+            wf["current"] = key
+            conn.step_index = d.get("step_no")
+            conn.block = {
+                "workflow": True, "stepIndex": d.get("step_no"), "nodeKey": key,
+                "label": d.get("label"), "trigger": "workflow.awaiting",
+                "reason": "Awaiting operator directive at this milestone",
+                "options": d.get("options", []), "suggestions": [],
+            }
+        elif t == "workflow.baked":
+            wf["baked"] = d.get("ops", d.get("applied", []))
+        elif t == "workflow.done":
+            st = d.get("status")
+            conn.status = {"completed": "completed", "blocked": "blocked",
+                           "aborted": "failed"}.get(st, "idle")
+            wf["awaiting"] = False
+            wf["status"] = st
+            conn.block = None
 
 
 hub = Hub()
