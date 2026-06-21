@@ -473,6 +473,7 @@ class Hub:
             wf["awaiting"] = False
             wf["status"] = st
             conn.block = None
+            conn._goal_text = None
             # The dispatch routing decision is per-run; drop it so the banner
             # doesn't linger as stale after the run ends (re-set on next dispatch).
             conn.routing = None
