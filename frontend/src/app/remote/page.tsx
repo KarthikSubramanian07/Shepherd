@@ -75,6 +75,7 @@ export default function RemoteCommandCenterPage() {
   // Clear halting state when the selected agent changes.
   useEffect(() => {
     setHalting(false);
+    setExpanded(false);
   }, [c.selectedId]);
 
   // Auto-reopen roster when the selected agent disappears (disconnect, etc.)
@@ -361,7 +362,13 @@ export default function RemoteCommandCenterPage() {
                     videoRef={webrtc.videoRef}
                     expanded={expanded}
                     onToggleExpand={() => setExpanded((v) => !v)}
-                    onHalt={() => c.sendCommand(c.selected!.id, "halt")}
+                    onHalt={() => {
+                      haltEvtBase.current = c.events.length;
+                      setHalting(true);
+                      setToast("Halt requested \u2014 agent will stop at next step boundary");
+                      c.sendCommand(c.selected!.id, "halt");
+                    }}
+                    halting={halting}
                     onPause={() => {
                       c.sendCommand(c.selected!.id, "workflow.pause");
                       setToast("Pause requested · agent will wait at the next milestone");
@@ -655,6 +662,7 @@ function LiveScreen({
   onHalt,
   onPause,
   onResume,
+  halting,
 }: {
   frame: string | null;
   agent: RemoteAgent;
@@ -665,6 +673,7 @@ function LiveScreen({
   onHalt: () => void;
   onPause: () => void;
   onResume: () => void;
+  halting: boolean;
 }) {
   const isWebRTC = webrtcState === "connected";
   const s = agentStatusStyle[agent.status];
@@ -810,8 +819,9 @@ function LiveScreen({
                 </Badge>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="danger" onClick={onHalt}>
-                  <Hand size={15} /> Halt
+                <Button variant="danger" disabled={halting} onClick={onHalt}>
+                  {halting ? <Loader2 size={15} className="animate-spin" /> : <Hand size={15} />}
+                  {halting ? "Halting\u2026" : "Halt"}
                 </Button>
                 <Button size="sm" variant="outline" onClick={onPause}>
                   <Pause size={14} /> Pause
