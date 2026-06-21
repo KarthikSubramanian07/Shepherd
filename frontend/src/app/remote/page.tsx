@@ -26,6 +26,7 @@ import {
   type RemoteAgent,
   type RemoteEvent,
   type RemoteOption,
+  type RemoteRouting,
   type WorkflowFinalizePayload,
   type WorkflowIntervenePayload,
   useCoordinator,
@@ -239,17 +240,17 @@ export default function RemoteCommandCenterPage() {
                   />
                 </div>
 
-                {/* Command bar */}
+                {/* Dispatch bar — ad-hoc task → vector router → workflow / fresh run */}
                 <Card className="p-3">
                   <div className="flex items-center gap-2">
                     <Input
                       value={intent}
                       onChange={(e) => setIntent(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && send(intent)}
-                      placeholder={`Type a command for ${c.selected.name}… (e.g. "fill form")`}
+                      placeholder={`Dispatch a task to ${c.selected.name}… (e.g. "apply to the job")`}
                     />
                     <Button onClick={() => send(intent)} disabled={!intent.trim()}>
-                      <Send size={15} /> Send
+                      <Send size={15} /> Dispatch
                     </Button>
                     <MicCommandButton onTranscript={send} onError={(m) => setToast(m)} />
                     <Button variant="danger" onClick={() => c.sendCommand(c.selected!.id, "halt")}>
@@ -257,9 +258,11 @@ export default function RemoteCommandCenterPage() {
                     </Button>
                   </div>
                   <p className="mt-2 text-[11px] text-muted">
-                    Typed or spoken commands start/steer the agent. Mid-run, Halt
-                    stops it at the next safe step boundary.
+                    A typed or spoken task is routed by the vector layer to a saved
+                    workflow (or a fresh autonomous run if none matches). Mid-run, Halt
+                    stops the agent at the next safe step boundary.
                   </p>
+                  {c.selected.routing && <RoutingBanner routing={c.selected.routing} />}
                 </Card>
 
                 {/* Raw activity (collapsible secondary pane) */}
@@ -504,6 +507,12 @@ function describeEvent(e: RemoteEvent): string {
       return `${d.status as string} · ${d.steps as number} steps`;
     case "remote.intent":
       return `“${d.text as string}”`;
+    case "intent.received":
+      return `dispatched: “${d.raw_text as string}”`;
+    case "plan.resolved":
+      return `routed → ${(d.kind as string) ?? "?"} ${(d.target as string) ?? ""}${
+        typeof d.confidence === "number" ? ` @ ${Math.round((d.confidence as number) * 100)}%` : ""
+      }`;
     case "execution.complete":
       return `${d.status as string} · ${d.steps_completed as number} steps`;
     default:
@@ -513,6 +522,48 @@ function describeEvent(e: RemoteEvent): string {
         return "";
       }
   }
+}
+
+function RoutingBanner({ routing }: { routing: RemoteRouting }) {
+  const pct =
+    typeof routing.confidence === "number"
+      ? `${Math.round(routing.confidence * 100)}%`
+      : null;
+
+  if (routing.state === "routing") {
+    return (
+      <div className="mt-3 flex items-center gap-2 rounded-lg border border-edge bg-panel2 px-3 py-2 text-[12px] text-muted">
+        <GitBranch size={13} className="shrink-0 animate-pulse" />
+        Routing “{routing.text}” through the vector layer…
+      </div>
+    );
+  }
+
+  if (routing.state === "matched") {
+    const isWorkflow = routing.kind === "WORKFLOW";
+    return (
+      <div className="mt-3 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-[12px] text-ink">
+        <Sparkles size={13} className="shrink-0 text-accent" />
+        Matched {isWorkflow ? "workflow" : "routine"}{" "}
+        <span className="font-mono text-accent">{routing.target}</span>
+        {pct && <Badge tone="accent">{pct}</Badge>}
+        {routing.source && (
+          <span className="text-muted">via {routing.source}</span>
+        )}
+      </div>
+    );
+  }
+
+  // unmatched / autonomous
+  const autonomous = routing.state === "autonomous";
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-edge bg-panel2 px-3 py-2 text-[12px] text-muted">
+      <Cpu size={13} className="shrink-0" />
+      {autonomous
+        ? "No saved workflow matched → running a fresh autonomous task."
+        : "No saved workflow matched this task."}
+    </div>
+  );
 }
 
 function FinalizePanel({

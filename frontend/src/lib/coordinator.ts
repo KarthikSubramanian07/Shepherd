@@ -116,6 +116,17 @@ export interface RemoteWorkflow {
   finalized?: RemoteWorkflowFinalized | null;
 }
 
+export interface RemoteRouting {
+  /** routing → resolving · matched → router hit · unmatched → no hit · autonomous → fresh fallback */
+  state: "routing" | "matched" | "unmatched" | "autonomous";
+  kind?: "WORKFLOW" | "ROUTINE" | "AUTONOMOUS" | null;
+  target?: string | null;
+  confidence?: number | null;
+  source?: string | null;
+  matched?: string[];
+  text?: string | null;
+}
+
 export interface RemoteAgent {
   id: string;
   name: string;
@@ -133,6 +144,7 @@ export interface RemoteAgent {
   lastActivityAt: string;
   hasFrame: boolean;
   workflow: RemoteWorkflow | null;
+  routing: RemoteRouting | null;
 }
 
 export interface RemoteEvent {
