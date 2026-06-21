@@ -33,6 +33,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from config import COORDINATOR_PORT, COORDINATOR_TOKEN, PROTOCOL_VERSION
+from coordinator.catalog_store import load_catalog, load_catalog_version, save_catalog
 from coordinator.title_gen import generate_title_async
 
 # Reuse the agent's Deepgram transcription surface so the Command Center can turn
@@ -183,6 +184,12 @@ class Hub:
 
     # ── agent lifecycle ──────────────────────────────────────────────────────
     def register_agent(self, conn: AgentConn) -> None:
+        # Restore persisted catalog if the agent hasn't pushed a fresh one yet.
+        if conn.catalog is None:
+            cached = load_catalog(conn.agent_id)
+            if cached:
+                conn.catalog = cached
+                conn.catalog_version = load_catalog_version(conn.agent_id)
         self.agents[conn.agent_id] = conn
 
     def drop_agent(self, conn: AgentConn) -> None:
@@ -735,6 +742,7 @@ async def agent_ws(ws: WebSocket) -> None:
             elif mtype == "catalog":
                 conn.catalog = msg.get("catalog")
                 conn.catalog_version += 1
+                save_catalog(agent_id, conn.catalog, conn.catalog_version)
             elif mtype in ("webrtc.offer", "webrtc.answer", "webrtc.ice"):
                 # WebRTC signaling: relay to the watching UI(s) for this agent.
                 await hub.broadcast_session(
