@@ -4,7 +4,6 @@ Agent S adapter — wraps Simular gui-agents (AgentS3) as the LIVE execution pla
 Real API (gui-agents package):
   agent.predict(instruction, observation) -> (info, action_list)
   action_list[0] is a Python/pyautogui code string — call exec() on it.
-  The engine does NOT dispatch through _dispatch(); it exec()s the code directly.
 
 Setup:
   uv add gui-agents
@@ -15,10 +14,16 @@ Setup:
     UITARS_BASE_URL     = http://host:port      (optional — UI-TARS grounding endpoint)
                           leave empty to use the LLM for grounding (less accurate)
     SCREEN_WIDTH / SCREEN_HEIGHT               (from .env — match your display)
+
+Click accuracy follows the FaceTimeOS pattern:
+  - Screenshot resized to scaled logical dims before the model sees it
+  - OSWorldACI width/height = pyautogui.size() (logical click space)
+  - Click steps use generate_coords() + resize_coordinates() directly
 """
 import io
 import os
 import sys
+import time
 from typing import Optional
 
 # Map the host OS to a gui-agents platform tag so generated hotkeys are correct
@@ -32,16 +37,19 @@ from config import (
     GEMINI_ENDPOINT_URL,
 )
 from shepherd_types import AutonomousStepResult
+from engine.agent_s_grounding import (
+    capture_observation,
+    enrich_instruction,
+    ground_pointer_code,
+    grounding_target,
+    normalize_agent_code,
+    screen_geometry,
+)
 
-# Control tokens Agent S returns instead of pyautogui code. These are NOT
-# executable — exec()'ing them would NameError and (wrongly) fail the step — so
-# the adapter reports "no actionable code" and the engine falls back to the
-# routine's deterministic defined step.
 _TERMINAL_TOKENS = {"DONE", "FAIL", "FAILED", "WAIT"}
 
 
 def _is_actionable(code: str) -> bool:
-    """True only if `code` looks like executable action code, not a control token."""
     c = (code or "").strip()
     if not c:
         return False
@@ -51,7 +59,6 @@ def _is_actionable(code: str) -> bool:
 
 
 def _terminal_outcome(code: str) -> Optional[str]:
-    """Map Agent S control tokens to autonomous outcomes, or None if actionable code."""
     c = (code or "").strip()
     if not c:
         return "unavailable"
@@ -68,12 +75,6 @@ def _terminal_outcome(code: str) -> Optional[str]:
 
 
 class AgentSAdapter:
-    """
-    Thin wrapper around Simular AgentS3.
-    plan_action() returns executable Python code (a string), or None to fall back
-    to the routine's defined step. The engine exec()s the returned code directly.
-    """
-
     def __init__(self) -> None:
         self._agent = None
         self._autonomous_agent = None
@@ -83,6 +84,8 @@ class AgentSAdapter:
         # Running memory of the chained planner so it knows what it already did
         # (each direct vision call is otherwise stateless → it repeats itself).
         self._chain_history: list[str] = []
+        self._grounding_agent = None
+        self._geom = None
         try:
             self._init_agent()
         except ImportError as e:
@@ -122,63 +125,60 @@ class AgentSAdapter:
         if base_url:
             engine_params["base_url"] = base_url
 
-        # Grounding: UI-TARS endpoint if provided, else fall back to same LLM
+        # FaceTimeOS: logical size for clicks, scaled size for model input
+        self._geom = screen_geometry()
+        g = self._geom
+
         if UITARS_BASE_URL:
             grounding_params: dict = {
-                "engine_type":       "huggingface",
-                "model":             UITARS_MODEL,
-                "base_url":          UITARS_BASE_URL,
-                "grounding_width":   SCREEN_WIDTH,
-                "grounding_height":  SCREEN_HEIGHT,
+                "engine_type":     "huggingface",
+                "model":           UITARS_MODEL,
+                "base_url":        UITARS_BASE_URL,
+                "grounding_width": g.ground_w,
+                "grounding_height": g.ground_h,
             }
             grounding_tag = f"UI-TARS @ {UITARS_BASE_URL}"
         else:
-            # LLM-only grounding — works without a local model server
             grounding_params = dict(engine_params)
-            grounding_params["grounding_width"] = SCREEN_WIDTH
-            grounding_params["grounding_height"] = SCREEN_HEIGHT
-            grounding_tag = "LLM grounding (no UI-TARS)"
+            grounding_params["grounding_width"] = g.ground_w
+            grounding_params["grounding_height"] = g.ground_h
+            grounding_tag = f"LLM grounding ({g.ground_w}×{g.ground_h}px → logical {g.logical_w}×{g.logical_h})"
 
-        grounding_agent = OSWorldACI(
+        self._grounding_agent = OSWorldACI(
             env=None,
             platform=_PLATFORM,
             engine_params_for_generation=engine_params,
             engine_params_for_grounding=grounding_params,
-            width=SCREEN_WIDTH,
-            height=SCREEN_HEIGHT,
+            width=g.logical_w,
+            height=g.logical_h,
         )
 
         self._agent = AgentS3(
             engine_params,
-            grounding_agent,
+            self._grounding_agent,
             platform=_PLATFORM,
             max_trajectory_length=3,
             enable_reflection=False,
         )
-        # Longer trajectory + reflection for multi-step free-form goals
         self._autonomous_agent = AgentS3(
             engine_params,
-            grounding_agent,
-            platform="darwin",
+            self._grounding_agent,
+            platform=_PLATFORM,
             max_trajectory_length=8,
             enable_reflection=True,
         )
-        print(
-            f"[agent_s] Ready — {AGENT_S_ENGINE_TYPE}/{AGENT_S_MODEL} "
-            f"+ {grounding_tag}"
-        )
+        print(f"[agent_s] Ready — {AGENT_S_ENGINE_TYPE}/{AGENT_S_MODEL} + {grounding_tag}")
+
+    def _observation(self) -> tuple[dict, object]:
+        time.sleep(0.4)
+        png, geom = capture_observation(self._geom)
+        return {"screenshot": png}, geom
 
     @property
     def available(self) -> bool:
         return self._agent is not None
 
     def reset(self) -> None:
-        """
-        Clear Agent S trajectory / reflection state. Must be called at the start of
-        each run — AgentS3 keeps per-task internal state (max_trajectory_length,
-        enable_reflection) that would otherwise leak across unrelated runs.
-        Safe no-op when Agent S is unavailable.
-        """
         if self._agent is None:
             return
         try:
@@ -219,36 +219,45 @@ class AgentSAdapter:
         instruction: str,
         step_index: int,
         demonstration_context: str = "",
+        *,
+        action: str = "",
+        type_text: Optional[str] = None,
     ) -> Optional[str]:
-        """
-        Capture current screen, ask Agent S what to do next.
-
-        Returns:
-            Python/pyautogui code string to exec(), e.g.:
-              "pyautogui.click(760, 300)\\npyautogui.typewrite('hello')"
-            None on failure — engine falls back to the routine's defined step.
-        """
-        if not self._agent:
+        if not self._agent or not self._grounding_agent:
             return None
         try:
-            full_instruction = instruction
+            obs, geom = self._observation()
+            act = (action or "").lower()
+
+            # FaceTimeOS: dedicated grounding call for pointer actions
+            if act in ("click", "double_click", "move"):
+                target = grounding_target(instruction)
+                code = ground_pointer_code(
+                    self._grounding_agent, target, obs, action=act,
+                )
+                print(f"[agent_s] step {step_index}: grounded {act} → {target[:60]!r}")
+                return code
+
+            full_instruction = (
+                enrich_instruction(action, instruction, type_text=type_text)
+                if action else instruction
+            )
             if demonstration_context:
                 full_instruction = (
-                    f"{instruction}\n\n"
+                    f"{full_instruction}\n\n"
                     f"Reference demonstration:\n{demonstration_context}"
                 )
 
-            info, action = self._agent.predict(
+            info, action_out = self._agent.predict(
                 instruction=full_instruction,
-                observation={"screenshot": self._capture()},
+                observation=obs,
             )
             self.last_reasoning = (info or {}).get("plan", "") or ""
 
-            if action and action[0]:
-                code = action[0]
+            if action_out and action_out[0]:
+                code = action_out[0]
                 if _is_actionable(code):
-                    return code
-                # Terminal/control token (DONE / WAIT / FAIL …) — nothing to actuate.
+                    return normalize_agent_code(code, geom)
                 print(
                     f"[agent_s] step {step_index}: non-actionable response "
                     f"'{code.strip()[:40]}' — using defined step"
@@ -381,16 +390,15 @@ class AgentSAdapter:
             return AutonomousStepResult(outcome="unavailable")
 
         try:
-            info, action = agent.predict(
-                instruction=goal,
-                observation={"screenshot": self._capture()},
-            )
+            obs, geom = self._observation()
+            info, action = agent.predict(instruction=goal, observation=obs)
             self.last_reasoning = (info or {}).get("plan", "") or ""
 
             raw = (action[0] if action else "") or ""
             outcome = _terminal_outcome(raw)
             if outcome == "action":
-                return AutonomousStepResult(outcome="action", code=raw, raw=raw)
+                code = normalize_agent_code(raw, geom)
+                return AutonomousStepResult(outcome="action", code=code, raw=raw)
             if outcome != "unavailable":
                 print(f"[agent_s] autonomous step {step_index}: {outcome.upper()} — {raw.strip()[:60]}")
             return AutonomousStepResult(outcome=outcome, raw=raw or None)
@@ -401,19 +409,14 @@ class AgentSAdapter:
 
     def plan_batch_action(
         self,
-        fields: list,   # list of BatchField
+        fields: list,
         step_index: int,
         demonstration_context: str = "",
     ) -> Optional[str]:
-        """
-        Single Agent S call to fill multiple form fields at once.
-        Returns one multi-line pyautogui code block covering all fields,
-        or None to fall back to deterministic _dispatch(batch_fill).
-        """
         if not self._agent:
             return None
         try:
-            screenshot_bytes = self._capture()
+            obs, geom = self._observation()
 
             field_lines = []
             for i, bf in enumerate(fields):
@@ -431,17 +434,14 @@ class AgentSAdapter:
             if demonstration_context:
                 instruction += f"\n\nReference demonstration:\n{demonstration_context}"
 
-            info, action = self._agent.predict(
-                instruction=instruction,
-                observation={"screenshot": screenshot_bytes},
-            )
+            info, action = self._agent.predict(instruction=instruction, observation=obs)
             self.last_reasoning = (info or {}).get("plan", "") or ""
 
             if action and action[0]:
                 code = action[0]
                 if _is_actionable(code):
                     print(f"[agent_s] batch_fill step {step_index}: planned {len(fields)} fields in one call")
-                    return code
+                    return normalize_agent_code(code, geom)
 
         except Exception as e:
             print(f"[agent_s] plan_batch_action step {step_index} failed (using defined steps): {e}")

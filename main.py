@@ -215,7 +215,7 @@ def main() -> None:
     # ── Main loop ─────────────────────────────────────────────────────────────
     print("Speak an intent or type it. Ctrl-C to quit.")
     if mode == "AUTONOMOUS":
-        print("Mode AUTONOMOUS — any intent runs as a free-form Agent S goal.\n")
+        print("Mode AUTONOMOUS — planner drafts steps, then Agent S executes each one.\n")
     else:
         print("Routines: 'fill form', 'open browser', 'demo'")
         if AUTONOMOUS_ON_UNMATCHED:

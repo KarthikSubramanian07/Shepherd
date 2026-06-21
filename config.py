@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     # End the session once a task finishes instead of looping for another intent.
     # Ignored in remote mode (the command center keeps the agent serving).
     exit_when_done: bool = True
+    # Draft a routines.json-style step list before Agent S executes (vs reactive loop)
+    autonomous_plan_first: bool = True
+    autonomous_plan_max_steps: int = 12
+    # Routine planner LLM — independent of Agent S (text-only JSON drafting)
+    planner_engine_type: str = "anthropic"   # "anthropic" | "openai"
+    planner_model: str = "claude-haiku-4-5"
 
     # ── Dashboard ──────────────────────────────────────────────────────────
     dashboard_port: int = 8765
@@ -154,6 +160,10 @@ AUTONOMOUS_MAX_STEPS = settings.autonomous_max_steps
 AUTONOMOUS_CHAIN = settings.autonomous_chain
 AUTONOMOUS_CHAIN_MAX = settings.autonomous_chain_max
 EXIT_WHEN_DONE = settings.exit_when_done
+AUTONOMOUS_PLAN_FIRST = settings.autonomous_plan_first
+AUTONOMOUS_PLAN_MAX_STEPS = settings.autonomous_plan_max_steps
+PLANNER_ENGINE_TYPE = settings.planner_engine_type
+PLANNER_MODEL       = settings.planner_model
 
 DASHBOARD_PORT = settings.dashboard_port
 EVENTS_DB_PATH = settings.events_db_path

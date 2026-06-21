@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shepherd — Trace I/O</title>
+<style>
+  :root { --bg:#0f1117; --s:#161b22; --b:#30363d; --th:#e6edf3; --dim:#8b949e; --bl:#58a6ff; --gr:#3fb950; --am:#f0a500; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font:14px/1.5 -apple-system,BlinkMacSystemFont,sans-serif; background:var(--bg); color:var(--th); min-height:100vh; }
+  header { padding:16px 20px; border-bottom:1px solid var(--b); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:16px; font-weight:600; }
+  header a { color:var(--bl); text-decoration:none; }
+  .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-left:auto; }
+  select, button { background:var(--s); color:var(--th); border:1px solid var(--b); border-radius:4px; padding:6px 10px; font:inherit; }
+  button { cursor:pointer; }
+  button:hover { border-color:var(--bl); }
+  main { display:grid; grid-template-columns:280px 1fr; min-height:calc(100vh - 57px); }
+  aside { border-right:1px solid var(--b); overflow:auto; padding:12px; }
+  .span-item { padding:8px 10px; border:1px solid var(--b); border-radius:4px; margin-bottom:6px; cursor:pointer; background:var(--s); }
+  .span-item:hover, .span-item.on { border-color:var(--bl); }
+  .span-item.llm { border-left:3px solid var(--am); }
+  .span-item.tool { border-left:3px solid var(--gr); }
+  .span-item .n { font-size:13px; font-weight:500; }
+  .span-item .m { font-size:11px; color:var(--dim); margin-top:2px; }
+  section { padding:16px 20px; overflow:auto; }
+  .meta { font-size:12px; color:var(--dim); margin-bottom:16px; }
+  .io { margin-bottom:20px; }
+  .io h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin-bottom:6px; }
+  pre { background:var(--s); border:1px solid var(--b); border-radius:4px; padding:12px 14px; white-space:pre-wrap; word-break:break-word; font:12px/1.55 ui-monospace,monospace; max-height:45vh; overflow:auto; }
+  .empty { color:var(--dim); padding:40px 20px; text-align:center; }
+  .err { color:#f85149; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Shepherd Trace I/O</h1>
+  <a href="/">← Control Hub</a>
+  <div class="bar">
+    <select id="trace-select"></select>
+    <button id="refresh">Refresh</button>
+    <a id="phoenix-link" href="http://localhost:6006" target="_blank" rel="noopener">Open in Phoenix ↗</a>
+  </div>
+</header>
+<main>
+  <aside id="span-list"><div class="empty">Loading…</div></aside>
+  <section id="detail"><div class="empty">Select a span</div></section>
+</main>
+<script>
+let traces = [];
+let current = null;
+
+async function loadLatest(){
+  const res = await fetch('/api/traces/latest');
+  if(!res.ok){ document.getElementById('span-list').innerHTML = '<div class="empty err">No traces — is Phoenix running?</div>'; return; }
+  current = await res.json();
+  render();
+}
+
+function render(){
+  const sel = document.getElementById('trace-select');
+  sel.innerHTML = `<option>${current.trace_id.slice(0,16)}… · ${current.num_spans} spans · ${current.latency_ms}ms</option>`;
+  document.getElementById('phoenix-link').href = current.phoenix_url;
+  const list = document.getElementById('span-list');
+  const spans = (current.spans || []).slice().sort((a,b) => {
+    const ai = parseInt((a.name.match(/\.(\d+)$/)||[])[1]||'0',10);
+    const bi = parseInt((b.name.match(/\.(\d+)$/)||[])[1]||'0',10);
+    if(a.name.includes('plan') && b.name.includes('plan')) return ai-bi;
+    if(a.name.includes('act') && b.name.includes('act')) return ai-bi;
+    return a.name.localeCompare(b.name);
+  });
+  list.innerHTML = spans.map(s => {
+    const cls = s.span_kind === 'llm' ? 'llm' : s.span_kind === 'tool' ? 'tool' : '';
+    const hint = s.output ? s.output.slice(0,60)+'…' : (s.input ? s.input.slice(0,60)+'…' : '—');
+    return `<div class="span-item ${cls}" data-id="${s.id}"><div class="n">${esc(s.name)}</div><div class="m">${s.latency_ms}ms · ${esc(hint)}</div></div>`;
+  }).join('');
+  list.querySelectorAll('.span-item').forEach(el => el.onclick = () => selectSpan(el.dataset.id));
+  const first = spans.find(s => s.name.startsWith('agent_s.plan') && s.output) || spans.find(s => s.name.startsWith('agent_s.'));
+  if(first) selectSpan(first.id);
+}
+
+function selectSpan(id){
+  document.querySelectorAll('.span-item').forEach(el => el.classList.toggle('on', el.dataset.id === id));
+  const s = (current.spans||[]).find(x => x.id === id);
+  if(!s) return;
+  document.getElementById('detail').innerHTML = `
+    <div class="meta">${esc(s.name)} · ${s.span_kind} · ${s.latency_ms}ms · otel span ${esc(s.span_id||'?')}</div>
+    <div class="io"><h2>Input</h2><pre>${esc(s.input || '(empty)')}</pre></div>
+    <div class="io"><h2>Output</h2><pre>${esc(s.output || '(empty)')}</pre></div>
+    <p class="meta">In Phoenix: open trace → click this span → check <strong>Annotations</strong> tab for llm_output / tool_call, or <strong>Attributes</strong> tab for input.value / output.value.</p>`;
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+document.getElementById('refresh').onclick = loadLatest;
+loadLatest();
+</script>
+</body>
+</html>

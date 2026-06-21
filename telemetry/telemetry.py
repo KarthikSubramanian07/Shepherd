@@ -12,6 +12,7 @@ Local setup:
 import contextlib
 import logging
 import time
+from typing import Optional
 
 from opentelemetry import trace
 from opentelemetry.trace import format_span_id, format_trace_id
@@ -100,19 +101,33 @@ class ShepherdTelemetry:
                 print(f"[arize] Phoenix unavailable (non-fatal): {e}")
 
     @contextlib.contextmanager
-    def span(self, name: str):
+    def span(self, name: str, *, oi_kind: Optional[str] = None):
         if self._tracer is None:
             yield _Noop()
             return
         parent_span_id = _current_span_id()
         t0 = time.perf_counter()
         status = "ok"
+        span_kwargs: dict = {}
+        if oi_kind:
+            try:
+                from openinference.semconv.trace import OpenInferenceSpanKindValues
+                span_kwargs["openinference_span_kind"] = getattr(
+                    OpenInferenceSpanKindValues, oi_kind.upper()
+                )
+            except (ImportError, AttributeError):
+                pass
+        entered = False
         try:
-            with self._tracer.start_as_current_span(name) as s:
+            with self._tracer.start_as_current_span(name, **span_kwargs) as s:
                 sc = s.get_span_context()
                 trace_id = format_trace_id(sc.trace_id)
                 span_id = format_span_id(sc.span_id)
-                _emit_span_start(name, trace_id, span_id, parent_span_id)
+                try:
+                    _emit_span_start(name, trace_id, span_id, parent_span_id)
+                except Exception:
+                    pass
+                entered = True
                 try:
                     yield s
                 except Exception:
@@ -120,11 +135,17 @@ class ShepherdTelemetry:
                     raise
                 finally:
                     dur = int((time.perf_counter() - t0) * 1000)
-                    _emit_span_end(
-                        name, trace_id, span_id, dur, status,
-                        _collect_attrs(s, ("routine.", "action.", "step.", "workflow.", "error.")),
-                    )
-        except Exception:
+                    try:
+                        _emit_span_end(
+                            name, trace_id, span_id, dur, status,
+                            _collect_attrs(s, ("routine.", "action.", "step.", "workflow.", "error.")),
+                        )
+                    except Exception:
+                        pass
+        except Exception as e:
+            if entered:
+                raise
+            print(f"[arize] span {name!r} failed (non-fatal): {e}")
             yield _Noop()
 
     def record(self, result: ExecutionResult, steps: list[StepRecord] | None = None) -> None:

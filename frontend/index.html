@@ -599,6 +599,9 @@ function handle({type, data}){
     case 'intent.received':    onIntent(data);    break;
     case 'intent.unmatched':   onUnmatched(data); break;
     case 'routine.resolved':   onResolved(data);  break;
+    case 'routine.planning':   onPlanning(data);  break;
+    case 'routine.planned':    onPlanned(data);   break;
+    case 'routine.plan_failed': onPlanFailed(data); break;
     case 'execution.start':    onExecStart(data); break;
     case 'task.graph.loaded':  onGraphLoaded(data); break;
     case 'task.graph.saved':   onGraphSaved(data); break;
@@ -639,6 +642,27 @@ function onIntent(d){
 function onUnmatched(d){
   setStatus('idle', 'No match');
   log('ROUTER', '—', 'No routine matched: ' + d.raw_text, 'fail', '');
+}
+
+function onPlanning(d){
+  setStatus('routing', 'Planning steps…');
+  log('PLAN', '—', 'Drafting routine: ' + (d.goal || ''), '', '');
+}
+
+function onPlanned(d){
+  setStatus('routing', 'Plan ready');
+  const n = (d.steps || []).length;
+  log('PLAN', '—', `${n} steps drafted`, 'ok', d.description || '');
+  if(d.steps && d.steps.length){
+    S.routineSteps = {};
+    S.highStakes   = new Set();
+    d.steps.forEach(s => { S.routineSteps[s.index] = s; });
+    buildDAG(n);
+  }
+}
+
+function onPlanFailed(d){
+  log('PLAN', '—', 'Plan failed — reactive fallback: ' + (d.error || ''), 'fail', '');
 }
 
 function onResolved(d){

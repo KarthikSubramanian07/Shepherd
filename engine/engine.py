@@ -12,25 +12,43 @@ import subprocess
 import threading
 import time
 import uuid
+import json
 from typing import Optional
 
 import pyautogui
 
 import config as _cfg
-from config import FEATURES, EXECUTION_MODE, AUTONOMOUS_MAX_STEPS
+from config import (
+    FEATURES, EXECUTION_MODE, AUTONOMOUS_MAX_STEPS, AUTONOMOUS_PLAN_FIRST,
+    AGENT_S_MODEL, AGENT_S_ENGINE_TYPE, PLANNER_MODEL, PLANNER_ENGINE_TYPE,
+)
 from shepherd_types import (
     AUTONOMOUS_ROUTINE_ID,
-    ExecutionResult, ResolvedRoutine, RoutineStep, StepRecord, RunTrace, InterventionEvent,
+    ExecutionResult,
+    ResolvedRoutine,
+    RoutineDefinition,
+    RoutineStep,
+    StepRecord,
+    RunTrace,
+    InterventionEvent,
 )
 from engine.coords import get as get_coord
+from engine.text_input import enter_text, hotkey as do_hotkey
 from engine.routines import get_routine
 from engine.agent_s_adapter import AgentSAdapter
+from engine.routine_planner import RoutinePlanner
 from engine.task_graph import TaskGraphStore, summarize, milestone_key
 from engine.coalescer import submit as submit_trace
 from dashboard.events import event_bus
 from telemetry import audit_log
 from telemetry import request_log as rlog
 from services import policy_engine
+from telemetry.agent_trace import (
+    apply_chain_span,
+    apply_llm_plan_span,
+    apply_tool_act_span,
+    summarize_agent_code,
+)
 
 pyautogui.FAILSAFE = True   # slam mouse to top-left corner to abort
 pyautogui.PAUSE    = 0.3    # deliberate, watchable motion — this is the wow factor
@@ -46,11 +64,13 @@ class ShepherdExecutionEngine:
         mode: str = EXECUTION_MODE,
         agent_s=None,
         evolution=None,
+        planner=None,
     ) -> None:
         self._coords    = coords
         self._telemetry = telemetry
         self._mode      = mode
         self._agent_s   = agent_s if agent_s is not None else AgentSAdapter()
+        self._planner   = planner if planner is not None else RoutinePlanner()
         self._evolution = evolution  # RoutineEvolution | None — injected by main.py
         self._graphs    = TaskGraphStore()
         self._active_graph = None   # task graph loaded as reference for the current run
@@ -61,6 +81,7 @@ class ShepherdExecutionEngine:
         self._pending_override: str = ""
         # Rate-limit tracking (resets each run)
         self._run_action_times: list[float] = []
+        self._run_variables: dict[str, str] = {}
 
     def request_halt(self) -> None:
         """Set by monitor_agent or spoken 'stop' command. Checked at each step boundary."""
@@ -73,7 +94,77 @@ class ShepherdExecutionEngine:
 
     def execute_autonomous(self, goal: str) -> ExecutionResult:
         """
-        Free-form goal execution — Agent S plans each action from the full intent
+        Free-form goal execution.
+
+        When AUTONOMOUS_PLAN_FIRST is enabled (default), an LLM drafts a
+        routines.json-style step list, then each step is passed to Agent S
+        via the standard LIVE execute loop. Otherwise falls back to the
+        reactive loop (full goal every turn until DONE/FAIL).
+        """
+        if AUTONOMOUS_PLAN_FIRST:
+            return self._execute_autonomous_planned(goal)
+        return self._execute_autonomous_reactive(goal)
+
+    def _execute_autonomous_planned(self, goal: str) -> ExecutionResult:
+        event_bus.emit("routine.planning", {"goal": goal})
+        print(f"[planner] Drafting routine for: {goal}")
+
+        plan_json = ""
+        try:
+            with self._telemetry.span("routine.plan", oi_kind="LLM") as plan_span:
+                routine, extracted = self._planner.draft(goal)
+                plan_json = json.dumps(
+                    [{"action": s.action, "description": s.description or s.action}
+                     for s in routine.steps],
+                    indent=2,
+                )
+                apply_llm_plan_span(
+                    plan_span,
+                    instruction=goal,
+                    response=plan_json,
+                    outcome="planned",
+                    model=PLANNER_MODEL,
+                    provider=PLANNER_ENGINE_TYPE,
+                )
+        except Exception as e:
+            print(f"[planner] Failed ({e}) — falling back to reactive Agent S loop")
+            event_bus.emit("routine.plan_failed", {"goal": goal, "error": str(e)})
+            return self._execute_autonomous_reactive(goal)
+
+        for i, step in enumerate(routine.steps):
+            print(f"[planner]   {i:02d} [{step.action}] {step.description or step.action}")
+
+        event_bus.emit("routine.planned", {
+            "goal":        goal,
+            "description": routine.description,
+            "total_steps": len(routine.steps),
+            "steps": [
+                {
+                    "index":       i,
+                    "action":      s.action,
+                    "description": s.description or s.action,
+                }
+                for i, s in enumerate(routine.steps)
+            ],
+        })
+
+        resolved = ResolvedRoutine(
+            routine_id=AUTONOMOUS_ROUTINE_ID,
+            variables=extracted,
+            confidence=1.0,
+            matched_keywords=[],
+        )
+
+        saved_mode = self._mode
+        self._mode = "LIVE"
+        try:
+            return self.execute(resolved, routine=routine, mode_override="LIVE")
+        finally:
+            self._mode = saved_mode
+
+    def _execute_autonomous_reactive(self, goal: str) -> ExecutionResult:
+        """
+        Reactive loop — Agent S plans each action from the full intent
         and current screenshot until DONE, FAIL, halt, or step budget exhausted.
         """
         self._halt_flag.clear()
@@ -114,150 +205,174 @@ class ShepherdExecutionEngine:
         monitor_step = RoutineStep(action="agent_s", description=goal)
 
         try:
-          with self._telemetry.span("routine.execute") as span:
-            span.set_attribute("routine.id", AUTONOMOUS_ROUTINE_ID)
-            span.set_attribute("routine.mode", "AUTONOMOUS")
-            span.set_attribute("routine.goal", goal)
+            with self._telemetry.span("routine.execute", oi_kind="CHAIN") as span:
+                span.set_attribute("routine.id", AUTONOMOUS_ROUTINE_ID)
+                span.set_attribute("routine.mode", "AUTONOMOUS")
+                span.set_attribute("routine.goal", goal)
 
-            for i in range(max_steps):
-                if self._halt_flag.is_set():
-                    status = "aborted"
-                    event_bus.emit("execution.halted", {
-                        "run_id": run_id, "step_index": i, "reason": "halt_requested",
-                    })
-                    break
-
-                verdict = self._check_monitor(monitor_step, i, run_id, AUTONOMOUS_ROUTINE_ID)
-                if verdict == "halt":
-                    status = "aborted"
-                    event_bus.emit("execution.halted", {
-                        "run_id": run_id, "step_index": i, "reason": "monitor_halt",
-                    })
-                    break
-
-                step_t0 = time.time()
-                event_bus.emit("step.start", {
-                    "run_id":      run_id,
-                    "index":       i,
-                    "action":      "agent_s",
-                    "description": goal,
-                    "total":       max_steps,
-                })
-                event_bus.emit("step.agent_s_thinking", {
-                    "run_id": run_id, "index": i, "description": goal,
-                })
-
-                result = self._agent_s.predict_autonomous(goal, i)
-                rlog.agent_turn(run_id, i, self._agent_s.last_reasoning,
-                                result.code or "", result.outcome)
-                step_status = "completed"
-                step_error: Optional[str] = None
-
-                if result.outcome == "done":
-                    rlog.note(run_id, f"Agent S reports DONE after {steps_done} actions")
-                    steps_done += 1
-                    dur_ms = int((time.time() - step_t0) * 1000)
-                    self.last_step_records.append(StepRecord(
-                        index=i, action="agent_s", target=None,
-                        status="completed", started_at=step_t0, duration_ms=dur_ms,
-                    ))
-                    event_bus.emit("step.complete", {
-                        "run_id": run_id, "index": i, "status": "completed", "duration_ms": dur_ms,
-                    })
-                    break
-
-                if result.outcome == "fail":
-                    status = "failed"
-                    error = result.raw or "Agent S reported failure"
-                    step_status = "failed"
-                    step_error = error
-                    dur_ms = int((time.time() - step_t0) * 1000)
-                    self.last_step_records.append(StepRecord(
-                        index=i, action="agent_s", target=None,
-                        status="failed", started_at=step_t0, duration_ms=dur_ms, error=error,
-                    ))
-                    event_bus.emit("step.error", {
-                        "run_id": run_id, "index": i, "error": error,
-                    })
-                    break
-
-                if result.outcome == "wait":
-                    dur_ms = int((time.time() - step_t0) * 1000)
-                    self.last_step_records.append(StepRecord(
-                        index=i, action="agent_s", target=None,
-                        status="completed", started_at=step_t0, duration_ms=dur_ms,
-                        deviation="wait",
-                    ))
-                    event_bus.emit("step.complete", {
-                        "run_id": run_id, "index": i, "status": "completed",
-                        "duration_ms": dur_ms, "deviation": "wait",
-                    })
-                    continue
-
-                if result.outcome != "action" or not result.code:
-                    status = "failed"
-                    error = "Agent S unavailable or returned no actionable code"
-                    step_status = "failed"
-                    step_error = error
-                    dur_ms = int((time.time() - step_t0) * 1000)
-                    self.last_step_records.append(StepRecord(
-                        index=i, action="agent_s", target=None,
-                        status="failed", started_at=step_t0, duration_ms=dur_ms, error=error,
-                    ))
-                    event_bus.emit("step.error", {
-                        "run_id": run_id, "index": i, "error": error,
-                    })
-                    break
-
-                with self._telemetry.span("action.agent_s") as s:
-                    s.set_attribute("action.type", "agent_s")
-                    s.set_attribute("action.index", i)
-                    s.set_attribute("action.agent_s", True)
-                    try:
-                        self._exec_agent_code(result.code)
-                        steps_done += 1
-                    except Exception as exc:
-                        step_status = "failed"
-                        step_error = str(exc)
-                        error = step_error
-                        status = "failed"
-                        print(f"[engine] autonomous step {i} failed: {step_error}")
-                        if FEATURES["sentry"]:
-                            import sentry_sdk
-                            sentry_sdk.capture_exception(exc)
-                        s.set_attribute("error.message", step_error)
-                        event_bus.emit("step.error", {
-                            "run_id": run_id, "index": i, "error": step_error,
+                for i in range(max_steps):
+                    if self._halt_flag.is_set():
+                        status = "aborted"
+                        event_bus.emit("execution.halted", {
+                            "run_id": run_id, "step_index": i, "reason": "halt_requested",
                         })
                         break
 
-                dur_ms = int((time.time() - step_t0) * 1000)
-                rlog.step_result(run_id, i, step_status, dur_ms, step_error or "")
-                # Each executed step adds a node to the task graph (value=step index
-                # keeps every step a distinct node rather than collapsing duplicates).
-                label = self._autonomous_node_label(self._agent_s.last_reasoning, result.code)
-                fine  = len((result.code or "").splitlines())
-                self._graphs.record_milestone(
-                    graph, "step", label, str(i), fine, step_status, run_id)
-                # Persist immediately so the graph is viewable mid-run and survives
-                # an interrupt before the run formally completes.
-                self._graphs.flush(graph)
-                event_bus.emit("task.graph.node", {
-                    "run_id": run_id, "index": i, "label": label,
-                    "kind": "step", "status": step_status,
-                })
-                self.last_step_records.append(StepRecord(
-                    index=i, action="agent_s", target=None,
-                    status=step_status, started_at=step_t0, duration_ms=dur_ms, error=step_error,
-                ))
-                event_bus.emit("step.complete", {
-                    "run_id": run_id, "index": i, "status": step_status, "duration_ms": dur_ms,
-                })
+                    verdict = self._check_monitor(monitor_step, i, run_id, AUTONOMOUS_ROUTINE_ID)
+                    if verdict == "halt":
+                        status = "aborted"
+                        event_bus.emit("execution.halted", {
+                            "run_id": run_id, "step_index": i, "reason": "monitor_halt",
+                        })
+                        break
 
-            else:
-                status = "failed"
-                error = f"Step budget exhausted ({max_steps} steps)"
-                rlog.note(run_id, error)
+                    step_t0 = time.time()
+                    event_bus.emit("step.start", {
+                        "run_id":      run_id,
+                        "index":       i,
+                        "action":      "agent_s",
+                        "description": goal,
+                        "total":       max_steps,
+                    })
+                    event_bus.emit("step.agent_s_thinking", {
+                        "run_id": run_id, "index": i, "description": goal,
+                    })
+
+                    apps, tools = None, None
+                    with self._telemetry.span("agent_s.plan", oi_kind="LLM") as plan_span:
+                        result = self._agent_s.predict_autonomous(goal, i)
+                        apps, tools = summarize_agent_code(result.code)
+                        apply_llm_plan_span(
+                            plan_span,
+                            instruction=goal,
+                            response=result.raw or "",
+                            outcome=result.outcome,
+                            model=AGENT_S_MODEL,
+                            provider=AGENT_S_ENGINE_TYPE,
+                            code=result.code,
+                            apps=apps or None,
+                            tools=tools or None,
+                        )
+                    rlog.agent_turn(run_id, i, self._agent_s.last_reasoning,
+                                    result.code or "", result.outcome)
+                    step_status = "completed"
+                    step_error: Optional[str] = None
+
+                    if result.outcome == "done":
+                        rlog.note(run_id, f"Agent S reports DONE after {steps_done} actions")
+                        steps_done += 1
+                        dur_ms = int((time.time() - step_t0) * 1000)
+                        self.last_step_records.append(StepRecord(
+                            index=i, action="agent_s", target=None,
+                            status="completed", started_at=step_t0, duration_ms=dur_ms,
+                        ))
+                        event_bus.emit("step.complete", {
+                            "run_id": run_id, "index": i, "status": "completed", "duration_ms": dur_ms,
+                        })
+                        break
+
+                    if result.outcome == "fail":
+                        status = "failed"
+                        error = result.raw or "Agent S reported failure"
+                        step_status = "failed"
+                        step_error = error
+                        dur_ms = int((time.time() - step_t0) * 1000)
+                        self.last_step_records.append(StepRecord(
+                            index=i, action="agent_s", target=None,
+                            status="failed", started_at=step_t0, duration_ms=dur_ms, error=error,
+                        ))
+                        event_bus.emit("step.error", {
+                            "run_id": run_id, "index": i, "error": error,
+                        })
+                        break
+
+                    if result.outcome == "wait":
+                        dur_ms = int((time.time() - step_t0) * 1000)
+                        self.last_step_records.append(StepRecord(
+                            index=i, action="agent_s", target=None,
+                            status="completed", started_at=step_t0, duration_ms=dur_ms,
+                            deviation="wait",
+                        ))
+                        event_bus.emit("step.complete", {
+                            "run_id": run_id, "index": i, "status": "completed",
+                            "duration_ms": dur_ms, "deviation": "wait",
+                        })
+                        continue
+
+                    if result.outcome != "action" or not result.code:
+                        status = "failed"
+                        error = "Agent S unavailable or returned no actionable code"
+                        step_status = "failed"
+                        step_error = error
+                        dur_ms = int((time.time() - step_t0) * 1000)
+                        self.last_step_records.append(StepRecord(
+                            index=i, action="agent_s", target=None,
+                            status="failed", started_at=step_t0, duration_ms=dur_ms, error=error,
+                        ))
+                        event_bus.emit("step.error", {
+                            "run_id": run_id, "index": i, "error": error,
+                        })
+                        break
+
+                    with self._telemetry.span("action.agent_s", oi_kind="TOOL") as s:
+                        s.set_attribute("action.type", "agent_s")
+                        s.set_attribute("action.index", i)
+                        s.set_attribute("action.agent_s", True)
+                        act_status = "ok"
+                        try:
+                            self._exec_agent_code(result.code)
+                            steps_done += 1
+                        except Exception as exc:
+                            act_status = "error"
+                            step_status = "failed"
+                            step_error = str(exc)
+                            error = step_error
+                            status = "failed"
+                            print(f"[engine] autonomous step {i} failed: {step_error}")
+                            if FEATURES["sentry"]:
+                                import sentry_sdk
+                                sentry_sdk.capture_exception(exc)
+                            s.set_attribute("error.message", step_error)
+                            event_bus.emit("step.error", {
+                                "run_id": run_id, "index": i, "error": step_error,
+                            })
+                            apply_tool_act_span(
+                                s, goal=goal, code=result.code,
+                                apps=apps or None, tools=tools or None, status=act_status,
+                            )
+                            break
+                        apply_tool_act_span(
+                            s, goal=goal, code=result.code,
+                            apps=apps or None, tools=tools or None, status=act_status,
+                        )
+
+                    dur_ms = int((time.time() - step_t0) * 1000)
+                    rlog.step_result(run_id, i, step_status, dur_ms, step_error or "")
+                    # Each executed step adds a node to the task graph (value=step index
+                    # keeps every step a distinct node rather than collapsing duplicates).
+                    label = self._autonomous_node_label(self._agent_s.last_reasoning, result.code)
+                    fine  = len((result.code or "").splitlines())
+                    self._graphs.record_milestone(
+                        graph, "step", label, str(i), fine, step_status, run_id)
+                    # Persist immediately so the graph is viewable mid-run and survives
+                    # an interrupt before the run formally completes.
+                    self._graphs.flush(graph)
+                    event_bus.emit("task.graph.node", {
+                        "run_id": run_id, "index": i, "label": label,
+                        "kind": "step", "status": step_status,
+                    })
+                    self.last_step_records.append(StepRecord(
+                        index=i, action="agent_s", target=None,
+                        status=step_status, started_at=step_t0, duration_ms=dur_ms, error=step_error,
+                    ))
+                    event_bus.emit("step.complete", {
+                        "run_id": run_id, "index": i, "status": step_status, "duration_ms": dur_ms,
+                    })
+
+                else:
+                    status = "failed"
+                    error = f"Step budget exhausted ({max_steps} steps)"
+                    rlog.note(run_id, error)
         except KeyboardInterrupt:
             # Ctrl-C → treat as a graceful abort: fall through to record/emit/persist
             # below so the run still shows on the frontend with what it did.
@@ -267,6 +382,11 @@ class ShepherdExecutionEngine:
                 "run_id": run_id, "step_index": steps_done, "reason": "keyboard_interrupt",
             })
             rlog.note(run_id, "interrupted by user (Ctrl-C)")
+
+            chain_out = f"status={status}, steps={steps_done}"
+            if error:
+                chain_out += f", error={error}"
+            apply_chain_span(span, input_text=goal, output_text=chain_out)
 
         ended_at = time.time()
         result = ExecutionResult(
@@ -317,7 +437,13 @@ class ShepherdExecutionEngine:
         first = (code or "").strip().splitlines()[0] if (code or "").strip() else "action"
         return first[:78]
 
-    def execute(self, resolved: ResolvedRoutine) -> ExecutionResult:
+    def execute(
+        self,
+        resolved: ResolvedRoutine,
+        *,
+        routine: RoutineDefinition | None = None,
+        mode_override: str | None = None,
+    ) -> ExecutionResult:
         self._halt_flag.clear()
         self.last_step_records = []
         self._interventions = []
@@ -328,12 +454,14 @@ class ShepherdExecutionEngine:
         run_id     = str(uuid.uuid4())[:8]
         started_at = time.time()
 
-        # Respect runtime mode switch from dashboard POST /api/mode
-        if _cfg._runtime_mode:
+        if mode_override:
+            self._mode = mode_override.upper()
+        elif _cfg._runtime_mode:
             self._mode = _cfg._runtime_mode.upper()
 
-        routine   = get_routine(resolved.routine_id)
+        routine   = routine if routine is not None else get_routine(resolved.routine_id)
         variables = resolved.variables
+        self._run_variables = variables
 
         # ── Load this task's persistent graph as a reference ────────────────────
         # The graph is coarse (milestones, not clicks). On a repeat run it tells us
@@ -418,200 +546,228 @@ class ShepherdExecutionEngine:
         monitored = set(routine.high_stakes_steps) | dynamic_risky
 
         try:
-          with self._telemetry.span("routine.execute") as span:
-            span.set_attribute("routine.id",   resolved.routine_id)
-            span.set_attribute("routine.mode", self._mode)
-            for k, v in variables.items():
-                span.set_attribute(f"routine.variable.{k}", v)
+            with self._telemetry.span("routine.execute", oi_kind="CHAIN") as span:
+                span.set_attribute("routine.id",   resolved.routine_id)
+                span.set_attribute("routine.mode", self._mode)
+                for k, v in variables.items():
+                    span.set_attribute(f"routine.variable.{k}", v)
 
-            limits = policy_engine.get_limits()
+                limits = policy_engine.get_limits()
 
-            for i, step in enumerate(routine.steps):
-                # ── halt check (boundary, never mid-click) ──────────────────
-                if self._halt_flag.is_set():
-                    status = "aborted"
-                    event_bus.emit("execution.halted", {
-                        "run_id": run_id, "step_index": i, "reason": "halt_requested"
-                    })
-                    break
-
-                # ── containment: max steps per run ───────────────────────────
-                max_steps = limits.get("max_steps_per_run", 0)
-                if max_steps and i >= max_steps:
-                    status = "aborted"
-                    error = f"Containment: run exceeded max_steps_per_run={max_steps}"
-                    print(f"[containment] {error}")
-                    event_bus.emit("execution.halted", {
-                        "run_id": run_id, "step_index": i, "reason": "containment_step_limit"
-                    })
-                    break
-
-                # ── containment: actions-per-minute rate limit ────────────────
-                max_apm = limits.get("max_actions_per_minute", 0)
-                if max_apm:
-                    now_t = time.time()
-                    self._run_action_times = [t for t in self._run_action_times if now_t - t < 60]
-                    if len(self._run_action_times) >= max_apm:
+                for i, step in enumerate(routine.steps):
+                    # ── halt check (boundary, never mid-click) ──────────────────
+                    if self._halt_flag.is_set():
                         status = "aborted"
-                        error = f"Containment: rate limit {max_apm} actions/min exceeded"
+                        event_bus.emit("execution.halted", {
+                            "run_id": run_id, "step_index": i, "reason": "halt_requested"
+                        })
+                        break
+
+                    # ── containment: max steps per run ───────────────────────────
+                    max_steps = limits.get("max_steps_per_run", 0)
+                    if max_steps and i >= max_steps:
+                        status = "aborted"
+                        error = f"Containment: run exceeded max_steps_per_run={max_steps}"
                         print(f"[containment] {error}")
                         event_bus.emit("execution.halted", {
-                            "run_id": run_id, "step_index": i, "reason": "containment_rate_limit"
+                            "run_id": run_id, "step_index": i, "reason": "containment_step_limit"
                         })
                         break
-                    self._run_action_times.append(now_t)
 
-                # ── monitor check at high-stakes + dynamically risky boundaries ─
-                if i in monitored:
-                    verdict = self._check_monitor(
-                        step, i, run_id, resolved.routine_id
+                    # ── containment: actions-per-minute rate limit ────────────────
+                    max_apm = limits.get("max_actions_per_minute", 0)
+                    if max_apm:
+                        now_t = time.time()
+                        self._run_action_times = [t for t in self._run_action_times if now_t - t < 60]
+                        if len(self._run_action_times) >= max_apm:
+                            status = "aborted"
+                            error = f"Containment: rate limit {max_apm} actions/min exceeded"
+                            print(f"[containment] {error}")
+                            event_bus.emit("execution.halted", {
+                                "run_id": run_id, "step_index": i, "reason": "containment_rate_limit"
+                            })
+                            break
+                        self._run_action_times.append(now_t)
+
+                    # ── monitor check at high-stakes + dynamically risky boundaries ─
+                    if i in monitored:
+                        verdict = self._check_monitor(
+                            step, i, run_id, resolved.routine_id
+                        )
+                        if verdict == "halt":
+                            status = "aborted"
+                            event_bus.emit("execution.halted", {
+                                "run_id": run_id, "step_index": i, "reason": "monitor_halt"
+                            })
+                            break
+
+                    step_t0 = time.time()
+                    event_bus.emit("step.start", {
+                        "run_id":      run_id,
+                        "index":       i,
+                        "action":      step.action,
+                        "target":      step.target,
+                        "description": step.description or step.action,
+                        "total":       len(routine.steps),
+                    })
+
+                    # In LIVE mode, ask Agent S to plan the action (returns executable code)
+                    defined_step = step
+                    if self._mode == "LIVE" and self._agent_s.available:
+                        event_bus.emit("step.agent_s_thinking", {
+                            "run_id": run_id, "index": i,
+                            "description": step.description or step.action,
+                        })
+                    agent_code, step_instruction = self._live_execute(defined_step, i, routine)
+
+                    # Deviation detection: compare code action type vs defined step
+                    deviation_desc: Optional[str] = (
+                        self._detect_code_deviation(defined_step, agent_code)
+                        if agent_code else None
                     )
-                    if verdict == "halt":
+                    if deviation_desc:
+                        event_bus.emit("step.deviation", {
+                            "run_id":     run_id,
+                            "step_index": i,
+                            "expected":   defined_step.action,
+                            "actual":     "agent_s",
+                            "reason":     deviation_desc,
+                        })
+
+                    # Interruptability: a halt requested DURING planning (the slow LLM
+                    # step) takes effect here — before any actuation — so a spoken/clicked
+                    # "stop" never lands a click it could have prevented. Planning is done
+                    # and nothing has actuated yet, so this is still a safe boundary.
+                    if self._halt_flag.is_set():
                         status = "aborted"
                         event_bus.emit("execution.halted", {
-                            "run_id": run_id, "step_index": i, "reason": "monitor_halt"
+                            "run_id": run_id, "step_index": i, "reason": "halt_requested",
                         })
                         break
 
-                step_t0 = time.time()
-                event_bus.emit("step.start", {
-                    "run_id":      run_id,
-                    "index":       i,
-                    "action":      step.action,
-                    "target":      step.target,
-                    "description": step.description or step.action,
-                    "total":       len(routine.steps),
-                })
+                    step_status = "completed"
+                    step_error: Optional[str] = None
 
-                # In LIVE mode, ask Agent S to plan the action (returns executable code)
-                defined_step = step
-                if self._mode == "LIVE" and self._agent_s.available:
-                    event_bus.emit("step.agent_s_thinking", {
-                        "run_id": run_id, "index": i,
-                        "description": step.description or step.action,
-                    })
-                agent_code = self._live_execute(defined_step, i, routine)
-
-                # Deviation detection: compare code action type vs defined step
-                deviation_desc: Optional[str] = (
-                    self._detect_code_deviation(defined_step, agent_code)
-                    if agent_code else None
-                )
-                if deviation_desc:
-                    event_bus.emit("step.deviation", {
-                        "run_id":     run_id,
-                        "step_index": i,
-                        "expected":   defined_step.action,
-                        "actual":     "agent_s",
-                        "reason":     deviation_desc,
-                    })
-
-                # Interruptability: a halt requested DURING planning (the slow LLM
-                # step) takes effect here — before any actuation — so a spoken/clicked
-                # "stop" never lands a click it could have prevented. Planning is done
-                # and nothing has actuated yet, so this is still a safe boundary.
-                if self._halt_flag.is_set():
-                    status = "aborted"
-                    event_bus.emit("execution.halted", {
-                        "run_id": run_id, "step_index": i, "reason": "halt_requested",
-                    })
-                    break
-
-                step_status = "completed"
-                step_error: Optional[str] = None
-
-                span_name = "action.agent_s" if agent_code else f"action.{step.action}"
-                with self._telemetry.span(span_name) as s:
-                    s.set_attribute("action.type",    "agent_s" if agent_code else step.action)
-                    s.set_attribute("action.index",   i)
-                    s.set_attribute("action.agent_s", bool(agent_code))
-                    if step.target:
-                        s.set_attribute("action.target", step.target)
-                    try:
-                        if agent_code:
-                            try:
-                                self._exec_agent_code(agent_code)
-                            except Exception as agent_exc:
-                                # Agent S code failed to execute — fall back to the
-                                # deterministic defined step rather than aborting the run.
-                                print(f"[agent_s] exec failed (falling back to defined step): {agent_exc}")
-                                deviation_desc = (
-                                    (deviation_desc or "agent_s") + " → fell back to defined step"
-                                )
-                                event_bus.emit("step.fallback", {
-                                    "run_id": run_id, "index": i, "reason": str(agent_exc),
-                                })
+                    span_name = "action.agent_s" if agent_code else f"action.{step.action}"
+                    with self._telemetry.span(
+                        span_name, oi_kind="TOOL" if agent_code else "CHAIN",
+                    ) as s:
+                        s.set_attribute("action.type",    "agent_s" if agent_code else step.action)
+                        s.set_attribute("action.index",   i)
+                        s.set_attribute("action.agent_s", bool(agent_code))
+                        if step.target:
+                            s.set_attribute("action.target", step.target)
+                        act_status = "ok"
+                        try:
+                            if agent_code:
+                                try:
+                                    self._exec_agent_code(agent_code)
+                                except Exception as agent_exc:
+                                    # Agent S code failed to execute — fall back to the
+                                    # deterministic defined step rather than aborting the run.
+                                    print(f"[agent_s] exec failed (falling back to defined step): {agent_exc}")
+                                    deviation_desc = (
+                                        (deviation_desc or "agent_s") + " → fell back to defined step"
+                                    )
+                                    event_bus.emit("step.fallback", {
+                                        "run_id": run_id, "index": i, "reason": str(agent_exc),
+                                    })
+                                    self._dispatch(step, variables)
+                            else:
                                 self._dispatch(step, variables)
-                        else:
-                            self._dispatch(step, variables)
-                        steps_done += 1
-                        executed.append(step)
-                    except Exception as exc:
-                        step_status = "failed"
-                        step_error  = str(exc)
-                        error       = step_error
-                        status      = "failed"
-                        print(f"[engine] step {i} failed: {step_error}")
-                        if FEATURES["sentry"]:
-                            import sentry_sdk
-                            sentry_sdk.capture_exception(exc)
-                        s.set_attribute("error.message", step_error)
-                        event_bus.emit("step.error", {
-                            "run_id": run_id, "index": i, "error": step_error
-                        })
-                        break
-
-                dur_ms = int((time.time() - step_t0) * 1000)
-
-                # Timing deviation: step took >3× the historical average (≥2 s)
-                if self._evolution and deviation_desc is None:
-                    try:
-                        hist = self._evolution.get_stats(resolved.routine_id, i)
-                        avg = hist.avg_duration_ms
-                        if avg > 0 and dur_ms > avg * 3 and dur_ms > 2000:
-                            timing_dev = f"timing: {dur_ms}ms vs avg {avg}ms"
-                            deviation_desc = timing_dev
-                            event_bus.emit("step.deviation", {
-                                "run_id": run_id, "step_index": i,
-                                "reason": timing_dev, "type": "timing",
+                            steps_done += 1
+                            executed.append(step)
+                        except Exception as exc:
+                            act_status = "error"
+                            step_status = "failed"
+                            step_error  = str(exc)
+                            error       = step_error
+                            status      = "failed"
+                            print(f"[engine] step {i} failed: {step_error}")
+                            if FEATURES["sentry"]:
+                                import sentry_sdk
+                                sentry_sdk.capture_exception(exc)
+                            s.set_attribute("error.message", step_error)
+                            event_bus.emit("step.error", {
+                                "run_id": run_id, "index": i, "error": step_error
                             })
-                    except Exception:
-                        pass
+                            if agent_code:
+                                apps, tools = summarize_agent_code(agent_code)
+                                apply_tool_act_span(
+                                    s, goal=step_instruction, code=agent_code,
+                                    apps=apps or None, tools=tools or None, status=act_status,
+                                )
+                            else:
+                                apply_chain_span(
+                                    s,
+                                    input_text=step_instruction,
+                                    output_text=f"{step.action} → {step_status}",
+                                )
+                            break
+                        if agent_code:
+                            apps, tools = summarize_agent_code(agent_code)
+                            apply_tool_act_span(
+                                s, goal=step_instruction, code=agent_code,
+                                apps=apps or None, tools=tools or None, status=act_status,
+                            )
+                        else:
+                            apply_chain_span(
+                                s,
+                                input_text=step_instruction,
+                                output_text=f"{step.action} → {step_status}",
+                            )
 
-                record = StepRecord(
-                    index=i, action=step.action, target=step.target,
-                    status=step_status, started_at=step_t0,
-                    duration_ms=dur_ms, error=step_error,
-                    deviation=deviation_desc,
-                )
-                self.last_step_records.append(record)
+                    dur_ms = int((time.time() - step_t0) * 1000)
 
-                # Tamper-evident audit trail — hash-chained JSONL
-                audit_log.append(
-                    run_id=run_id,
-                    step_index=i,
-                    action=step.action,
-                    status=step_status,
-                    duration_ms=dur_ms,
-                    ts=step_t0,
-                    target=step.target,
-                    extra={"deviation": deviation_desc} if deviation_desc else None,
-                )
+                    # Timing deviation: step took >3× the historical average (≥2 s)
+                    if self._evolution and deviation_desc is None:
+                        try:
+                            hist = self._evolution.get_stats(resolved.routine_id, i)
+                            avg = hist.avg_duration_ms
+                            if avg > 0 and dur_ms > avg * 3 and dur_ms > 2000:
+                                timing_dev = f"timing: {dur_ms}ms vs avg {avg}ms"
+                                deviation_desc = timing_dev
+                                event_bus.emit("step.deviation", {
+                                    "run_id": run_id, "step_index": i,
+                                    "reason": timing_dev, "type": "timing",
+                                })
+                        except Exception:
+                            pass
 
-                # Update evolution stats (non-blocking, best-effort)
-                if self._evolution:
-                    try:
-                        self._evolution.record_step(resolved.routine_id, record)
-                    except Exception:
-                        pass
+                    record = StepRecord(
+                        index=i, action=step.action, target=step.target,
+                        status=step_status, started_at=step_t0,
+                        duration_ms=dur_ms, error=step_error,
+                        deviation=deviation_desc,
+                    )
+                    self.last_step_records.append(record)
 
-                event_bus.emit("step.complete", {
-                    "run_id":     run_id,
-                    "index":      i,
-                    "status":     step_status,
-                    "duration_ms": dur_ms,
-                    "deviation":  deviation_desc,
-                })
+                    # Tamper-evident audit trail — hash-chained JSONL
+                    audit_log.append(
+                        run_id=run_id,
+                        step_index=i,
+                        action=step.action,
+                        status=step_status,
+                        duration_ms=dur_ms,
+                        ts=step_t0,
+                        target=step.target,
+                        extra={"deviation": deviation_desc} if deviation_desc else None,
+                    )
+
+                    # Update evolution stats (non-blocking, best-effort)
+                    if self._evolution:
+                        try:
+                            self._evolution.record_step(resolved.routine_id, record)
+                        except Exception:
+                            pass
+
+                    event_bus.emit("step.complete", {
+                        "run_id":     run_id,
+                        "index":      i,
+                        "status":     step_status,
+                        "duration_ms": dur_ms,
+                        "deviation":  deviation_desc,
+                    })
         except KeyboardInterrupt:
             # Ctrl-C → graceful abort: fall through to record/emit/persist below so
             # the run still appears on the frontend with what it managed to do.
@@ -620,6 +776,14 @@ class ShepherdExecutionEngine:
             event_bus.emit("execution.halted", {
                 "run_id": run_id, "step_index": steps_done, "reason": "keyboard_interrupt",
             })
+
+            chain_in = routine.description
+            if variables:
+                chain_in += "\n" + str(variables)
+            chain_out = f"status={status}, steps={steps_done}/{len(routine.steps)}"
+            if error:
+                chain_out += f", error={error}"
+            apply_chain_span(span, input_text=chain_in, output_text=chain_out)
 
         ended_at = time.time()
         result = ExecutionResult(
@@ -741,7 +905,20 @@ class ShepherdExecutionEngine:
             return inst
         if routine.step_instructions and index in routine.step_instructions:
             return routine.step_instructions[index]
-        return step.description or step.action
+        base = step.description or step.action
+        goal = self._run_variables.get("GOAL", "")
+        if goal and routine.routine_id == AUTONOMOUS_ROUTINE_ID:
+            return f"Overall goal: {goal}\n\nStep {index + 1}: {base}"
+        return base
+
+    def _resolved_step_text(self, step: RoutineStep) -> str:
+        """Substitute {VARIABLES} in step.text from the current run."""
+        if not step.text:
+            return ""
+        text = step.text
+        for k, v in self._run_variables.items():
+            text = text.replace(f"{{{k}}}", v)
+        return text.strip()
 
     def _build_demo_context(self, routine) -> str:
         """Format the recorded demonstration as a readable context string for Agent S."""
@@ -756,16 +933,17 @@ class ShepherdExecutionEngine:
 
     def _live_execute(
         self, step: RoutineStep, index: int, routine
-    ) -> Optional[str]:
+    ) -> tuple[Optional[str], str]:
         """
-        Ask Agent S to plan this step. Returns executable Python/pyautogui code,
-        or None to fall back to _dispatch(defined step).
+        Ask Agent S to plan this step. Returns (executable Python/pyautogui code, instruction).
+        Code is None when falling back to _dispatch(defined step).
 
         batch_fill steps use plan_batch_action — one API call for all fields.
         All other steps use plan_action — one API call per step.
         """
+        instruction = self._build_instruction(step, index, routine)
         if self._mode != "LIVE" or not self._agent_s.available:
-            return None
+            return None, instruction
         demo_ctx = self._build_demo_context(routine)
         ms = self._step_ms.get(index)
         if ms and ms["times_seen"] > 0:
@@ -781,12 +959,32 @@ class ShepherdExecutionEngine:
 
         # batch_fill, wait, hotkey, open_app all use _dispatch directly —
         # batch_fill uses JS injection (more reliable than Agent S Tab code),
-        # the rest don't benefit from vision planning.
+        # the rest don't benefit from vision planning. type steps with resolved
+        # text are deterministic — no vision needed.
         if step.action in ("batch_fill", "wait", "hotkey", "open_app"):
-            return None
+            return None, instruction
+        if step.action == "type" and self._resolved_step_text(step):
+            return None, instruction
 
-        instruction = self._build_instruction(step, index, routine)
-        return self._agent_s.plan_action(instruction, index, demo_ctx)
+        with self._telemetry.span("agent_s.plan", oi_kind="LLM") as plan_span:
+            code = self._agent_s.plan_action(
+                instruction, index, demo_ctx,
+                action=step.action,
+                type_text=self._resolved_step_text(step) or None,
+            )
+            apps, tools = summarize_agent_code(code)
+            apply_llm_plan_span(
+                plan_span,
+                instruction=instruction,
+                response=code or "(no actionable code — using defined step)",
+                outcome="action" if code else "fallback",
+                model=AGENT_S_MODEL,
+                provider=AGENT_S_ENGINE_TYPE,
+                code=code,
+                apps=apps or None,
+                tools=tools or None,
+            )
+        return code, instruction
 
     def _exec_agent_code(self, code: str) -> None:
         """
@@ -818,20 +1016,19 @@ class ShepherdExecutionEngine:
             pyautogui.doubleClick(x, y)
 
         elif a == "type":
-            import subprocess as _sp
             text_val = sub(step.text) or ""
             press_return = text_val.endswith("\n")
             text_body = text_val.rstrip("\n")
             if text_body:
-                # typewrite() silently drops : @ / etc. on macOS; clipboard-paste handles all chars.
-                _sp.run(["pbcopy"], input=text_body.encode(), check=False)
-                pyautogui.hotkey("cmd", "v")
+                # Replace any leftover chars (e.g. "/" from YouTube search focus shortcut)
+                do_hotkey(["cmd", "a"])
                 time.sleep(0.05)
+                enter_text(text_body)
             if press_return:
                 pyautogui.press("return")
 
         elif a == "hotkey":
-            pyautogui.hotkey(*(step.keys or []))
+            do_hotkey(step.keys or [])
 
         elif a == "open_app":
             app_name = sub(step.target) or ""
