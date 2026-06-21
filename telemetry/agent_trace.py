@@ -182,10 +182,19 @@ def apply_tool_act_span(
     apps: Optional[str] = None,
     tools: Optional[str] = None,
     status: str = "ok",
+    intent: Optional[str] = None,
 ) -> None:
-    """agent_s.act → TOOL span with executed action visible in Phoenix."""
+    """agent_s.act → TOOL span with executed action visible in Phoenix.
+
+    `intent` is the agent's reasoning / step description for this action; it makes
+    the span output semantically judgeable (e.g. plan-adherence evals) instead of
+    an opaque "Executed click" on bare coordinates.
+    """
     tool_name = (tools.split(",")[0].strip() if tools else "pyautogui")
+    intent_txt = " ".join(str(intent).split())[:200] if intent else ""
     summary = f"Executed {tool_name}"
+    if intent_txt:
+        summary += f" — {intent_txt}"
     if apps:
         summary += f" · apps: {apps}"
     if status != "ok":
@@ -214,6 +223,8 @@ def apply_tool_act_span(
         span.set_attribute("agent.apps", apps)
     if tools:
         span.set_attribute("agent.tools", tools)
+    if intent_txt:
+        span.set_attribute("agent.intent", intent_txt)
     span.set_attribute("agent.action", tool_name)
 
     _annotate_visible(

@@ -12,6 +12,8 @@ from typing import Any
 
 import httpx
 
+from urllib.parse import quote_plus
+
 from config import (
     ANTHROPIC_API_KEY,
     AUTONOMOUS_MAX_STEPS,
@@ -35,8 +37,8 @@ _STEP_FIELDS = frozenset({
 
 _EXAMPLE_ROUTINE = """
 {
-  "description": "Open TextEdit and type a note",
-  "variables": ["NOTE_TEXT"],
+  "description": "Type a note in TextEdit",
+  "variables": {"NOTE_TEXT": "Buy milk and eggs"},
   "steps": [
     {"action": "open_app", "target": "TextEdit", "description": "Open TextEdit"},
     {"action": "wait", "seconds": 2.0, "description": "Wait for app to launch"},
@@ -57,12 +59,20 @@ Rules:
 - Use "open_app" + "wait" before interacting with a new application.
 - For URLs use open_app with "text" (not "url"), e.g. {{"action":"open_app","target":"Google Chrome","text":"https://mail.google.com/mail/u/0/#inbox"}}.
 - For Gmail: prefer hotkey ["c"] to open Compose (inbox must be focused) instead of clicking the Compose button.
-- For YouTube: prefer hotkey ["/"] to focus the search bar instead of clicking it; put the query in type step "text" as {{SEARCH_QUERY}}.
+- For YouTube play/search goals: open Chrome directly at
+  https://www.youtube.com/results?search_query={{SEARCH_QUERY}} (URL-encode the query)
+  instead of navigating to youtube.com and using the in-page search bar.
+- For YouTube (when not using the URL above): prefer hotkey ["/"] to focus the search bar;
+  put the query in type step "text" as {{SEARCH_QUERY}}.
 - For click steps: describe the element visually (label text, color, screen region, nearby elements).
 - Put recipient/subject/body in type step "text" using {{RECIPIENT_EMAIL}}, {{EMAIL_SUBJECT}}, {{EMAIL_BODY}} placeholders.
 - Use "hotkey" for keyboard shortcuts; "wait" for pauses (seconds field).
-- Put dynamic text in "text" fields using {{VARIABLE}} placeholders.
-- List every variable name used in a top-level "variables" array.
+- Put dynamic text in "text"/"target" fields using {{VARIABLE}} placeholders.
+- "variables" MUST be a JSON object mapping each variable NAME to the concrete
+  VALUE you extracted from the goal, e.g.
+  {{"SEARCH_QUERY": "despacito", "RECIPIENT_EMAIL": "sam@acme.com"}}.
+  Extract values from the goal yourself (do not leave placeholders unfilled).
+  For YouTube goals, SEARCH_QUERY is the media to search for (e.g. "despacito").
 - Prefer simple, reliable steps over overly granular ones.
 - Do NOT include markdown fences or commentary — raw JSON only.
 
@@ -71,27 +81,19 @@ Example:
 """
 
 
-def _extract_variables(goal: str) -> dict[str, str]:
-    """Pull concrete values from the user goal for type-step substitution."""
-    variables: dict[str, str] = {"GOAL": goal}
-    email = re.search(r"[\w.+-]+@[\w.-]+\.\w+", goal)
-    if email:
-        variables["RECIPIENT_EMAIL"] = email.group(0)
-    lower = goal.lower()
-    if "test" in lower:
-        variables.setdefault("EMAIL_SUBJECT", "Test")
-        variables.setdefault("EMAIL_BODY", "This is a test email sent by Shepherd.")
-    # "play crazy frog on youtube" → SEARCH_QUERY
-    for pat in (
-        r"play\s+(.+?)\s+on\s+youtube",
-        r"search\s+(?:for\s+)?(.+?)\s+on\s+youtube",
-        r"youtube\s+(?:search\s+)?(?:for\s+)?(.+)",
-    ):
-        m = re.search(pat, goal, re.I)
-        if m:
-            variables["SEARCH_QUERY"] = m.group(1).strip().strip("'\"")
-            break
-    return variables
+def _variables_from_payload(goal: str, payload: dict[str, Any]) -> dict[str, str]:
+    """Build the name→value substitution map from the planner LLM's output.
+
+    The LLM extracts concrete values straight from the goal (see the prompt's
+    "variables" rule), so there is no brittle regex/keyword guessing here. GOAL
+    is always present; we keep only non-empty string values."""
+    extracted: dict[str, str] = {"GOAL": goal}
+    raw_vars = payload.get("variables")
+    if isinstance(raw_vars, dict):
+        for name, value in raw_vars.items():
+            if name and value is not None and str(value).strip():
+                extracted[str(name)] = str(value)
+    return extracted
 
 
 _DEFAULT_BROWSER = "Google Chrome"
@@ -133,6 +135,42 @@ def _fill_type_steps(steps: list[RoutineStep], extracted: dict[str, str]) -> Non
             step.text = "{SEARCH_QUERY}"
 
 
+def _is_youtube_search_choreography(step: RoutineStep) -> bool:
+    """Steps made redundant when we open the search-results URL directly."""
+    desc = (step.description or "").lower()
+    if step.action == "hotkey":
+        if step.keys == ["/"]:
+            return True
+        if "search" in desc and any(k in desc for k in ("enter", "bar", "focus")):
+            return True
+    if step.action == "type":
+        if step.text == "{SEARCH_QUERY}":
+            return True
+        if "search" in desc and any(k in desc for k in ("type", "query", "box")):
+            return True
+    if step.action == "wait" and "search result" in desc:
+        return True
+    return False
+
+
+def _optimize_youtube_steps(steps: list[RoutineStep], extracted: dict[str, str]) -> None:
+    """Open YouTube at /results?search_query=… — reliable vs in-page search UI."""
+    query = extracted.get("SEARCH_QUERY")
+    if not query:
+        return
+
+    url = f"https://www.youtube.com/results?search_query={quote_plus(query)}"
+    for step in steps:
+        if step.action == "open_app":
+            step.target = step.target or _DEFAULT_BROWSER
+            step.text = url
+            step.description = f"Open YouTube search for '{query}' in Chrome"
+            normalize_open_app_step(step)
+            break
+
+    steps[:] = [s for s in steps if not _is_youtube_search_choreography(s)]
+
+
 class RoutinePlanner:
     def __init__(self) -> None:
         print(
@@ -146,9 +184,10 @@ class RoutinePlanner:
         memory_hint = self._memory_hint(prior_milestones)
         raw = self._call_llm(goal, memory_hint)
         payload = self._parse_json(raw)
-        extracted = _extract_variables(goal)
+        extracted = _variables_from_payload(goal, payload)
         routine = self._to_definition(goal, payload, extracted)
         _fill_type_steps(routine.steps, extracted)
+        _optimize_youtube_steps(routine.steps, extracted)
         return routine, extracted
 
     @staticmethod

@@ -160,6 +160,7 @@ class ShepherdExecutionEngine:
         self._step_ms      = {}     # fine-step index → milestone reference for Agent S
         self.last_step_records: list[StepRecord] = []
         self.last_trace_id: Optional[str] = None  # Phoenix trace id of the most recent run
+        self._last_execute_span_id: Optional[str] = None  # routine.execute span → eval annotations
         self._interventions: list[InterventionEvent] = []  # human teaching this run → coalescer
         self._halt_flag = threading.Event()
         self._pending_override: str = ""
@@ -279,16 +280,25 @@ class ShepherdExecutionEngine:
             except Exception as _pe:
                 print(f"[phoenix-eval] plan dispatch non-fatal: {_pe}")
 
-            # Hand the drafted plan to the reactive Agent S loop as guidance, then
-            # execute it with screenshots at sensible intervals (chained), adapting
-            # to the real screen — rather than blindly running a keyboard-only script.
-            plan_hint = (
-                "PLAN (your roadmap — follow it in order, but adapt to what is "
-                "actually on screen each turn):\n"
-                + "\n".join(f"  {i + 1}. {s.description or s.action}"
-                            for i, s in enumerate(routine.steps))
+            resolved = ResolvedRoutine(
+                routine_id=AUTONOMOUS_ROUTINE_ID,
+                variables=extracted,
+                confidence=1.0,
+                matched_keywords=[],
             )
-            return self._execute_autonomous_reactive(goal, plan_hint=plan_hint)
+
+            saved_mode = self._mode
+            self._mode = "LIVE"
+            try:
+                return self.execute(
+                    resolved,
+                    routine=routine,
+                    mode_override="LIVE",
+                    graph_key=task_key,
+                    intent_text=goal,
+                )
+            finally:
+                self._mode = saved_mode
 
     def _execute_autonomous_reactive(self, goal: str, plan_hint: str = "",
                                       resume_ctx: Optional[SuspendedTask] = None) -> ExecutionResult:
@@ -645,6 +655,7 @@ class ShepherdExecutionEngine:
                                     s, goal=goal, code=result.code,
                                     apps=apps or None, tools=tools or None,
                                     status="aborted",
+                                    intent=self._agent_s.last_reasoning,
                                 )
                                 break
                             act_status = "error"
@@ -672,11 +683,13 @@ class ShepherdExecutionEngine:
                             apply_tool_act_span(
                                 s, goal=goal, code=result.code,
                                 apps=apps or None, tools=tools or None, status=act_status,
+                                intent=self._agent_s.last_reasoning,
                             )
                             break
                         apply_tool_act_span(
                             s, goal=goal, code=result.code,
                             apps=apps or None, tools=tools or None, status=act_status,
+                            intent=self._agent_s.last_reasoning,
                         )
 
                     dur_ms = int((time.time() - step_t0) * 1000)
@@ -937,6 +950,8 @@ class ShepherdExecutionEngine:
         try:
             with self._telemetry.span("routine.execute", oi_kind="CHAIN") as span:
                 self.last_trace_id = current_trace_id()
+                from telemetry.telemetry import _current_span_id
+                self._last_execute_span_id = _current_span_id()
                 span.set_attribute("routine.id",   resolved.routine_id)
                 span.set_attribute("routine.mode", self._mode)
                 for k, v in variables.items():
@@ -1098,6 +1113,7 @@ class ShepherdExecutionEngine:
                                 apply_tool_act_span(
                                     s, goal=step_instruction, code=agent_code,
                                     apps=apps or None, tools=tools or None, status=act_status,
+                                    intent=step_instruction,
                                 )
                             else:
                                 apply_chain_span(
@@ -1111,6 +1127,7 @@ class ShepherdExecutionEngine:
                             apply_tool_act_span(
                                 s, goal=step_instruction, code=agent_code,
                                 apps=apps or None, tools=tools or None, status=act_status,
+                                intent=step_instruction,
                             )
                         else:
                             apply_chain_span(
@@ -1211,6 +1228,25 @@ class ShepherdExecutionEngine:
             "duration_ms":     result.duration_ms,
             "response":        response,
         })
+
+        # Arize: LLM-judge the ACTUAL executed trajectory against the generated
+        # plan (plan_adherence) and annotate the Phoenix routine.execute span.
+        # Fire-and-forget so the judge never blocks the run.
+        try:
+            from services import phoenix_evals
+            if phoenix_evals.available():
+                _plan = list(routine.steps)
+                _exec = list(self.last_step_records)
+                _sid = getattr(self, "_last_execute_span_id", None)
+                _goal = intent_text or resolved.routine_id
+                _rid = resolved.routine_id
+                threading.Thread(
+                    target=lambda: phoenix_evals.score_execution(
+                        _goal, _plan, _exec, span_id=_sid, routine_id=_rid),
+                    daemon=True,
+                ).start()
+        except Exception as _pe:
+            print(f"[phoenix-eval] execution dispatch non-fatal: {_pe}")
 
         # ── Hand the trace to the async coalescer (COLD PATH) ───────────────────
         # Crystallization (LLM milestone segmentation, graph merge, edge reconciliation)
