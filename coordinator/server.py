@@ -332,6 +332,7 @@ class Hub:
             conn.status = {"completed": "completed", "failed": "failed"}.get(st, "idle")
             conn.block = None
             conn.routing = None
+            conn._goal_text = None
             # Keep title + recent_steps visible after completion so the fleet card
             # still shows what the run did. They reset on the next execution.start.
             if conn.trace:
@@ -341,6 +342,7 @@ class Hub:
             conn.status = "idle"
             conn.block = None
             conn.routing = None
+            conn._goal_text = None
             if conn.trace:
                 conn.trace["status"] = "halted"
                 conn.trace["current"] = None

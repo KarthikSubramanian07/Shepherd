@@ -198,3 +198,31 @@ def test_intent_text_preserved_through_execution_start():
 
     snap = conn.snapshot()
     assert snap["title"] == "apply to the job"
+
+
+def test_goal_text_cleared_on_execution_complete():
+    """_goal_text is cleared when a run completes, preventing cross-run leakage."""
+    hub = Hub()
+    conn = _conn()
+
+    hub.apply_event(conn, _ev("intent.received", raw_text="apply to job", source="cli"))
+    hub.apply_event(conn, _ev("execution.start", run_id="R1"))
+    assert conn._goal_text == "apply to job"
+
+    hub.apply_event(conn, _ev("execution.complete", status="completed"))
+    assert conn._goal_text is None
+
+    # A new run without intent or goal should NOT get a title from the old text.
+    hub.apply_event(conn, _ev("execution.start", run_id="R2"))
+    assert conn.title is None
+
+
+def test_goal_text_cleared_on_execution_halted():
+    """_goal_text is cleared when a run is halted."""
+    hub = Hub()
+    conn = _conn()
+
+    hub.apply_event(conn, _ev("intent.received", raw_text="book flight", source="cli"))
+    hub.apply_event(conn, _ev("execution.start", run_id="R1"))
+    hub.apply_event(conn, _ev("execution.halted"))
+    assert conn._goal_text is None
