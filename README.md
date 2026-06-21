@@ -4,7 +4,7 @@
 
 # Shepherd
 
-### The agent is the part you cannot trust. Shepherd is the layer that lets you trust it anyway.
+### Mission control for AI agents. The agent is the part you cannot trust. Shepherd is the system that lets you run it anyway.
 
 [![CI](https://github.com/KarthikSubramanian07/shepherd/actions/workflows/ci.yml/badge.svg)](https://github.com/KarthikSubramanian07/shepherd/actions/workflows/ci.yml)
 
@@ -28,16 +28,20 @@ hoping for the best.
 
 Hoping is not a control.
 
-**Shepherd is a local oversight and governance layer for AI desktop agents.** A
-shepherd does not cage the flock or walk every step for it. It watches, it knows
-the dangerous ground, and it steps in at exactly the right moment. That is the
-job here: a configurable monitor, a tamper-evident audit trail, and a human
-decision gate sitting between the agent's intent and your machine, without slowing
-the agent down. You teach a task by demonstrating it once, watch it run live,
-catch it the instant it strays, replay precisely what it did while you were away,
-and operate it on a machine across the country.
+**Shepherd is local mission control for AI desktop agents.** A shepherd does not
+cage the flock or walk every step for it. It knows the dangerous ground, runs out
+front, and steps in at exactly the right moment. That is the job: you teach a task
+by demonstrating it once, Shepherd drives the real desktop to carry it out, governs
+every high-stakes step in real time, catches it the instant it strays, replays
+precisely what it did while you were away, and runs it on a machine across the
+country. The sub-millisecond policy gate, the independent AI verifier, the human
+decision point, and the tamper-evident audit trail are one system, not features
+bolted on.
 
-It is the first thing you install *alongside* your agent, not instead of it.
+Shepherd is not a safety wrapper around someone else's agent. The agent is the
+engine inside it. Everything that turns raw capability into something you can
+actually deploy, the teaching, the governance, the memory, the audit, the remote
+control, is Shepherd.
 
 ---
 
