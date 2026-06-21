@@ -62,6 +62,9 @@ def _on_event(message: dict) -> None:
         rid = d.get("run_id")
         tr = _new_trace(rid, d.get("routine_id"), d.get("mode"))
         with _lock:
+            old_tr = _traces.get(aid)
+            if old_tr and old_tr.get("run_id"):
+                _run_to_agent.pop(old_tr["run_id"], None)
             _traces[aid] = tr
             if rid:
                 _run_to_agent[rid] = aid
@@ -103,6 +106,8 @@ def _on_event(message: dict) -> None:
         if tr:
             tr["status"] = "halted" if t == "execution.halted" else "suspended"
             tr["current"] = None
+        if t == "execution.halted":
+            _evict_finished()
         return
 
     if t == "execution.resumed":
