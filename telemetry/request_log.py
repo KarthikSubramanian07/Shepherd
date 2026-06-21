@@ -74,9 +74,11 @@ def agent_turn(run_id: str, index: int, reasoning: str, code: str, signal: str =
             max_lines=8, placeholder=" …")
         _log.info(wrapped)
     if code:
-        first = code.strip().splitlines()[0] if code.strip() else ""
-        extra = "" if code.strip().count("\n") == 0 else f"  (+{code.strip().count(chr(10))} more lines)"
-        _log.info("    action : %s%s", first, extra)
+        lines = code.strip().splitlines()
+        if lines:
+            _log.info("    action : %s", lines[0])
+            for ln in lines[1:]:
+                _log.info("             %s", ln)
 
 
 def step_result(run_id: str, index: int, status: str, duration_ms: int, error: str = "") -> None:

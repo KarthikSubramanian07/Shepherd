@@ -59,6 +59,22 @@ pyautogui.PAUSE    = 0.3    # deliberate, watchable motion — this is the wow f
 _APP_SETTLE = 2.0           # seconds to wait after open_app
 
 
+def activate_app(name: str, settle: float = 1.2) -> None:
+    """Deterministically bring a macOS app to the foreground and give it focus.
+
+    Exposed to autonomous chained-action code. Use this before typing so keystrokes
+    land in the intended window — Spotlight launches are unreliable about stealing
+    focus, which is what sends text into Spotlight/the wrong field. `open -a` both
+    launches the app (if needed) and activates it (brings a running app to front),
+    so it covers both cases without the AppleScript `activate` — which would require
+    macOS Automation (TCC) permission and could stall on a consent prompt."""
+    try:
+        subprocess.run(["open", "-a", name], check=False, timeout=10)
+    except Exception as e:  # never let focus-setting abort the run
+        print(f"[engine] activate_app({name!r}) failed (non-fatal): {e}")
+    time.sleep(settle)
+
+
 class ShepherdExecutionEngine:
     def __init__(
         self,
@@ -1444,9 +1460,21 @@ class ShepherdExecutionEngine:
     def _exec_agent_code(self, code: str) -> None:
         """
         Execute Agent S-generated Python/pyautogui code in a restricted namespace.
-        Agent S returns strings like: "pyautogui.click(760, 300)"
+        Agent S returns strings like: "pyautogui.click(760, 300)".
+
+        `activate_app` is exposed so the agent can deterministically bring a target
+        app to the foreground (instead of gambling that a Spotlight launch took
+        focus); without guaranteed focus, keystrokes land in the wrong window.
         """
-        exec(code, {"__builtins__": __builtins__, "pyautogui": pyautogui, "time": time})  # noqa: S102
+        exec(  # noqa: S102
+            code,
+            {
+                "__builtins__": __builtins__,
+                "pyautogui": pyautogui,
+                "time": time,
+                "activate_app": activate_app,
+            },
+        )
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
         def sub(t: Optional[str]) -> Optional[str]:

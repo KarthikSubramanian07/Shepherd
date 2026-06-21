@@ -319,6 +319,15 @@ class AgentSAdapter:
                 f"- Emit up to {AUTONOMOUS_CHAIN_MAX} actions. Chain actions that DON'T "
                 "depend on a screen change you can't predict (typing, Tab between "
                 "fields, hotkeys, opening an app, pressing Enter, short waits).\n"
+                "- FOCUS FIRST. Before typing anything, make the target app frontmost "
+                "with activate_app('Mail') (or 'Safari', 'Google Chrome', etc.). "
+                "pyautogui sends keystrokes to whatever the OS has focused — if the app "
+                "isn't truly frontmost, your text lands in Spotlight or the wrong field. "
+                "Do NOT rely on a Spotlight launch (command+space) to also grab focus; "
+                "call activate_app to launch AND focus deterministically.\n"
+                "- DISMISS STRAY POPUPS. If you see an emoji/Character Viewer, Spotlight, "
+                "an autocomplete, or any overlay obstructing input, press 'escape' as the "
+                "FIRST action of the batch before doing anything else.\n"
                 "- STOP the batch before any action whose target only appears after a "
                 "previous action (e.g. a button in a window that hasn't opened yet) — "
                 "you'll get a fresh screenshot next turn.\n"
@@ -330,8 +339,10 @@ class AgentSAdapter:
                 "- Do NOT repeat actions listed above as already performed. If the goal "
                 "is already satisfied by them (e.g. the email compose window is open with "
                 'its fields filled), return status "done" with empty actions.\n'
-                "- Each action is one line of Python using only `pyautogui` and `time` "
-                "(e.g. pyautogui.hotkey('command','space'); pyautogui.typewrite('Safari', interval=0.02); "
+                "- Each action is one line of Python using only `pyautogui`, `time`, and "
+                "`activate_app(name)` "
+                "(e.g. activate_app('Mail'); pyautogui.hotkey('command','n'); "
+                "pyautogui.typewrite('hi', interval=0.02); "
                 "pyautogui.press('enter'); time.sleep(1); pyautogui.click(840, 220)).\n\n"
                 'Return ONLY JSON: {"observation": "what I actually see on screen now", '
                 '"reasoning": "...", "status": "continue|done|fail", '

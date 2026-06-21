@@ -104,6 +104,7 @@ def summarize_agent_code(code: Optional[str]) -> tuple[str, str]:
         r'["\']-a["\'],\s*["\']([^"\']+)["\']',
         r'tell application "([^"]+)"',
         r'Popen\(\[["\']open["\'],\s*["\']-a["\'],\s*["\']([^"\']+)["\']',
+        r'activate_app\(\s*["\']([^"\']+)["\']',
     ):
         for m in re.finditer(pat, code, re.IGNORECASE):
             val = m.group(1).strip()
@@ -119,7 +120,7 @@ def summarize_agent_code(code: Optional[str]) -> tuple[str, str]:
         ("move", r"\.moveTo\(|\.moveRel\("),
         ("press", r"\.press\("),
         ("wait", r"\.sleep\(|time\.sleep\("),
-        ("open_app", r'\["open"|open\s*\(\s*["\']'),
+        ("open_app", r'\["open"|open\s*\(\s*["\']|activate_app\('),
     )
     for name, pat in checks:
         if re.search(pat, code, re.IGNORECASE):
