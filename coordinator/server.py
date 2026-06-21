@@ -33,6 +33,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from config import COORDINATOR_PORT, COORDINATOR_TOKEN, PROTOCOL_VERSION
+from coordinator.title_gen import generate_title_async
 
 # Reuse the agent's Deepgram transcription surface so the Command Center can turn
 # a spoken command into an intent without a backend of its own.
@@ -72,6 +73,15 @@ class AgentConn:
     # Most recent ad-hoc dispatch routing decision (intent → workflow / autonomous),
     # surfaced so the operator can see what the vector router matched.
     routing: Optional[dict] = None
+    # ── Fleet summary fields (issue #21) ──────────────────────────────────────
+    # Async-generated human-readable title of what the agent is doing this run.
+    title: Optional[str] = None
+    # Whether title generation has already been triggered for this run.
+    _title_requested: bool = field(default=False, repr=False)
+    # The raw goal/intent text used as fallback if LLM title gen fails.
+    _goal_text: Optional[str] = field(default=None, repr=False)
+    # Recent step descriptions (last 3) for the "peek" in the fleet list.
+    recent_steps: list = field(default_factory=list)
 
     def snapshot(self) -> dict:
         return {
@@ -92,6 +102,8 @@ class AgentConn:
             "hasFrame":         self.last_frame is not None,
             "workflow":         self._workflow_view(),
             "routing":          self.routing,
+            "title":            self.title,
+            "recentSteps":      list(self.recent_steps),
         }
 
     def _workflow_view(self) -> Optional[dict]:
@@ -203,6 +215,9 @@ class Hub:
             # An ad-hoc task was dispatched; routing is about to be decided.
             conn.routing = {"state": "routing", "text": d.get("raw_text"),
                             "source": d.get("source")}
+            # Capture the raw intent as candidate goal text for title generation.
+            if d.get("raw_text"):
+                conn._goal_text = d.get("raw_text")
         elif t == "plan.resolved":
             # The vector/keyword router resolved the intent to a target.
             kind = d.get("kind")
@@ -234,10 +249,34 @@ class Hub:
             conn.total_steps = d.get("total_steps")
             conn.step_index = None
             conn.block = None
+            # Reset per-run fleet summary state.
+            conn.title = None
+            conn._title_requested = False
+            conn.recent_steps = []
+            if d.get("goal"):
+                conn._goal_text = d.get("goal")
+            # Attempt title generation on execution start if we have goal text.
+            if conn._goal_text and not conn._title_requested:
+                conn._title_requested = True
+                generate_title_async(conn, conn._goal_text)
         elif t == "step.start":
             conn.status = "running"
             conn.step_index = d.get("index")
             conn.total_steps = d.get("total", conn.total_steps)
+            # Accumulate step descriptions for the recent-steps peek.
+            desc = d.get("description") or d.get("label") or ""
+            if desc:
+                conn.recent_steps.append(
+                    {"index": d.get("index"), "description": desc}
+                )
+                # Keep only the last 3 steps.
+                if len(conn.recent_steps) > 3:
+                    conn.recent_steps = conn.recent_steps[-3:]
+            # If title not yet generated and we now have a step description, trigger it.
+            if not conn._title_requested and desc:
+                conn._title_requested = True
+                goal = conn._goal_text or desc
+                generate_title_async(conn, goal)
         elif t == "monitor.alert":
             conn.status = "blocked"
             conn.block = {
@@ -256,6 +295,8 @@ class Hub:
             conn.status = {"completed": "completed", "failed": "failed"}.get(st, "idle")
             conn.block = None
             conn.routing = None
+            # Keep title + recent_steps visible after completion so the fleet card
+            # still shows what the run did. They reset on the next execution.start.
         elif t == "execution.halted":
             conn.status = "idle"
             conn.block = None
