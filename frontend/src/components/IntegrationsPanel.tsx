@@ -43,23 +43,24 @@ export function IntegrationsPanel() {
   const active = items.filter((i) => i.status === "active").length;
 
   return (
-    <div className="rounded-xl border border-edge bg-panel/80 p-5">
+    <div className="rounded-xl border border-edge bg-panel/80 p-5" role="status" aria-live="polite">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-ink">Integrations</h2>
         <span className="text-[11px] text-muted">
           {active}/{items.length} active
         </span>
       </div>
-      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
         {items.map((it) => (
-          <div
+          <li
             key={it.name}
             className="flex items-start gap-2 rounded-lg border border-edge/60 bg-canvas/40 px-3 py-2"
             title={it.detail}
           >
             <span
+              aria-hidden="true"
               className={`mt-1 h-2 w-2 shrink-0 rounded-full ${DOT[it.status]} ${
-                it.status === "active" ? "animate-pulseRing" : ""
+                it.status === "active" ? "animate-pulseRing motion-reduce:animate-none" : ""
               }`}
             />
             <div className="min-w-0">
@@ -71,9 +72,9 @@ export function IntegrationsPanel() {
               </div>
               <div className="truncate text-[11px] text-muted">{it.detail}</div>
             </div>
-          </div>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }
