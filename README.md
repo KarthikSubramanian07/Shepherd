@@ -130,19 +130,27 @@ a model stall can never strand the mouse mid-action.
 
 ## The five things that make it a product, not a demo
 
-### 1. You author by doing, not by diagramming
+### 1. Two ways to hand it a task: show it once, or just say it
 
-Every comparable tool (n8n, Zapier, Make) asks you to build a node graph.
-Shepherd asks you to **just do the task once.** The agent works in the same
-workspace you do, so the demonstration *is* the routine. Each spoken instruction
-attaches to the step it was said at, so you stay opinionated where it matters
-("when you reach the credential field, stop and ask me") with a fraction of the
-effort of writing a detailed prompt.
+For a task you repeat, **demonstrate it once** and the demonstration becomes the
+routine. No node graph, no Zapier-style flowchart. The agent works in the same
+workspace you do, so doing the task once *is* the authoring step, and each spoken
+instruction attaches to the step it was said at ("when you reach the credential
+field, stop and ask me").
 
 ```bash
-python main.py --record ROUTINE_FORM_FILL
-# Cmd+Shift+M marks each step boundary, Cmd+Shift+Q stops.
+python main.py --record ROUTINE_FORM_FILL   # Cmd+Shift+M marks a step, Cmd+Shift+Q stops
 ```
+
+For anything else, switch to **AUTONOMOUS and just say the goal.** There is no
+recorded routine and no script: the planner drafts a plan from your words and
+Agent S drives whatever app the goal needs. "Take my selfie from Photo Booth."
+"Play lo-fi on YouTube." "Find the cheapest flight to NYC and start the booking."
+It opens the app, reads the screen, and goes, building a per-goal memory graph so
+it is faster the next time you ask. This is the difference between a macro
+recorder and an actual agent: it generalizes to tasks nobody scripted. And the
+part that matters most, **the same oversight stack watches an autonomous run
+exactly as it watches a recorded one.** Open-ended capability, still on a leash.
 
 ### 2. The oversight stack catches it before it costs you
 
