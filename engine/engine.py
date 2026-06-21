@@ -1579,18 +1579,38 @@ class ShepherdExecutionEngine:
         `activate_app` is exposed so the agent can deterministically bring a target
         app to the foreground (instead of gambling that a Spotlight launch took
         focus); without guaranteed focus, keystrokes land in the wrong window.
+
+        Agent S (and the batched autonomous planner) frequently emit *bare* action
+        calls — ``hotkey('ctrl','l')``, ``press('enter')``, ``click(760, 300)`` —
+        dropping the documented ``pyautogui.`` prefix. Without the names in scope
+        that raises ``NameError`` and aborts the whole step (e.g. "name 'hotkey' is
+        not defined"). Expose the mouse/keyboard action verbs as bare names so the
+        prefixed and bare forms execute identically.
+
+        This is a deliberate *allowlist* of input actions — we do NOT expose
+        pyautogui's blocking GUI dialogs (``alert``/``confirm``/``prompt``) or
+        utilities like ``screenshot``/``locateOnScreen``, so a stray bare call can't
+        pop a modal that stalls the run.
         """
+        ns: dict = {
+            "__builtins__": __builtins__,
+            "pyautogui": pyautogui,
+            "time": time,
+            "sleep": time.sleep,
+            "activate_app": activate_app,
+            "type_text": type_text,
+        }
+        for _verb in (
+            "click", "doubleClick", "tripleClick", "rightClick", "middleClick",
+            "moveTo", "moveRel", "move", "dragTo", "dragRel", "drag",
+            "mouseDown", "mouseUp", "scroll", "hscroll", "vscroll",
+            "press", "keyDown", "keyUp", "hotkey", "typewrite", "write",
+        ):
+            _fn = getattr(pyautogui, _verb, None)
+            if callable(_fn):
+                ns[_verb] = _fn
         with self._actuation_lease():
-            exec(  # noqa: S102
-                code,
-                {
-                    "__builtins__": __builtins__,
-                    "pyautogui": pyautogui,
-                    "time": time,
-                    "activate_app": activate_app,
-                    "type_text": type_text,
-                },
-            )
+            exec(code, ns)  # noqa: S102
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
         with self._actuation_lease():
