@@ -85,6 +85,12 @@ class ShepherdExecutionEngine:
         max_steps = AUTONOMOUS_MAX_STEPS
         variables = {"GOAL": goal}
 
+        # Per-goal task graph — each executed step appends a node; persisted at end.
+        task_key = self._autonomous_task_key(goal)
+        graph = self._graphs.load(task_key, variables)
+        self._active_graph = graph
+        was_known = self._graphs.is_known(graph)
+
         event_bus.emit("execution.start", {
             "run_id":      run_id,
             "routine_id":  AUTONOMOUS_ROUTINE_ID,
@@ -95,6 +101,13 @@ class ShepherdExecutionEngine:
             "steps":       [],
         })
         rlog.request_started(run_id, goal, "AUTONOMOUS", True, AUTONOMOUS_ROUTINE_ID)
+        event_bus.emit("task.graph.loaded", {
+            "run_id":     run_id,
+            "routine_id": task_key,
+            "known":      was_known,
+            "run_count":  graph.run_count,
+            "node_count": len(graph.nodes),
+        })
 
         steps_done = 0
         error: Optional[str] = None
@@ -220,6 +233,16 @@ class ShepherdExecutionEngine:
 
                 dur_ms = int((time.time() - step_t0) * 1000)
                 rlog.step_result(run_id, i, step_status, dur_ms, step_error or "")
+                # Each executed step adds a node to the task graph (value=step index
+                # keeps every step a distinct node rather than collapsing duplicates).
+                label = self._autonomous_node_label(self._agent_s.last_reasoning, result.code)
+                fine  = len((result.code or "").splitlines())
+                self._graphs.record_milestone(
+                    graph, "step", label, str(i), fine, step_status, run_id)
+                event_bus.emit("task.graph.node", {
+                    "run_id": run_id, "index": i, "label": label,
+                    "kind": "step", "status": step_status,
+                })
                 self.last_step_records.append(StepRecord(
                     index=i, action="agent_s", target=None,
                     status=step_status, started_at=step_t0, duration_ms=dur_ms, error=step_error,
@@ -251,8 +274,36 @@ class ShepherdExecutionEngine:
             "steps_completed": steps_done,
             "duration_ms":     result.duration_ms,
         })
-        rlog.request_finished(run_id, status, steps_done, result.duration_ms)
+
+        # Persist the graph this run built (one node per executed step).
+        self._graphs.save(graph, intent_text=goal, variables=variables, run_id=run_id)
+        event_bus.emit("task.graph.saved", {
+            "run_id":     run_id,
+            "routine_id": task_key,
+            "run_count":  graph.run_count,
+            "node_count": len(graph.nodes),
+            "milestones": [n.label for n in graph.nodes],
+        })
+        self._active_graph = None
+
+        rlog.request_finished(run_id, status, steps_done, result.duration_ms,
+                              [n.label for n in graph.nodes])
         return result
+
+    @staticmethod
+    def _autonomous_task_key(goal: str) -> str:
+        slug = "".join(c if c.isalnum() else "_" for c in (goal or "").lower()).strip("_")
+        return "AUTONOMOUS::" + (slug[:48] or "goal")
+
+    @staticmethod
+    def _autonomous_node_label(reasoning: str, code: Optional[str]) -> str:
+        """A concise human-readable label for a step's graph node: the first line of
+        the agent's reasoning, else the first action it ran."""
+        r = " ".join((reasoning or "").split())
+        if r:
+            return (r[:77] + "…") if len(r) > 78 else r
+        first = (code or "").strip().splitlines()[0] if (code or "").strip() else "action"
+        return first[:78]
 
     def execute(self, resolved: ResolvedRoutine) -> ExecutionResult:
         self._halt_flag.clear()
