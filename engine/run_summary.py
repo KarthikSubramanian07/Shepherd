@@ -9,8 +9,6 @@ raises.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from engine import llm
 
 _SYSTEM = (
@@ -25,7 +23,9 @@ _SYSTEM = (
 def summarize_run(goal: str, status: str, trail: list[str], *, error: str = "") -> str:
     """Return a medium (2-4 sentence) response describing the run."""
     goal = (goal or "").strip()
-    steps = [s for s in (trail or []) if s]
+    # Coerce defensively so a caller that passes records (not strings) can never
+    # make this raise — the docstring promises it never does.
+    steps = [str(s) for s in (trail or []) if s]
     if llm.available():
         try:
             trail_txt = "\n".join(f"- {s}" for s in steps[-20:]) or "(no actions recorded)"
