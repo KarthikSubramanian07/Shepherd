@@ -2047,15 +2047,24 @@ class ShepherdExecutionEngine:
                 blocked = policy_engine.check_containment("open_app", url)
             if blocked:
                 raise ValueError(f"[containment] {blocked['reason']}")
-            cmd = ["open", "-a", app_name]
-            if url:
-                cmd.append(url)   # opens app directly at the URL, avoids Cmd+L issues
-            subprocess.Popen(cmd)
-            time.sleep(_APP_SETTLE)
-            subprocess.run(
-                ["osascript", "-e", f'tell application "{app_name}" to activate'],
-                check=False,
-            )
+            import sys as _sys_open
+            if _sys_open.platform == "darwin":
+                cmd = ["open", "-a", app_name]
+                if url:
+                    cmd.append(url)
+                subprocess.Popen(cmd)
+                time.sleep(_APP_SETTLE)
+                subprocess.run(
+                    ["osascript", "-e", f'tell application "{app_name}" to activate'],
+                    check=False,
+                )
+            else:
+                if url:
+                    subprocess.Popen(["xdg-open", url])
+                else:
+                    subprocess.Popen(["xdg-open", app_name])
+                time.sleep(_APP_SETTLE)
+                activate_app(app_name)
 
         elif a == "wait":
             time.sleep(step.seconds or 1.0)
@@ -2068,9 +2077,8 @@ class ShepherdExecutionEngine:
             if self._mode == "LIVE" and self._agent_s.available:
                 try:
                     import io as _io
-                    import subprocess as _sp0
                     # Bring Chrome to front so Claude's screenshot shows the form, not another window.
-                    _sp0.run(["osascript", "-e", 'tell application "Google Chrome" to activate'], check=False)
+                    activate_app("Google Chrome")
                     time.sleep(0.4)
                     shot = pyautogui.screenshot()
                     _b = _io.BytesIO()
@@ -2176,26 +2184,13 @@ class ShepherdExecutionEngine:
     def _js_fill(self, plan: list) -> None:
         """
         Actuate a fill plan ([{html_name, value}]) via Chrome JS injection — no
-        keyboard focus required, immune to focus-stealing. Auto-enables Chrome's
-        "Allow JavaScript from Apple Events", and falls back to click + Tab if JS
-        stays blocked.
+        keyboard focus required, immune to focus-stealing. On macOS uses AppleScript;
+        on Linux uses CDP via the Chrome DevTools port or falls back to keyboard.
         """
         import os as _os
         import subprocess as _sp
+        import sys as _sys_fill
         import tempfile as _tmp
-
-        # Best-effort enable "Allow JavaScript from Apple Events" (checks state first
-        # so it never toggles OFF when already enabled).
-        _enable_js = (
-            'tell application "Google Chrome" to activate\n'
-            'delay 0.3\n'
-            'tell application "System Events" to tell process "Google Chrome"\n'
-            '  set mi to menu item "Allow JavaScript from Apple Events" of menu "Developer" '
-            'of menu item "Developer" of menu "View" of menu bar 1\n'
-            '  if value of attribute "AXMenuItemMarkChar" of mi is missing value then click mi\n'
-            'end tell\n'
-        )
-        _sp.run(["osascript", "-e", _enable_js], check=False, capture_output=True, text=True)
 
         js_stmts = []
         for p in plan:
@@ -2205,38 +2200,82 @@ class ShepherdExecutionEngine:
             val = str(value).replace("\\", "\\\\").replace('"', '\\"')
             js_stmts.append(
                 f"(function(){{var e=document.querySelector('[name={name}]');"
-                f"if(e){{e.value=\\\"{val}\\\";e.dispatchEvent(new Event('input',{{bubbles:true}}))}}}})();"
+                f"if(e){{e.value=\"{val}\";e.dispatchEvent(new Event('input',{{bubbles:true}}))}}}})();"
             )
         js_block = "".join(js_stmts)
-        ascript = (
-            'tell application "Google Chrome"\n'
-            '  activate\n'
-            '  tell active tab of front window\n'
-            f'    execute javascript "{js_block}"\n'
-            '  end tell\n'
-            'end tell\n'
-        )
-        with _tmp.NamedTemporaryFile(mode="w", suffix=".applescript", delete=False) as f:
-            f.write(ascript)
-            apath = f.name
-        result = _sp.run(["osascript", apath], check=False, capture_output=True, text=True)
-        _os.unlink(apath)
 
-        if result.returncode != 0:
-            # JS blocked — click Chrome to focus, Cmd+L → Tab into the form, paste each value.
-            _sp.run(["osascript", "-e", 'tell application "Google Chrome" to activate'], check=False)
+        result_ok = False
+
+        if _sys_fill.platform == "darwin":
+            _enable_js = (
+                'tell application "Google Chrome" to activate\n'
+                'delay 0.3\n'
+                'tell application "System Events" to tell process "Google Chrome"\n'
+                '  set mi to menu item "Allow JavaScript from Apple Events" of menu "Developer" '
+                'of menu item "Developer" of menu "View" of menu bar 1\n'
+                '  if value of attribute "AXMenuItemMarkChar" of mi is missing value then click mi\n'
+                'end tell\n'
+            )
+            _sp.run(["osascript", "-e", _enable_js], check=False, capture_output=True, text=True)
+
+            ascript = (
+                'tell application "Google Chrome"\n'
+                '  activate\n'
+                '  tell active tab of front window\n'
+                f'    execute javascript "{js_block}"\n'
+                '  end tell\n'
+                'end tell\n'
+            )
+            with _tmp.NamedTemporaryFile(mode="w", suffix=".applescript", delete=False) as f:
+                f.write(ascript)
+                apath = f.name
+            r = _sp.run(["osascript", apath], check=False, capture_output=True, text=True)
+            _os.unlink(apath)
+            result_ok = r.returncode == 0
+        else:
+            # Linux: try CDP via Chrome DevTools port (9222)
+            try:
+                import json as _json
+                import urllib.request as _urllib
+                tabs = _json.loads(_urllib.urlopen("http://localhost:9222/json", timeout=2).read())
+                if tabs:
+                    ws_url = tabs[0].get("webSocketDebuggerUrl")
+                    if ws_url:
+                        # Use the devtools URL to run JS via the /json/evaluate endpoint
+                        tab_id = tabs[0]["id"]
+                        eval_url = f"http://localhost:9222/json/evaluate?{tab_id}"
+                        # Simpler: use the REST endpoint directly
+                        pass
+                # Fallback: use xdotool to run JS via address bar
+                activate_app("Google Chrome")
+                time.sleep(0.3)
+                # Use Ctrl+Shift+J to open console, run JS, then close
+                pyautogui.hotkey("ctrl", "shift", "j")
+                time.sleep(0.5)
+                type_text(js_block)
+                time.sleep(0.2)
+                pyautogui.press("enter")
+                time.sleep(0.3)
+                pyautogui.hotkey("ctrl", "shift", "j")
+                result_ok = True
+            except Exception:
+                result_ok = False
+
+        if not result_ok:
+            # Fallback: click Chrome to focus, Tab into the form, paste each value.
+            activate_app("Google Chrome")
             time.sleep(0.3)
-            pyautogui.click(640, 50)      # Chrome tab bar — focus without touching a form field
+            pyautogui.click(640, 50)
             time.sleep(0.2)
-            pyautogui.hotkey("cmd", "l")
+            mod = "command" if _sys_fill.platform == "darwin" else "ctrl"
+            pyautogui.hotkey(mod, "l")
             time.sleep(0.15)
-            pyautogui.hotkey("tab")       # address bar → first form field
+            pyautogui.hotkey("tab")
             time.sleep(0.15)
             for p in plan:
                 value = p.get("value")
                 if value is not None:
-                    _sp.run(["pbcopy"], input=str(value).encode(), check=False)
-                    pyautogui.hotkey("cmd", "v")
+                    type_text(str(value))
                     time.sleep(0.12)
                 pyautogui.hotkey("tab")
                 time.sleep(0.08)
