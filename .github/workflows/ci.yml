@@ -22,7 +22,7 @@ jobs:
           enable-cache: true
       - name: Set up Python
         run: uv python install 3.12
-      - name: Sync dependencies (incl. dev: pytest + ruff)
+      - name: Sync dependencies (incl. dev pytest + ruff)
         run: uv sync
       - name: Lint (ruff)
         run: uv run ruff check .
