@@ -1969,38 +1969,18 @@ class ShepherdExecutionEngine:
             time.sleep(step.seconds or 1.0)
 
         elif a == "batch_fill":
-            # Build the fill plan. LIVE mode: Claude reads the form screenshot and
-            # decides the mapping (genuine vision planning). LOCKED / fallback: the
-            # routine's hardcoded fields. Either way, actuation is reliable JS injection.
-            plan = None
-            if self._mode == "LIVE" and self._agent_s.available:
-                try:
-                    import io as _io
-                    import subprocess as _sp0
-                    # Bring Chrome to front so Claude's screenshot shows the form, not another window.
-                    _sp0.run(["osascript", "-e", 'tell application "Google Chrome" to activate'], check=False)
-                    time.sleep(0.4)
-                    shot = pyautogui.screenshot()
-                    _b = _io.BytesIO()
-                    shot.save(_b, format="PNG")
-                    resolved_fields = [
-                        type(bf)(tabs=bf.tabs, text=sub(bf.text), description=bf.description,
-                                 html_name=getattr(bf, "html_name", None))
-                        for bf in (step.fields or [])
-                    ]
-                    plan = self._agent_s.plan_batch_fill_mapping(resolved_fields, _b.getvalue())
-                except Exception as e:
-                    print(f"[engine] batch_fill vision planning failed (using hardcoded fields): {e}")
-
-            if plan is None:
-                # Hardcoded fields from the routine
-                plan = [
-                    {"html_name": bf.html_name, "value": sub(bf.text)}
-                    for bf in (step.fields or [])
-                    if getattr(bf, "html_name", None) and bf.text
-                ]
-
-            self._js_fill(plan)
+            # Fill the form by READING the live page, not replaying a fixed macro.
+            # LIVE mode discovers the form's real fields from the DOM and lets Claude
+            # match the intended data (by description) to them; the routine's
+            # hardcoded html_name mapping is only a fallback when the live form can't
+            # be read. Actuation is reliable JS injection either way.
+            intended = [
+                {"description": bf.description or getattr(bf, "html_name", None) or "field",
+                 "value": sub(bf.text)}
+                for bf in (step.fields or [])
+                if bf.text
+            ]
+            self._js_fill(self._plan_form_fill(intended, step))
 
         elif a == "browser":
             # Invoked only at routine boundaries, never mid-sequence.
@@ -2081,12 +2061,99 @@ class ShepherdExecutionEngine:
         else:
             raise ValueError(f"Unknown action: '{a}'")
 
+    def _inspect_form(self) -> list:
+        """Read the live page's fillable fields straight from the DOM — the basis
+        for non-macro form filling. Tags each field with a stable data-shep-fill
+        marker (so it can be targeted later regardless of name/id) and returns a
+        list of {idx, type, name, id, placeholder, aria, label}. Returns [] when
+        Chrome JS is unavailable or the page has no fillable fields."""
+        import json as _json
+        import os as _os
+        import subprocess as _sp
+        import tempfile as _tmp
+
+        # Single-quoted JS only (it's embedded in a double-quoted AppleScript string).
+        # Skips hidden/button/file/submit inputs and anything not visible, marks each
+        # surviving field with data-shep-fill=fN, and returns them as JSON.
+        js = (
+            "(function(){"
+            "var els=Array.from(document.querySelectorAll('input,select,textarea'))"
+            ".filter(function(e){var t=(e.type||'').toLowerCase();"
+            "return ['hidden','submit','button','reset','image','file'].indexOf(t)===-1"
+            " && e.offsetParent!==null;});"
+            "return JSON.stringify(els.map(function(e,i){"
+            "e.setAttribute('data-shep-fill','f'+i);"
+            "var lbl='';if(e.labels&&e.labels.length){lbl=e.labels[0].innerText||'';}"
+            "return {idx:i,type:(e.type||e.tagName).toLowerCase(),name:e.name||'',"
+            "id:e.id||'',placeholder:e.placeholder||'',"
+            "aria:e.getAttribute('aria-label')||'',label:(lbl||'').trim().slice(0,80)};"
+            "}));})()"
+        )
+        ascript = (
+            'tell application "Google Chrome"\n'
+            '  tell active tab of front window\n'
+            f'    execute javascript "{js}"\n'
+            '  end tell\n'
+            'end tell\n'
+        )
+        try:
+            with _tmp.NamedTemporaryFile(mode="w", suffix=".applescript", delete=False) as f:
+                f.write(ascript)
+                apath = f.name
+            result = _sp.run(["osascript", apath], check=False, capture_output=True, text=True)
+            _os.unlink(apath)
+            if result.returncode != 0:
+                return []
+            out = (result.stdout or "").strip()
+            fields = _json.loads(out) if out else []
+            return fields if isinstance(fields, list) else []
+        except Exception as e:
+            print(f"[engine] form inspection failed (using hardcoded fields): {e}")
+            return []
+
+    def _plan_form_fill(self, intended: list, step) -> list:
+        """Decide what goes in each form field — the non-macro path. Reads the live
+        form's real fields and lets Claude match the intended data to them, returning
+        a stable selector per match. Falls back to the routine's hardcoded html_name
+        mapping only when the live form can't be read or matched."""
+        import io as _io
+        import subprocess as _sp0
+
+        if self._mode == "LIVE" and self._agent_s.available and intended:
+            try:
+                # Bring Chrome to front so the DOM read + screenshot see the form.
+                _sp0.run(["osascript", "-e",
+                          'tell application "Google Chrome" to activate'], check=False)
+                time.sleep(0.4)
+                discovered = self._inspect_form()
+                if discovered:
+                    shot = pyautogui.screenshot()
+                    _b = _io.BytesIO()
+                    shot.save(_b, format="PNG")
+                    matched = self._agent_s.plan_form_fill(intended, discovered, _b.getvalue())
+                    if matched:
+                        valid = {d.get("idx") for d in discovered}
+                        return [
+                            {"selector": f"[data-shep-fill=f{m['idx']}]", "value": m["value"]}
+                            for m in matched if m["idx"] in valid
+                        ]
+            except Exception as e:
+                print(f"[engine] form-fill vision planning failed (using hardcoded fields): {e}")
+
+        # Fallback: the routine's hardcoded field mapping.
+        return [
+            {"html_name": bf.html_name, "value": sub(bf.text)}
+            for bf in (step.fields or [])
+            if getattr(bf, "html_name", None) and bf.text
+        ]
+
     def _js_fill(self, plan: list) -> None:
         """
-        Actuate a fill plan ([{html_name, value}]) via Chrome JS injection — no
-        keyboard focus required, immune to focus-stealing. Auto-enables Chrome's
-        "Allow JavaScript from Apple Events", and falls back to click + Tab if JS
-        stays blocked.
+        Actuate a fill plan via Chrome JS injection — no keyboard focus required,
+        immune to focus-stealing. Each plan item carries a `selector` (preferred,
+        from live-form discovery) or a legacy `html_name` (matched by [name=...]).
+        Auto-enables Chrome's "Allow JavaScript from Apple Events", and falls back
+        to click + Tab if JS stays blocked.
         """
         import os as _os
         import subprocess as _sp
@@ -2107,13 +2174,20 @@ class ShepherdExecutionEngine:
 
         js_stmts = []
         for p in plan:
-            name, value = p.get("html_name"), p.get("value")
-            if not name or value is None:
+            value = p.get("value")
+            if value is None:
                 continue
+            sel = p.get("selector")
+            if not sel:
+                name = p.get("html_name")
+                if not name:
+                    continue
+                sel = f"[name={name}]"
             val = str(value).replace("\\", "\\\\").replace('"', '\\"')
             js_stmts.append(
-                f"(function(){{var e=document.querySelector('[name={name}]');"
-                f"if(e){{e.value=\\\"{val}\\\";e.dispatchEvent(new Event('input',{{bubbles:true}}))}}}})();"
+                f"(function(){{var e=document.querySelector('{sel}');"
+                f"if(e){{e.value=\\\"{val}\\\";e.dispatchEvent(new Event('input',{{bubbles:true}}));"
+                f"e.dispatchEvent(new Event('change',{{bubbles:true}}))}}}})();"
             )
         js_block = "".join(js_stmts)
         ascript = (

@@ -861,3 +861,83 @@ class AgentSAdapter:
             print(f"[agent_s] plan_batch_fill_mapping failed (using hardcoded fields): {e}")
 
         return None
+
+    def plan_form_fill(
+        self,
+        intended: list,           # [{"description": str, "value": str}]
+        discovered: list,         # [{"idx", "type", "name", "id", "placeholder", "aria", "label"}]
+        screenshot_png: Optional[bytes] = None,
+    ) -> Optional[list]:
+        """The non-macro form-fill planner.
+
+        Instead of replaying the routine's hardcoded html_name->value mapping, this
+        matches the intended data (by its human description) against the fields that
+        ACTUALLY exist on the live page right now (read from the DOM by the engine).
+        Claude decides which value belongs in which real field, using each field's
+        label/name/id/placeholder/type plus the screenshot for visual layout.
+
+        Returns [{"idx": int, "value": str}] indexing into `discovered`, or None to
+        fall back to the hardcoded mapping. The caller turns idx into a stable
+        selector.
+        """
+        try:
+            import base64
+            import json
+            from anthropic import Anthropic
+            from config import AGENT_S_MODEL, ANTHROPIC_API_KEY
+
+            if not ANTHROPIC_API_KEY or not intended or not discovered:
+                return None
+
+            prompt = (
+                "You are an oversight agent filling a web form. You are given (a) the "
+                "data the operator wants entered and (b) the fields that ACTUALLY "
+                "exist on the live page right now (read straight from the DOM). Match "
+                "each intended value to the single best-fitting real field, using its "
+                "label, name, id, placeholder and type — and the screenshot for visual "
+                "layout. Rules:\n"
+                "- Only use fields that appear in the discovered list; never invent an "
+                "idx that isn't there.\n"
+                "- Omit any intended value that has no good match on this form.\n"
+                "- Each discovered field gets AT MOST one value.\n"
+                "- NEVER fill password, credential, payment-card, SSN or similar "
+                "sensitive fields, even if a value is offered for them.\n\n"
+                f"Intended data:\n{json.dumps(intended, indent=2)}\n\n"
+                f"Discovered fields on the page:\n{json.dumps(discovered, indent=2)}\n\n"
+                'Return ONLY a JSON array of {"idx": <discovered field idx>, '
+                '"value": <the value to type>} objects, in form order. No prose.'
+            )
+
+            content: list = []
+            if screenshot_png:
+                content.append({"type": "image", "source": {
+                    "type": "base64", "media_type": "image/png",
+                    "data": base64.standard_b64encode(screenshot_png).decode(),
+                }})
+            content.append({"type": "text", "text": prompt})
+
+            client = Anthropic(api_key=ANTHROPIC_API_KEY)
+            msg = client.messages.create(
+                model=AGENT_S_MODEL, max_tokens=1024,
+                messages=[{"role": "user", "content": content}],
+            )
+            raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+            start, end = raw.find("["), raw.rfind("]")
+            if start == -1 or end == -1 or end < start:
+                return None
+            plan = json.loads(raw[start:end + 1])
+            valid = {d.get("idx") for d in discovered}
+            out = [
+                {"idx": int(p["idx"]), "value": str(p["value"])}
+                for p in plan
+                if isinstance(p, dict) and "idx" in p and "value" in p
+                and int(p["idx"]) in valid
+            ]
+            if out:
+                print(f"[agent_s] form_fill: Claude matched {len(out)} values to live fields")
+                return out
+
+        except Exception as e:
+            print(f"[agent_s] plan_form_fill failed (using hardcoded fields): {e}")
+
+        return None
