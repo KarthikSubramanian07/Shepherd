@@ -510,11 +510,20 @@ class AgentSAdapter:
                 f"{missing}\n" if missing else ""
             )
 
+            # The current milestone instruction, surfaced explicitly so a human
+            # instruction override (Control Hub) is never silently dropped — it may
+            # differ from forward[0]'s default text when steered.
+            current_block = (
+                f"Your CURRENT milestone right now:\n  {instruction}\n\n"
+                if instruction else ""
+            )
+
             b64 = base64.standard_b64encode(self._capture()).decode()
             prompt = (
                 "You are an autonomous desktop agent executing a saved WORKFLOW on "
                 f"macOS. Overall goal:\n  {goal}\n\n"
                 f"{resolved_block}{missing_block}\n"
+                f"{current_block}"
                 f"{plan_block}"
                 f"{options_block}"
                 f"{history}"

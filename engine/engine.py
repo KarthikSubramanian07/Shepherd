@@ -1065,6 +1065,10 @@ class ShepherdExecutionEngine:
                 # workflow (it then names the furthest milestone it reached in `next`).
                 instruction = turn.instruction
                 forward = self._wf_forward_chain(workflow, cur, options_for, WS)
+                if forward:
+                    # honour a human instruction override (Control Hub) — keep the
+                    # plan's CURRENT milestone text in sync with what the planner sees.
+                    forward[0]["instruction"] = instruction
                 did_parts: list[str] = []
                 result_status, result_next = "done", "SAME"
                 node_turns = 0
