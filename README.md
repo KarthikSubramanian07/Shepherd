@@ -202,7 +202,8 @@ is real OpenTelemetry into Arize Phoenix. None of this is a screenshot of a logo
 | **Redis** | Beyond caching: vector search for intent routing (Redis 8 vectorset, VADD/VSIM), agent replay memory, and a semantic LLM cache that skips repeat milestone segmentation by meaning. |
 | **Sentry** | Error monitoring on a tool performing destructive OS actions. Auto-captures exceptions with full traces. |
 | **Band** | Boundary-only multi-agent messaging: the monitor agent and the engine agent coordinate around the run, never inside the click path. |
-| **Anthropic / Claude Code** | Built end to end with Claude Code. Claude is the verifier, the milestone segmenter, the routine planner, and the Agentspan research brain. |
+| **Anthropic / Claude Code** | Built end to end with Claude Code, and aimed at the hardest swing: oversight is the precondition for putting agents anywhere that matters. A clinician, a benefits caseworker, a finance back office cannot hand work to a black box. Shepherd is what makes an agent deployable in health, public services, and economic-opportunity settings at all. Claude is also the verifier, the milestone segmenter, the routine planner, and the Agentspan research brain. |
+| **Cognition / Devin** | Built with Devin alongside Claude Code. Devin drove whole feature branches end to end (the workflow dispatch + finalize gate, the remote command center with WebRTC P2P + Cloudflare Tunnel, the live execution-trace graph, ad-hoc dispatch, fleet session summaries) and self-reviewed via Devin Review, whose findings we resolved in-branch before merge. |
 
 Every integration is feature-flagged and degrades gracefully. With all flags off,
 the core automation and Control Hub run fully offline.
