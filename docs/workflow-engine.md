@@ -40,6 +40,60 @@ path against a durable journal (see §3).
 
 ---
 
+## 0. Architectural principles — workflow execution (non-negotiable)
+
+These govern how a *dispatched workflow* runs. They exist because a workflow run
+must be **as cheap as a routine run**. The standalone milestone-graph executor
+(`engine/workflow_executor.py`, §5) violated them — it ran as a separate layer and
+re-grounded **every** milestone with Agent S vision, so a workflow run was much
+slower than the same task as a plain routine (a routine fills a whole form with one
+no-LLM `batch_fill`; the executor grounded Fill-name / Fill-email / Fill-projects as
+three separate vision round-trips). These principles supersede that design.
+
+1. **One execution loop — workflows piggyback on the routine hot path.**
+   There is no separate execution engine for workflows. A dispatched workflow runs
+   through the **same** synchronous step loop the routine path uses
+   (`engine.engine._live_execute` / `_dispatch`), reusing every deterministic fast
+   path: `batch_fill` (one JS injection for a whole form, no LLM), deterministic
+   `type` with resolved text, `wait`, `hotkey`, `open_app`. Agent S vision grounding
+   is used **only** for milestones that genuinely need to ground against the live
+   screen — never unconditionally per node. If reusing the routine code directly
+   risks tainting it, **clone** the routine step flow and inject the workflow's
+   milestone context into it — but it must remain the routine-style loop, not a
+   second executor layer that re-grounds and re-plans every node.
+
+2. **Single-message advance — the node carries its own forward context; no reprompt
+   to route.** At each high-level milestone the agent is handed, **in the same
+   planning call it already makes for that node**, everything it needs to both act
+   and decide where to go next:
+     - the current node's instruction + resolved inputs,
+     - the **next** node's instruction (so it knows what it is heading toward),
+     - the outgoing edges and conditional branches as NL clauses
+       (`if <when> → do <do> → goto <node>`).
+   The agent does the node's action **and piggybacks its chosen next node / branch in
+   the one returned message**. The executor applies that choice directly. There is
+   **never** a second round-trip — no "finish the node, then go back to the graph and
+   re-prompt for where to go next". Routing costs zero extra calls.
+
+3. **Conditions are NL clauses read in-context** (see §6). A branch's `when` is
+   evaluated against the live screen as part of the same node planning call — no
+   predicate engine, no extra hot-path cost.
+
+4. **Tracing and crystallization are strictly side-channel.** Neither the live
+   execution-trace graph (Command Center) nor crystallization / coalescing is ever
+   in the execution path. Both **passively consume the emitted event stream**
+   (`workflow.*` / `step.*`) and the durable run-trace journal, off the hot path.
+   They add **zero** steps, round-trips, or synchronous work to a run: the live
+   trace graph is built coordinator-side from events the loop already emits;
+   crystallization runs on the async coalescer worker (§3). If observing a run ever
+   slows it down, that is a bug against this principle.
+
+**Click path stays sacred** (the original rule) applies unchanged: nothing async,
+networked, or ML-based runs inside the actuation loop; the only intentional block is
+human intervention.
+
+---
+
 ## 1. The three artifacts
 
 These are **distinct layers**, not duplicates. Each is a different granularity /
@@ -246,10 +300,16 @@ so the segmenter/coalescer don't care which model runs:
    (`engine/workflow_store.py`, `data/workflows.json`); `Router.resolve_plan` returns a
    `Plan{WORKFLOW | ROUTINE | GENERIC}` preferring a saved Workflow (`router/router.py`),
    indexed into the same vector search.
-5. **Milestone-graph executor (done)** — traverses the workflow node-by-node with a
-   single-message advance and pluggable workers (AgentS / LLM / Scripted)
-   (`engine/workflow_executor.py`); Control Hub steer/teach gate
-   (`engine/workflow_control.py`); wired into `engine/engine.py` on a WORKFLOW dispatch.
+5. **Milestone-graph executor (done; being superseded — see §0)** — traverses the
+   workflow node-by-node with a single-message advance and pluggable workers (AgentS
+   / LLM / Scripted) (`engine/workflow_executor.py`); Control Hub steer/teach gate
+   (`engine/workflow_control.py`); wired into `engine/engine.py` on a WORKFLOW
+   dispatch. **Note:** the standalone `AgentSWorker` re-grounds every milestone with
+   vision and bypasses the routine fast paths (`batch_fill` etc.), making workflow
+   runs much slower than routine runs. Per §0 this layer is being folded into the
+   routine hot path — the milestone instruction + next node + conditionals are
+   injected into the regular `_live_execute`/`_dispatch` loop (single-message
+   advance, no separate executor). The Control Hub gate and teaching loop stay.
 
 ---
 
@@ -278,6 +338,15 @@ so the segmenter/coalescer don't care which model runs:
 
 ## Decisions settled (log)
 
+- **Workflow execution piggybacks on the routine hot path** (§0): one loop, not a
+  separate executor; reuse the routine fast paths (`batch_fill`, deterministic
+  type/wait/hotkey/open_app) and ground with vision only when a milestone needs it.
+  Clone the routine flow rather than re-grounding every node.
+- **Single-message advance** (§0): a node is handed its instruction + the next
+  node + conditional branches in the one planning call it already makes, and returns
+  its action *and* its chosen next node together — never a second round-trip to route.
+- **Tracing & crystallization are side-channel** (§0): both consume the emitted
+  event stream / journal off the hot path; observing a run must never slow it.
 - **Three artifacts**, not duplicates: Routine (demo) → Task Graph (observed) →
   Workflow (saved, opinionated, dispatchable).
 - **Dispatch** on the generic intent: Router → `Plan{Workflow | Routine | Generic}`,
