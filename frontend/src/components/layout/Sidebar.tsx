@@ -10,7 +10,6 @@ import {
   FileText,
   GitBranch,
   LayoutDashboard,
-  Mic,
   Network,
   Radio,
   Shield,
@@ -20,7 +19,6 @@ import {
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useShepherd } from "@/lib/shepherd-ws";
-import { Button } from "@/components/ui/primitives";
 
 // `dev: true` tabs are developer/demo utilities not part of the core product
 // (Voice Lab = Deepgram STT tester, Components = UI showcase). They are hidden
@@ -185,18 +183,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="border-t border-edge p-3">
-        <Button className="group w-full shadow-card transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0">
-          <span className="relative flex h-[15px] w-[15px] items-center justify-center">
-            <span className="absolute inline-flex h-full w-full animate-watch rounded-full bg-white/40" />
-            <Mic size={15} className="relative" />
-          </span>
-          Record new tool
-        </Button>
-        <p className="mt-2 text-center text-[10px] text-muted">
-          Demonstrate a task once. The agent runs it after.
-        </p>
-      </div>
+
     </aside>
   );
 }
