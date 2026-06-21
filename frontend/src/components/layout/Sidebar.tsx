@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -20,6 +20,9 @@ import { api } from "@/lib/api";
 import { useShepherd } from "@/lib/shepherd-ws";
 import { Button } from "@/components/ui/primitives";
 
+// `dev: true` tabs are developer/demo utilities not part of the core product
+// (Voice Lab = Deepgram STT tester, Components = UI showcase). They are hidden
+// unless dev mode is on — enable with `?dev=true`, disable with `?dev=false`.
 const NAV = [
   { href: "/command-center", label: "Command Center", icon: LayoutDashboard },
   { href: "/remote", label: "Remote Control", icon: Radio },
@@ -28,9 +31,11 @@ const NAV = [
   { href: "/interventions", label: "Interventions", icon: ShieldAlert },
   { href: "/audit", label: "Audit Log", icon: FileText },
   { href: "/policy", label: "Policy", icon: Shield },
-  { href: "/voice-lab", label: "Voice Lab", icon: AudioLines },
-  { href: "/kit", label: "Components", icon: Boxes },
+  { href: "/voice-lab", label: "Voice Lab", icon: AudioLines, dev: true },
+  { href: "/kit", label: "Components", icon: Boxes, dev: true },
 ];
+
+const DEV_FLAG_KEY = "shepherd:dev";
 
 const MODES = ["LIVE", "LOCKED", "AUTONOMOUS"] as const;
 
@@ -38,6 +43,26 @@ export function Sidebar() {
   const pathname = usePathname();
   const { state } = useShepherd();
   const [switching, setSwitching] = useState(false);
+
+  // Dev mode reveals developer-only tabs. `?dev=true` turns it on (persisted in
+  // localStorage so it survives navigation, since nav links drop the query),
+  // `?dev=false` turns it off. Read in an effect to avoid SSR/hydration issues.
+  const [dev, setDev] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search).get("dev");
+    if (q === "true") {
+      window.localStorage.setItem(DEV_FLAG_KEY, "1");
+      setDev(true);
+    } else if (q === "false") {
+      window.localStorage.removeItem(DEV_FLAG_KEY);
+      setDev(false);
+    } else {
+      setDev(window.localStorage.getItem(DEV_FLAG_KEY) === "1");
+    }
+  }, [pathname]);
+
+  const navItems = NAV.filter((item) => dev || !item.dev);
 
   async function switchMode(mode: string) {
     setSwitching(true);
@@ -63,7 +88,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 px-2 py-2">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
             <Link
