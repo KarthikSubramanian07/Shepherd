@@ -2,11 +2,14 @@
 Tests for the refactored workflow dispatch (design §0): a dispatched workflow runs
 **through the batched agentic loop**, not a separate per-milestone executor.
 
-These assert the two guarantees the refactor exists to provide:
-  1. Single-message advance — exactly ONE planning call per milestone turn (the agent
-     emits its action AND the `next` node in the same reply), so advancing the graph
-     costs zero extra routing round-trips.
-  2. Conditional self-routing — the agent's returned `next`/`branch` moves the cursor,
+These assert the guarantees the refactor exists to provide:
+  1. No more messages than normal — the agent batches across consecutive milestones in
+     ONE planning call (it reports the extra milestones it finished in `completed`), so
+     a workflow run costs no more LLM calls than the same goal with no workflow. A
+     milestone only forces its own turn when it is a decision point (taught conditional).
+  2. Single-message advance — the agent emits its actions AND the `next` node in the
+     same reply, so advancing the graph costs zero extra routing round-trips.
+  3. Conditional self-routing — the agent's returned `next`/`branch` moves the cursor,
      including down a taught conditional branch, and `extracted` KB flows forward.
 
 The planner is faked (no GUI / no LLM) and `_exec_agent_code` is a no-op, so the loop
@@ -36,9 +39,12 @@ class _NoopTelemetry:
 
 
 class FakeAgentS:
-    """Stands in for AgentSAdapter: records each plan_workflow_chain call and routes
-    deterministically — takes a taught conditional when its required input is missing,
-    else the default edge; supplies the projects summary at the RESEARCH node."""
+    """Stands in for AgentSAdapter and models a *real batched agent*: given the
+    forward milestone plan it finishes as many consecutive milestones as it can in one
+    call (reporting them in `completed`), stopping only AT a decision point (a node
+    carrying a taught conditional) so the branch is evaluated with that node as the
+    cursor. At a decision point it takes the conditional when its input is missing,
+    else the default edge; it supplies the projects summary at the RESEARCH node."""
 
     def __init__(self):
         self.calls = []          # one entry per plan_workflow_chain call
@@ -50,32 +56,43 @@ class FakeAgentS:
     def reset_autonomous(self):
         pass
 
-    def plan_workflow_chain(self, goal, step_no, instruction, next_label="",
+    def plan_workflow_chain(self, goal, step_no, instruction, forward=None,
                             options=None, resolved=None, missing=None):
+        forward = forward or []
         options = options or []
         resolved = resolved or {}
-        self.calls.append({"instruction": instruction, "options": list(options)})
+        self.calls.append({"instruction": instruction, "forward": list(forward),
+                           "options": list(options)})
 
-        extracted = {}
-        if instruction.strip().lower().startswith("open the projects page"):
-            extracted = {"projects_summary": "Built Shepherd, VectorRoute, GraphBake"}
-
-        cond = [o for o in options if o.get("via") == "conditional"]
-        default = [o for o in options if o.get("via") != "conditional"]
+        completed: list[str] = []
+        extracted: dict[str, str] = {}
         branch = None
-        if cond and "projects_summary" not in resolved:
-            chosen_next = cond[0]["key"]
-            branch = cond[0]["when"]
-        elif default:
-            chosen_next = default[0]["key"]
-        elif options:
-            chosen_next = options[0]["key"]
-        else:
-            chosen_next = "END"
+        chosen_next = "END"
+
+        for i, m in enumerate(forward):
+            conds = m.get("conditionals") or []
+            if conds:
+                if i == 0:
+                    # We are AT the decision node this turn — evaluate the guard.
+                    if "projects_summary" not in resolved:
+                        chosen_next = conds[0]["goto"]
+                        branch = conds[0]["when"]
+                    else:
+                        completed.append(m["key"])
+                        default = [o for o in options if o.get("via") != "conditional"]
+                        chosen_next = default[0]["key"] if default else "END"
+                else:
+                    # Decision node downstream — stop the batch before it so it
+                    # becomes the cursor and gets its own evaluation turn.
+                    chosen_next = m["key"]
+                break
+            completed.append(m["key"])
+            if m["key"] == RESEARCH:
+                extracted = {"projects_summary": "Built Shepherd, VectorRoute, GraphBake"}
 
         return AutonomousStepResult(
             outcome="action", code="pyautogui.click(1, 1)", raw="acted",
-            next=chosen_next, branch=branch, extracted=extracted,
+            next=chosen_next, branch=branch, extracted=extracted, completed=completed,
         )
 
 
@@ -100,9 +117,12 @@ def _wf_steps(events):
     return [d for (t, d) in events if t == "workflow.step"]
 
 
-def test_dispatch_runs_through_agentic_loop_one_call_per_milestone():
-    """Summary case: projects summary already known → straight line, and every
-    milestone advances on a SINGLE planning call (no extra routing round-trip)."""
+def test_dispatch_batches_across_milestones_fewer_calls_than_nodes():
+    """Summary case: projects summary already known → straight line, and the agent
+    BATCHES consecutive milestones in one call, so the run costs fewer LLM calls than
+    there are milestones (the regression fix — a workflow is no slower than no
+    workflow). OPEN+FILL collapse into one call; only PROJECTS (a taught decision
+    point) forces its own turn."""
     wf = build_workflow()
     agent, _engine, result, exec_calls, events = _run(wf, params={
         "applicant_name": "Alex Johnson", "applicant_email": "alex@example.com",
@@ -111,20 +131,21 @@ def test_dispatch_runs_through_agentic_loop_one_call_per_milestone():
 
     assert result.status == "completed"
 
-    # Straight line — the taught RESEARCH branch is skipped because the input is known.
+    # Every milestone still appears in the trace — OPEN+FILL and the SUBMIT tail were
+    # replayed as done from the batches that covered them.
     visited = [d["node_key"] for d in _wf_steps(events)]
     assert visited == [OPEN, FILL, PROJECTS, SUBMIT]
 
-    # Single-message advance: exactly one planning call per milestone (4 nodes → 4
-    # calls). If routing took a second round-trip there would be more calls than nodes.
-    assert len(agent.calls) == len(visited) == 4
-    assert len(exec_calls) == 4                       # one batched action exec per node
+    # Fewer planning calls than milestones: OPEN+FILL batched together, PROJECTS is a
+    # decision turn, SUBMIT batched. 4 milestones, 3 calls — never one-per-field.
+    assert len(agent.calls) == 3 < len(visited)
+    assert len(exec_calls) == 3                       # one batched action exec per call
 
 
 def test_dispatch_self_routes_down_taught_conditional_branch():
     """No summary on file → the agent's returned `next`/`branch` routes down the
-    taught conditional to RESEARCH, learns the summary, and carries it forward —
-    still one planning call per milestone."""
+    taught conditional to RESEARCH, learns the summary, and carries it forward. The
+    decision point + research digression are the ONLY places extra turns are spent."""
     wf = build_workflow()
     agent, _engine, result, _exec, events = _run(wf, params={
         "applicant_name": "Alex Johnson", "applicant_email": "alex@example.com",
@@ -145,8 +166,9 @@ def test_dispatch_self_routes_down_taught_conditional_branch():
     research_step = next(s for s in steps if s["node_key"] == RESEARCH)
     assert "projects_summary" in research_step["extracted"]
 
-    # Still one planning call per milestone — five nodes, five calls.
-    assert len(agent.calls) == len(visited) == 5
+    # Five milestones, but only three calls: OPEN+FILL batched, PROJECTS (decision),
+    # RESEARCH+SUBMIT batched. The branch adds turns only where it genuinely must.
+    assert len(agent.calls) == 3 < len(visited)
 
 
 def test_dispatch_emits_workflow_event_stream():
