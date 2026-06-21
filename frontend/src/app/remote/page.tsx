@@ -59,11 +59,13 @@ export default function RemoteCommandCenterPage() {
   const [pickedNode, setPickedNode] = useState<string | null>(null);
   const [bakeToggle, setBakeToggle] = useState(true);
   // Track whether we've already fired the promote command for this run.
+  // Keyed by "agentId:runId" to avoid re-firing after agent switch-back.
   const promotedRef = useRef<string | null>(null);
 
   // Auto-promote: when the toggle is on and the trace signals promoteReady,
   // fire the promote command exactly once per run (idempotency guard).
   const trace = c.selected?.trace ?? null;
+  const promoteKey = c.selectedId && trace?.runId ? `${c.selectedId}:${trace.runId}` : null;
   useEffect(() => {
     if (
       bakeToggle &&
@@ -71,18 +73,22 @@ export default function RemoteCommandCenterPage() {
       !trace?.promoted &&
       trace?.routineId &&
       c.selectedId &&
-      promotedRef.current !== trace.runId
+      promoteKey &&
+      promotedRef.current !== promoteKey
     ) {
-      promotedRef.current = trace.runId;
+      promotedRef.current = promoteKey;
       c.sendCommand(c.selectedId, "promote", { task_key: trace.routineId });
     }
-  }, [bakeToggle, trace?.promoteReady, trace?.promoted, trace?.routineId, trace?.runId, c.selectedId, c]);
+  }, [bakeToggle, trace?.promoteReady, trace?.promoted, trace?.routineId, promoteKey, c.selectedId, c.sendCommand]);
 
-  // Reset the toggle + guard when a new run starts (agent or run changes).
+  // Reset the toggle when a genuinely new run starts (runId changes).
+  const prevRunId = useRef(trace?.runId);
   useEffect(() => {
-    setBakeToggle(true);
-    promotedRef.current = null;
-  }, [c.selectedId, trace?.runId]);
+    if (trace?.runId && trace.runId !== prevRunId.current) {
+      prevRunId.current = trace.runId;
+      setBakeToggle(true);
+    }
+  }, [trace?.runId]);
 
   // WebRTC P2P screen streaming.
   const sendSignalForAgent = useCallback(
