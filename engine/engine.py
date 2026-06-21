@@ -983,6 +983,7 @@ class ShepherdExecutionEngine:
         # a prior routine/autonomous execution. Mirrors execute().
         self.last_step_records = []
         self.last_trace_id = None
+        self._interventions = []
         run_id = str(uuid.uuid4())[:8]
         started_at = time.time()
 
