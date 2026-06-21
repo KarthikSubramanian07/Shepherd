@@ -92,6 +92,7 @@ containment:
     - "workbridge.internal"
     - "demo.workbridge.io"
     - "workbridge.com"
+    - "github.com"          # the research digression reads a candidate's GitHub
 
   # Hard ceiling on actions-per-minute across a single run (0 = unlimited).
   max_actions_per_minute: 60

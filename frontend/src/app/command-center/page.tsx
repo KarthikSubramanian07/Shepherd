@@ -27,7 +27,7 @@ export default function CommandCenterPage() {
     <div>
       <PageHeader
         title="Command Center"
-        subtitle="Live agent execution — monitor, intervene, replay."
+        subtitle="Live agent execution · monitor, intervene, replay."
         actions={
           <span
             className={`flex items-center gap-1.5 text-xs ${connected ? "text-ok" : "text-muted"}`}
@@ -46,15 +46,15 @@ export default function CommandCenterPage() {
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <StatusDot
-                hex={isHalted ? "#cf3b34" : isRunning ? "#dd6a1f" : "#9a8f81"}
+                hex={isHalted ? "#c0463c" : isRunning ? "#cf6a43" : "#9a8b7a"}
                 pulse={isRunning || isHalted}
               />
               <div>
                 <div className="font-semibold text-ink">
                   {isHalted
-                    ? "Halted — the agent is waiting on you"
+                    ? "Halted · the agent is waiting on you"
                     : isRunning
-                      ? "Agent at work — watching every step"
+                      ? "Agent at work · watching every step"
                       : "On watch"}
                 </div>
                 <div className="mt-0.5 text-xs text-muted">
@@ -76,15 +76,15 @@ export default function CommandCenterPage() {
             </Badge>
           </div>
 
-          {/* Run a goal — sends the local agent off via POST /api/intent */}
+          {/* Run a goal · sends the local agent off via POST /api/intent */}
           <RunGoalForm disabled={isRunning} />
 
-          {/* Monitor alert — the signature moment: the lantern catches the danger */}
+          {/* Monitor alert · the signature moment: the lantern catches the danger */}
           {state.monitorAlert && (
             <div className="mt-4 animate-riseIn rounded-xl border border-halt/40 bg-halt/[0.06] p-4 shadow-halt">
               <div className="flex items-center gap-2 text-sm font-semibold text-halt">
                 <ShieldAlert size={16} className="animate-pulseRing" />
-                Caught it — a step needs you before the agent goes on
+                Caught it · a step needs you before the agent goes on
               </div>
               <p className="mt-1 text-sm text-muted">
                 {state.monitorAlert.reason}
@@ -107,7 +107,7 @@ export default function CommandCenterPage() {
                     {state.verifierResult.verdict}
                   </Badge>
                   <span className="text-muted">
-                    {Math.round(state.verifierResult.confidence * 100)}% conf —{" "}
+                    {Math.round(state.verifierResult.confidence * 100)}% conf ·{" "}
                     {state.verifierResult.explanation}
                   </span>
                 </div>
@@ -132,7 +132,7 @@ export default function CommandCenterPage() {
             </div>
           )}
 
-          {/* Live execution path — replays milestone-by-milestone as the run streams */}
+          {/* Live execution path · replays milestone-by-milestone as the run streams */}
           {state.graphNodes.length > 0 && (
             <div className="mt-4 rounded-xl border border-edge bg-canvas/50 p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -159,17 +159,17 @@ export default function CommandCenterPage() {
           <Stat
             label="Status"
             value={isHalted ? "HALTED" : isRunning ? "RUNNING" : "IDLE"}
-            hint={state.routineId ?? "—"}
+            hint={state.routineId ?? "·"}
           />
           <Stat label="Mode" value={state.mode} hint="change in sidebar" />
           <Stat
             label="Step"
-            value={state.stepIndex !== null ? `${state.stepIndex + 1}` : "—"}
+            value={state.stepIndex !== null ? `${state.stepIndex + 1}` : "·"}
             hint="current"
           />
           <Stat
             label="Runs"
-            value={runs?.length ?? "—"}
+            value={runs?.length ?? "·"}
             hint="this session"
           />
         </div>
@@ -192,7 +192,7 @@ export default function CommandCenterPage() {
             <div className="rounded-xl border border-dashed border-edge bg-panel/40 px-6 py-10 text-center">
               <div className="text-sm font-medium text-ink">No runs to replay yet</div>
               <p className="mx-auto mt-1 max-w-xs text-xs text-muted">
-                Once the agent runs a task, every step it took shows up here — fully
+                Once the agent runs a task, every step it took shows up here · fully
                 scrubbable, so you can see exactly what happened while you were away.
               </p>
             </div>

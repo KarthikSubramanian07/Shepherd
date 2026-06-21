@@ -51,7 +51,7 @@ export default function AuditPage() {
     <div>
       <PageHeader
         title="Audit Log"
-        subtitle="Tamper-evident SHA-256 hash chain — every action the agent took."
+        subtitle="Tamper-evident SHA-256 hash chain · every action the agent took."
         actions={
           <Button
             variant="ghost"
@@ -85,7 +85,7 @@ export default function AuditPage() {
                 className={`font-semibold ${verify.valid ? "text-ok" : "text-halt"}`}
               >
                 {verify.valid
-                  ? `Chain intact — ${verify.entries} entries verified`
+                  ? `Chain intact · ${verify.entries} entries verified`
                   : `Chain broken at entry ${verify.tampered_at ?? "?"}`}
               </div>
               <div className="mt-0.5 text-xs text-muted">{verify.reason}</div>
@@ -152,7 +152,7 @@ export default function AuditPage() {
                       {e.action}
                     </td>
                     <td className="max-w-[120px] truncate px-4 py-2.5 text-muted">
-                      {e.target ?? "—"}
+                      {e.target ?? "·"}
                     </td>
                     <td
                       className={`px-4 py-2.5 font-medium ${STATUS_COLORS[e.status] ?? "text-ink"}`}

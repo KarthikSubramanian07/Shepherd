@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * Node Kit — composable primitives for building React Flow node types.
+ * Node Kit · composable primitives for building React Flow node types.
  *
  * Every node in the routine graph is assembled from these pieces so they share
  * one visual language (status rings, handles, screenshots, footers). Build a new
- * node type by composing <NodeFrame> with the parts you need — see
+ * node type by composing <NodeFrame> with the parts you need · see
  * `components/graph/nodes.tsx` for ActionNode / TriggerNode / BranchNode / NoteNode.
  */
 import * as React from "react";
@@ -30,7 +30,7 @@ export const toneHex = (t: NodeTone): string => TONE_HEX[t];
 export interface NodeFrameProps {
   /** Colors the border ring (e.g. runtime status). Omit for the neutral edge. */
   tone?: NodeTone;
-  /** Red pulsing ring — agent is blocked here. Overrides `tone`. */
+  /** Red pulsing ring · agent is blocked here. Overrides `tone`. */
   blocked?: boolean;
   selected?: boolean;
   width?: number;

@@ -92,7 +92,7 @@ export default function KitPage() {
     <div>
       <PageHeader
         title="Component Library"
-        subtitle="Primitives the dashboard is built from — UI atoms and composable graph nodes."
+        subtitle="Primitives the dashboard is built from · UI atoms and composable graph nodes."
       />
 
       <div className="space-y-8 p-6">
@@ -208,7 +208,7 @@ export default function KitPage() {
             <EmptyState
               icon={<ShieldAlert size={22} />}
               title="No interventions"
-              description="All agents are running clean — nothing needs you right now."
+              description="All agents are running clean · nothing needs you right now."
               action={<Button size="sm">Refresh</Button>}
             />
           </div>

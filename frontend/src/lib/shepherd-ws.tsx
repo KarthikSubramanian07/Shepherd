@@ -160,7 +160,7 @@ function applyEvent(
       if (key) {
         nodes = advanceTo(nodes, key, "running");
       } else if (prev.graphNodes.length === 0) {
-        // No milestone plan (e.g. AUTONOMOUS) — build a linear graph live.
+        // No milestone plan (e.g. AUTONOMOUS) · build a linear graph live.
         const k = `step:${index}`;
         if (!prev.graphNodes.some((n) => n.key === k)) {
           nodes = [
@@ -248,7 +248,7 @@ function applyEvent(
         verifierResult: null,
       };
     // ── Workflow traversal (the dispatched-workflow path) ───────────────────
-    // Same live graph, fed by the workflow.* stream instead of step.* — so the
+    // Same live graph, fed by the workflow.* stream instead of step.* · so the
     // command-center replays both routine runs and free workflow traversals.
     case "workflow.start":
       return {

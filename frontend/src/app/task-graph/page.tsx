@@ -86,7 +86,7 @@ export default function TaskGraphPage() {
           <Stat label="Runs observed" value={graph.run_count} />
           <Stat
             label="Last run"
-            value={graph.last_run_id || "—"}
+            value={graph.last_run_id || "·"}
             hint={graph.last_run_id ? "most recent traversal" : undefined}
           />
         </div>

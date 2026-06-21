@@ -1114,8 +1114,13 @@ class ShepherdExecutionEngine:
             self._js_fill(plan)
 
         elif a == "browser":
-            # Invoked only at routine boundaries, never mid-sequence
-            bstep = step.browser_step or {}
+            # Invoked only at routine boundaries, never mid-sequence.
+            # Substitute {VARS} in the URL FIRST (e.g. github.com/{GITHUB_USER})
+            # so containment checks and Browserbase see the resolved URL, not the
+            # literal placeholder.
+            bstep = dict(step.browser_step or {})
+            if bstep.get("url"):
+                bstep["url"] = sub(bstep["url"])
             target_url = bstep.get("url", "")
             if target_url:
                 blocked = policy_engine.check_containment("browser", target_url)
@@ -1124,12 +1129,13 @@ class ShepherdExecutionEngine:
             from services.browserbase_routine import run_browser_step
             result = run_browser_step(bstep)
             # A "read" can feed the next step: store its value into a variable so a
-            # later {VAR} fill uses what the agent just read off the live web. This
-            # is the research digression — real Browserbase read → fills the form.
+            # later {VAR} fill uses what the agent just read off the live web. If the
+            # read came back empty, fall back to the step's fallback_value (then to
+            # an empty string) so a later fill never ships a literal {PLACEHOLDER}.
             store_as = bstep.get("store_as")
             value = result.get("value")
-            if store_as and value:
-                variables[store_as] = value
+            if store_as:
+                variables[store_as] = value or bstep.get("fallback_value", "") or ""
             event_bus.emit("step.browser", {
                 "url":      result.get("url", target_url),
                 "action":   bstep.get("action", "navigate"),

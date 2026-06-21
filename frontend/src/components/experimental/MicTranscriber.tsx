@@ -221,7 +221,7 @@ export function MicTranscriber() {
             </div>
             <div className="text-xs text-muted">
               {recording
-                ? "Recording — click stop when done"
+                ? "Recording · click stop when done"
                 : transcribing
                   ? "Transcribing…"
                   : "Ready"}
@@ -313,7 +313,7 @@ export function MicTranscriber() {
             </p>
           ) : (
             <p className="text-sm italic text-muted">
-              (empty transcript — try speaking louder or longer)
+              (empty transcript · try speaking louder or longer)
             </p>
           )}
         </Card>

@@ -33,7 +33,7 @@ export function Badge({
     ok: "bg-ok/10 text-ok border-ok/30",
     flag: "bg-flag/10 text-flag border-flag/30",
     halt: "bg-halt/10 text-halt border-halt/30",
-    accent: "bg-accent/10 text-accent border-accent/30",
+    accent: "bg-accent/10 text-accent-ink border-accent/30",
   };
   return (
     <span
@@ -59,10 +59,11 @@ export function Button({
   ...props
 }: ButtonProps) {
   const variants: Record<string, string> = {
-    primary: "bg-accent text-white hover:bg-accent/90",
+    // accent-ink (deeper terracotta) so white label text clears AA (≥4.5:1).
+    primary: "bg-accent-ink text-white hover:brightness-110",
     ghost: "text-muted hover:text-ink hover:bg-panel2",
     outline: "border border-edge text-ink hover:bg-panel2",
-    danger: "bg-halt text-white hover:bg-halt/90",
+    danger: "bg-halt text-white hover:brightness-110",
   };
   const sizes: Record<string, string> = {
     sm: "h-7 px-2.5 text-xs",
@@ -248,7 +249,7 @@ export interface TabItem {
   label: React.ReactNode;
 }
 
-/** Controlled tabs — parent owns `value` so this stays render-only. */
+/** Controlled tabs · parent owns `value` so this stays render-only. */
 export function Tabs({
   items,
   value,

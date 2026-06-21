@@ -57,7 +57,7 @@ export default function PolicyPage() {
     <div>
       <PageHeader
         title="Governance Policy"
-        subtitle="Live policy.yaml — edit the file and Shepherd reloads it without a restart."
+        subtitle="Live policy.yaml · edit the file and Shepherd reloads it without a restart."
         actions={
           <Button
             variant="ghost"

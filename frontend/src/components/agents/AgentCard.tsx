@@ -55,7 +55,7 @@ export function AgentCard({ agent }: { agent: Agent }) {
             <Cpu size={12} /> {agent.host}
           </span>
           <span className="flex items-center gap-1">
-            <MapPin size={12} /> step {agent.currentStepIndex ?? "—"} · {timeAgo(agent.lastActivityAt)}
+            <MapPin size={12} /> step {agent.currentStepIndex ?? "·"} · {timeAgo(agent.lastActivityAt)}
           </span>
         </div>
       </Card>

@@ -82,7 +82,7 @@ export default function RemoteCommandCenterPage() {
     <div>
       <PageHeader
         title="Remote Command Center"
-        subtitle="Watch an agent operate another machine — its live screen beside the workflow it builds as it goes — and steer or teach it inline."
+        subtitle="Watch an agent operate another machine · its live screen beside the workflow it builds as it goes · and steer or teach it inline."
         actions={
           <div className="flex items-center gap-2">
             <SessionCode code={c.code} onSubmit={c.setCode} />
@@ -96,7 +96,7 @@ export default function RemoteCommandCenterPage() {
           <Stat label="Agents" value={c.agents.length} hint={`${online} online`} />
           <Stat label="Running" value={running} />
           <Stat label="Blocked" value={blocked} hint="awaiting human" />
-          <Stat label="Coordinator" value={c.conn === "open" ? "Linked" : "—"} />
+          <Stat label="Coordinator" value={c.conn === "open" ? "Linked" : "·"} />
         </div>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
@@ -128,7 +128,7 @@ export default function RemoteCommandCenterPage() {
             )}
           </div>
 
-          {/* Detail — unified live view */}
+          {/* Detail · unified live view */}
           <div className="xl:col-span-3">
             {!c.selected ? (
               <EmptyState
@@ -159,7 +159,7 @@ export default function RemoteCommandCenterPage() {
                         variant="outline"
                         onClick={() => {
                           c.sendCommand(c.selected!.id, "workflow.pause");
-                          setToast("Pause requested — agent will wait at the next milestone");
+                          setToast("Pause requested · agent will wait at the next milestone");
                         }}
                       >
                         <Pause size={14} /> Pause
@@ -169,7 +169,7 @@ export default function RemoteCommandCenterPage() {
                         variant="outline"
                         onClick={() => {
                           c.sendCommand(c.selected!.id, "workflow.resume");
-                          setToast("Resumed — agent proceeds autonomously");
+                          setToast("Resumed · agent proceeds autonomously");
                         }}
                       >
                         <Play size={14} /> Resume
@@ -362,7 +362,7 @@ function RosterCard({
           <Cpu size={12} /> {agent.host}
         </span>
         <span>
-          step {agent.currentStepIndex ?? "—"} · {timeAgo(agent.lastActivityAt)}
+          step {agent.currentStepIndex ?? "·"} · {timeAgo(agent.lastActivityAt)}
         </span>
       </div>
     </button>
@@ -566,7 +566,7 @@ function WorkflowIntervenePanel({
       <Textarea
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}
-        placeholder="Steer this milestone — e.g. “research the projects page and fill in the summary”"
+        placeholder="Steer this milestone · e.g. “research the projects page and fill in the summary”"
         rows={2}
       />
       <Input
@@ -617,7 +617,7 @@ function InterventionBanner({
       <div className="mb-2 flex items-center gap-2 text-halt">
         <AlertTriangle size={16} />
         <span className="text-sm font-semibold">
-          Step {b.stepIndex ?? "?"} needs you — {b.trigger ?? b.verdict}
+          Step {b.stepIndex ?? "?"} needs you · {b.trigger ?? b.verdict}
         </span>
       </div>
       <p className="mb-3 text-sm text-ink">{b.reason}</p>

@@ -17,7 +17,7 @@ export default function RunsPage() {
     <div>
       <PageHeader
         title="Runs"
-        subtitle="Each agent's exact traversal of a routine — open one to replay it."
+        subtitle="Each agent's exact traversal of a routine · open one to replay it."
       />
 
       <div className="p-6">

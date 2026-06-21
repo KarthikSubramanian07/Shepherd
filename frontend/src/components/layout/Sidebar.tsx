@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/primitives";
 
 // `dev: true` tabs are developer/demo utilities not part of the core product
 // (Voice Lab = Deepgram STT tester, Components = UI showcase). They are hidden
-// unless dev mode is on — enable with `?dev=true`, disable with `?dev=false`.
+// unless dev mode is on · enable with `?dev=true`, disable with `?dev=false`.
 const NAV = [
   { href: "/command-center", label: "Command Center", icon: LayoutDashboard },
   { href: "/remote", label: "Remote Control", icon: Radio },
@@ -79,20 +79,20 @@ export function Sidebar() {
 
   const running = state.status === "running";
   const halted = state.status === "halted";
-  const watchHex = halted ? "#cf3b34" : running ? "#dd6a1f" : "#1f8a5b";
+  const watchHex = halted ? "#bb4a3a" : running ? "#cf6a43" : "#2c6e60";
   const watchLabel = halted
-    ? "Halted — needs you"
+    ? "Halted, needs you"
     : running
       ? "Watching a run"
       : "On watch";
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-edge bg-panel/70">
-      {/* Brand lockup — shepherd's crook + lantern */}
+      {/* Brand lockup · shepherd's crook + lantern */}
       <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
         <ShepherdMark />
         <div>
-          <div className="text-[15px] font-semibold leading-none tracking-tight text-ink">
+          <div className="font-serif text-[17px] font-semibold leading-none tracking-tight text-ink">
             Shepherd
           </div>
           <div className="mt-1 text-[10px] font-medium uppercase tracking-eyebrow text-muted">
@@ -101,7 +101,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Live watch — the agent heartbeat */}
+      {/* Live watch · the agent heartbeat */}
       <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-edge bg-panel2/70 px-3 py-2">
         <span className="relative flex h-2 w-2">
           {(running || halted) && (
@@ -134,7 +134,7 @@ export function Sidebar() {
                   : "text-muted hover:translate-x-0.5 hover:bg-panel2 hover:text-ink",
               )}
             >
-              {/* Lantern indicator — slides in on the active route */}
+              {/* Lantern indicator · slides in on the active route */}
               <span
                 className={cn(
                   "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-accent transition-all duration-300 ease-out",
@@ -166,9 +166,9 @@ export function Sidebar() {
               disabled={switching || state.status === "running"}
               onClick={() => void switchMode(m)}
               className={cn(
-                "flex-1 rounded-md px-1.5 py-1 text-[10px] font-medium transition-colors",
+                "flex-1 rounded-md px-1.5 py-1 text-[10px] font-semibold transition-colors",
                 state.mode === m
-                  ? "bg-accent/20 text-accent"
+                  ? "bg-accent text-white shadow-card"
                   : "text-muted hover:bg-panel2 hover:text-ink",
               )}
             >
@@ -187,27 +187,25 @@ export function Sidebar() {
           Record new tool
         </Button>
         <p className="mt-2 text-center text-[10px] text-muted">
-          Demonstrate a task once — the agent runs it after.
+          Demonstrate a task once. The agent runs it after.
         </p>
       </div>
     </aside>
   );
 }
 
-/** Shepherd's-crook + lantern brand mark — bark crook, an orange lantern that
- *  flickers like a light kept on through the night watch. No literal sheep. */
+/** Shepherd brand mark · the herding-dog head from the logo, deep pine-teal.
+ *  Extracted from the source artwork (transparent), so it matches the wordmark. */
 function ShepherdMark() {
   return (
-    <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-bark/[0.12] text-bark">
-      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true">
-        <path
-          d="M8.5 21V10.25a5 5 0 0 1 10 0v.75"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-      </svg>
-      <span className="absolute right-1.5 top-1.5 h-2 w-2 animate-watch rounded-full bg-accent shadow-lantern" />
+    <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-panel2 shadow-card">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/shepherd-mark.png"
+        alt="Shepherd"
+        className="h-7 w-7 object-contain"
+        draggable={false}
+      />
     </div>
   );
 }

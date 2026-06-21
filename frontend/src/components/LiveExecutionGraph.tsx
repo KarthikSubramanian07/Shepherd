@@ -20,12 +20,12 @@ import type { LiveGraphNode, LiveNodeStatus } from "@/lib/shepherd-ws";
 import { cn } from "@/lib/utils";
 
 /**
- * The live execution path — the agent's run replays here node-by-node as the
+ * The live execution path · the agent's run replays here node-by-node as the
  * WebSocket stream arrives. Milestones are waypoints the agent is herded
  * through; the active one glows, completed ones are solid, recalled-from-memory
  * milestones carry a memory mark so you can see what the flock already knows.
  *
- * This is the "live view" of the run — distinct from the static /task-graph DAG.
+ * This is the "live view" of the run · distinct from the static /task-graph DAG.
  */
 const KIND_ICON: Record<string, LucideIcon> = {
   open: AppWindow,
@@ -39,7 +39,7 @@ const KIND_ICON: Record<string, LucideIcon> = {
   interact: MousePointerClick,
 };
 
-// Earthy, deepened hues — legible on the wool off-white ground and cohesive with
+// Earthy, deepened hues · legible on the wool off-white ground and cohesive with
 // the Daybreak palette (no pale dashboard rainbow).
 const KIND_COLOR: Record<string, string> = {
   open: "#2f6f9e",      // deep sky
@@ -56,15 +56,15 @@ const KIND_COLOR: Record<string, string> = {
 function statusRing(status: LiveNodeStatus, kind: string): string {
   switch (status) {
     case "running":
-      return KIND_COLOR[kind] ?? "#dd6a1f";
+      return KIND_COLOR[kind] ?? "#cf6a43";
     case "done":
-      return "#1f8a5b"; // ok
+      return "#2e8b57"; // ok
     case "flagged":
-      return "#dd6a1f"; // lantern
+      return "#cf6a43"; // lantern (terracotta)
     case "halted":
-      return "#cf3b34"; // halt
+      return "#c0463c"; // halt
     default:
-      return "#cdbfaa"; // pending — warm gray
+      return "#a8997f"; // pending · warm taupe, ≥3:1 on the peach ground
   }
 }
 
@@ -90,7 +90,7 @@ function Waypoint({ node, active }: { node: LiveGraphNode; active: boolean }) {
           )}
           style={{
             borderColor: ring,
-            opacity: dim ? 0.55 : 1,
+            opacity: dim ? 0.72 : 1,
             color: ring,
           }}
         >
@@ -104,11 +104,11 @@ function Waypoint({ node, active }: { node: LiveGraphNode; active: boolean }) {
             <Icon size={20} />
           )}
 
-          {/* Memory mark — this milestone was recalled from prior runs */}
+          {/* Memory mark · this milestone was recalled from prior runs */}
           {node.known && (
             <span
               className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-canvas bg-accent text-[9px] font-bold text-white"
-              title="Recalled from memory — the agent has done this before"
+              title="Recalled from memory · the agent has done this before"
             >
               ↺
             </span>

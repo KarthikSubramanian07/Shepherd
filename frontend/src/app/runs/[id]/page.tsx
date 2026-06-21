@@ -44,7 +44,7 @@ export default function RunReplayPage() {
     if (data) setScrubIndex(0);
   }, [data]);
 
-  // Auto-advance timer — uses actual step durationMs for realistic replay
+  // Auto-advance timer · uses actual step durationMs for realistic replay
   useEffect(() => {
     if (!playing || !data) return;
     if (scrubIndex >= totalSteps) {
@@ -83,7 +83,7 @@ export default function RunReplayPage() {
     setScrubIndex((i) => Math.min(totalSteps, i + 1));
   }
 
-  // ── Scrubbed run — slice statuses up to scrubIndex ─────────────────────────
+  // ── Scrubbed run · slice statuses up to scrubIndex ─────────────────────────
   const scrubRun = useMemo<Run | undefined>(() => {
     if (!data?.run) return undefined;
     return {
@@ -274,7 +274,7 @@ export default function RunReplayPage() {
                         {t.index + 1}. {titleByStep.get(t.stepId) ?? t.stepId}
                       </span>
                       <span className="text-[10px]" style={{ color: st.hex }}>
-                        {isFuture ? "—" : st.label}
+                        {isFuture ? "·" : st.label}
                       </span>
                     </div>
                     {!isFuture && (

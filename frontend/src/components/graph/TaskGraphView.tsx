@@ -41,7 +41,7 @@ const TAUGHT_COLOR = "#a855f7";
 function MilestoneNode(props: NodeProps) {
   const data = props.data as unknown as MilestoneData;
   const color = KIND_COLOR[data.kind] ?? "#94a3b8";
-  // Taught nodes carry baked human knowledge — highlight them distinctly.
+  // Taught nodes carry baked human knowledge · highlight them distinctly.
   const borderColor = data.taught ? TAUGHT_COLOR : color;
   return (
     <div

@@ -61,7 +61,7 @@ export default function InterventionsPage() {
             <div className="h-28 animate-pulse rounded-xl border border-edge bg-panel/50" />
           ) : pending.length === 0 ? (
             <Card className="p-6 text-center text-sm text-muted">
-              All clear — no agents are blocked.
+              All clear · no agents are blocked.
             </Card>
           ) : (
             <div className="space-y-3">

@@ -79,7 +79,7 @@ export function stepTone(status?: StepStatus): NodeTone | undefined {
 }
 
 /**
- * ActionNode — the workhorse routine-step node. Composed entirely from the
+ * ActionNode · the workhorse routine-step node. Composed entirely from the
  * node-kit primitives so it stays consistent with other node types.
  */
 export function StepNode({ data, selected }: NodeProps) {
@@ -141,5 +141,5 @@ export function StepNode({ data, selected }: NodeProps) {
   );
 }
 
-/** Alias — the step node is our generic "action" node type. */
+/** Alias · the step node is our generic "action" node type. */
 export { StepNode as ActionNode };

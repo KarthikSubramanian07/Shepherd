@@ -9,7 +9,7 @@ type Status = "idle" | "recording" | "transcribing";
 
 /**
  * Record a short voice command, transcribe it via the backend Deepgram proxy
- * (`/api/deepgram/transcribe`), and hand the text back to the caller — which
+ * (`/api/deepgram/transcribe`), and hand the text back to the caller · which
  * forwards it to the selected agent as an intent.
  */
 export function MicCommandButton({
@@ -45,7 +45,7 @@ export function MicCommandButton({
         } else if (data.transcript?.trim()) {
           onTranscript(data.transcript.trim());
         } else {
-          onError?.("empty transcript — try speaking longer");
+          onError?.("empty transcript · try speaking longer");
         }
       } catch (e) {
         onError?.((e as Error).message);

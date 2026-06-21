@@ -9,30 +9,54 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // "Daybreak Watch" — a light, pastoral oversight console.
-        // Wool off-white ground; warmth carried by the orange lantern + brown,
-        // NOT by a beige page. (Token names kept stable so components flip in place.)
-        canvas: "#f7f5f1",   // app ground — wool off-white, near-neutral
-        panel: "#fffefb",    // raised cards / panels
-        panel2: "#f0ece4",   // inset / secondary fills, rails
-        edge: "#e2dcd0",     // hairlines / borders
-        ink: "#2a231d",      // primary text — warm charcoal
-        muted: "#7c7064",    // secondary text — warm taupe (≥4.5:1 on ground)
-        accent: "#dd6a1f",   // the lantern — identity + the attention moment
-        bark: "#7a5c44",     // earthy brown — structure, brand glyph, secondary
+        // Palette distilled from the Shepherd logo: deep pine-teal mark on a warm
+        // peach ground. Teal carries the brand; a terracotta "lantern" carries the
+        // moment that needs a human. (Token names kept stable.)
+        canvas: "#f6ebdd",   // app ground — warm peach-cream (lightened from logo bg)
+        panel: "#fffdf8",    // raised cards / panels — warm near-white
+        panel2: "#f0e2d2",   // inset / secondary fills, rails — peach
+        edge: "#e4d2bf",     // hairlines / borders — warm tan
+        ink: "#223b3a",      // primary text — deep pine-teal (the brand mark color)
+        muted: "#5f7269",    // secondary text — desaturated teal-gray (≥4.5:1)
+        accent: "#cf6a43",   // PRIMARY interactive — terracotta (CTAs, active, links).
+                             // Warm pop against teal+peach; the brand's complement.
+        "accent-ink": "#a8502e", // terracotta darkened for small TEXT on light (AA)
+        teal: "#2c6e60",     // brand secondary — calm pine-teal (the "on watch" tone)
+        lantern: "#cf6a43",  // attention/intervention signal — same terracotta
+        bark: "#8a6f57",     // warm tertiary brown (rare structural use)
         // Status semantics — hue + icon/label everywhere (never color alone).
-        ok: "#1f8a5b",       // safe / completed — meadow green
-        flag: "#dd6a1f",     // needs attention — unified with the lantern
-        halt: "#cf3b34",     // stopped / dangerous — clay red
-        idle: "#9a8f81",     // pending / inactive — warm gray
-        running: "#dd6a1f",  // active — the lantern
+        // Only ONE green now (ok), so it never reads as a second teal.
+        ok: "#3f8f4e",       // safe / completed — leaf green (distinct from teal)
+        flag: "#cf6a43",     // needs attention — terracotta
+        halt: "#bb4a3a",     // stopped / dangerous — warm clay red (softened to fit)
+        idle: "#9a8b7a",     // pending / inactive — warm taupe
+        running: "#cf6a43",  // active — terracotta
       },
       boxShadow: {
-        // Soft daylight lift, not glow. Lantern glow reserved for the active node.
-        card: "0 1px 2px rgba(42,35,29,0.04), 0 8px 24px -16px rgba(42,35,29,0.18)",
-        lift: "0 2px 4px rgba(42,35,29,0.05), 0 16px 36px -18px rgba(42,35,29,0.24)",
-        lantern: "0 0 0 1px rgba(221,106,31,0.55), 0 0 24px rgba(221,106,31,0.28)",
-        halt: "0 0 0 2px rgba(207,59,52,0.6), 0 0 26px rgba(207,59,52,0.28)",
+        // Soft daylight lift. Lantern glow (terracotta) reserved for the active node.
+        card: "0 1px 2px rgba(34,59,58,0.05), 0 8px 24px -16px rgba(34,59,58,0.20)",
+        lift: "0 2px 4px rgba(34,59,58,0.06), 0 16px 36px -18px rgba(34,59,58,0.26)",
+        lantern: "0 0 0 1px rgba(207,106,67,0.55), 0 0 24px rgba(207,106,67,0.30)",
+        halt: "0 0 0 2px rgba(192,70,60,0.6), 0 0 26px rgba(192,70,60,0.28)",
+      },
+      fontFamily: {
+        // Anthropic/Claude aesthetic: a warm literary serif for display + a clean
+        // humanist sans for UI (system stacks → no network, renders crisp on macOS;
+        // deliberately NOT Arial/Helvetica). Mono for data/IDs/traces.
+        serif: [
+          "Iowan Old Style", "Palatino Linotype", "Palatino",
+          "Hoefler Text", "Georgia", "ui-serif", "serif",
+        ],
+        sans: [
+          "-apple-system", "BlinkMacSystemFont", "SF Pro Text", "Segoe UI Variable",
+          "Inter", "ui-sans-serif", "system-ui", "sans-serif",
+        ],
+        mono: [
+          "ui-monospace", "SF Mono", "JetBrains Mono", "Menlo", "Consolas", "monospace",
+        ],
+      },
+      letterSpacing: {
+        eyebrow: "0.14em",
       },
       transitionTimingFunction: {
         "out-quart": "cubic-bezier(0.25, 1, 0.5, 1)",

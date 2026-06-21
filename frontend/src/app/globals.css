@@ -17,44 +17,44 @@ body {
   @apply bg-canvas text-ink antialiased;
   font-feature-settings: "cv11", "ss01";
   /* Daybreak — a soft warm light from the top, like morning over a field.
-     Carried by the accent hue, not a beige tint on the body itself. */
+     Carried by the brand hues, not a flat tint on the body itself. */
   background-image:
-    radial-gradient(1200px 520px at 50% -10%, rgba(221, 106, 31, 0.05), transparent 70%),
-    radial-gradient(900px 600px at 100% 0%, rgba(122, 92, 68, 0.04), transparent 60%);
+    radial-gradient(1200px 520px at 50% -10%, rgba(207, 106, 67, 0.06), transparent 70%),
+    radial-gradient(900px 600px at 100% 0%, rgba(44, 110, 96, 0.05), transparent 60%);
   background-attachment: fixed;
 }
 
 ::selection {
-  background: rgba(221, 106, 31, 0.18);
+  background: rgba(44, 110, 96, 0.20);
 }
 
-/* React Flow — Daybreak Watch light theme */
+/* React Flow — Shepherd light theme (teal on peach) */
 .react-flow__background {
   background-color: transparent;
 }
 .react-flow__edge-path {
-  stroke: #c9bfae;
+  stroke: #d3bda4;
   stroke-width: 2;
 }
 .react-flow__edge.animated .react-flow__edge-path {
-  stroke: #dd6a1f;
+  stroke: #2c6e60;
 }
 .react-flow__handle {
   width: 8px;
   height: 8px;
-  background: #dd6a1f;
-  border: 2px solid #fffefb;
+  background: #2c6e60;
+  border: 2px solid #fffdf8;
 }
 .react-flow__controls {
   box-shadow: 0 8px 24px -16px rgba(42, 35, 29, 0.3);
 }
 .react-flow__controls-button {
-  background: #fffefb;
-  border-bottom: 1px solid #e2dcd0;
-  color: #2a231d;
+  background: #fffdf8;
+  border-bottom: 1px solid #e4d2bf;
+  color: #223b3a;
 }
 .react-flow__controls-button:hover {
-  background: #f0ece4;
+  background: #f0e2d2;
 }
 .react-flow__attribution {
   display: none;
