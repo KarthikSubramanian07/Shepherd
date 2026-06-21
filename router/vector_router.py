@@ -14,7 +14,6 @@ VSET_WF_KEY = "shepherd:workflows"
 SIMILARITY_THRESHOLD = 0.40   # below this, defer to keyword router
 CANDIDATE_RECALL_THRESHOLD = 0.25  # low bar for candidate generation (recall)
 CANDIDATE_K = 5  # top-K candidates to return
-HIGH_CONFIDENCE_THRESHOLD = 0.90  # skip LLM filter above this
 
 _singleton: Optional["VectorRouter"] = None  # set after init for re-index access
 

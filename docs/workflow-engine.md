@@ -363,21 +363,20 @@ Intent
  └► Vector search (CANDIDATE GENERATION — recall)
       • top-K (5) from workflows vectorset + top-K from routines vectorset
       • low recall threshold (0.25) — favor recall, not precision
- └► LLM filter (PRECISION)
-      • skip if top candidate ≥ 0.90 (obvious match, e.g. legit re-dispatch)
-      • skip if no candidates above recall threshold
+ └► LLM filter (PRECISION — always runs when ≥1 candidate)
+      • NO score-based bypass — even a 0.92 cosine can be a false positive
       • tiny prompt to fast model (Haiku via engine/llm.py):
         "Which candidate, if any, satisfies the request? Reply id or NONE."
       • returns chosen id → route; or NONE → GENERIC (autonomous)
- └► Graceful degradation (LLM unavailable)
+ └► Graceful degradation (LLM unavailable / transient error)
       • fall back to conservative top-1 threshold (0.40)
       • offline substring fallback unchanged (Redis down)
 ```
 
 Key properties:
 - **Cold path only** — never on the hot per-step execution loop.
-- **Cost**: one LLM call with ~64 max tokens; skipped entirely on high-confidence
-  or empty candidates.
+- **LLM is the authoritative precision gate** — always called when candidates
+  exist; one short Haiku call (~64 max tokens, 15s timeout) per routing decision.
 - **Deterministic tests**: `tests/test_llm_filter.py` mocks the LLM to validate
   both false-positive rejection and false-negative acceptance.
 

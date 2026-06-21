@@ -11,7 +11,7 @@ from typing import Optional
 
 from shepherd_types import Intent, ResolvedRoutine, Plan
 from router.registry import REGISTRY, CONFIDENCE_THRESHOLD
-from router.vector_router import VectorRouter, HIGH_CONFIDENCE_THRESHOLD, SIMILARITY_THRESHOLD
+from router.vector_router import VectorRouter, SIMILARITY_THRESHOLD
 from router import llm_filter
 from engine.workflow_store import WorkflowStore
 
@@ -34,11 +34,10 @@ class ShepherdIntentRouter:
 
         Pipeline (when vector search is available):
           1. Gather top-K candidates from BOTH workflow and routine vector sets.
-          2. If top candidate score >= HIGH_CONFIDENCE_THRESHOLD, route directly
-             (skip LLM — obvious match, e.g. a legit re-dispatch at 0.92).
-          3. Otherwise, call LLM filter (select) for precision.
-          4. If LLM picks a candidate -> route to it; if NONE -> GENERIC.
-          5. Graceful degradation: LLM unavailable -> conservative top-1 threshold.
+          2. Call LLM filter (select) on ALL candidates — no score-based bypass.
+          3. If LLM picks a candidate -> route to it; if NONE -> GENERIC.
+          4. Graceful degradation: LLM unavailable/errored -> conservative top-1
+             threshold (0.40).
 
         Offline fallback (Redis down): intent_pattern substring matching.
         """
@@ -97,12 +96,7 @@ class ShepherdIntentRouter:
         all_candidates.sort(key=lambda x: (x[1], x[2] == "WORKFLOW"), reverse=True)
         top_id, top_score, top_kind = all_candidates[0]
 
-        # High-confidence bypass: skip LLM on obvious matches
-        if top_score >= HIGH_CONFIDENCE_THRESHOLD:
-            print(f"[router] high-confidence bypass: {top_id} (score={top_score:.3f})")
-            return self._plan_for(top_id, top_kind, top_score, text, source="vector")
-
-        # Build candidate info for LLM filter
+        # LLM filter is the authoritative precision gate — always runs on candidates
         candidate_infos = self._build_candidate_infos(all_candidates, by_id)
 
         chosen_id = llm_filter.select(text, candidate_infos)

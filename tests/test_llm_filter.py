@@ -17,7 +17,6 @@ from unittest.mock import patch, MagicMock
 from shepherd_types import Intent, Workflow, TaskGraphNode
 from router import llm_filter
 from router.llm_filter import LLM_ERROR
-from router.vector_router import HIGH_CONFIDENCE_THRESHOLD
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
@@ -143,8 +142,8 @@ def test_resolve_plan_false_negative_routes_workflow(tmp_path):
     assert plan.source == "llm_filter"
 
 
-def test_resolve_plan_high_confidence_skips_llm(tmp_path):
-    """High-confidence (>=0.90) skips LLM filter entirely."""
+def test_resolve_plan_high_score_still_goes_through_llm_accepted(tmp_path):
+    """Even a high-score candidate (0.92) goes through the LLM filter — accepted."""
     from router.router import ShepherdIntentRouter
     from engine.workflow_store import WorkflowStore
 
@@ -154,20 +153,44 @@ def test_resolve_plan_high_confidence_skips_llm(tmp_path):
     router = ShepherdIntentRouter()
     router._workflows = store
 
-    # Mock vector router: workflow candidate at 0.92 (above high-confidence)
+    # Mock vector router: workflow candidate at 0.92
     router._vector = MagicMock()
     router._vector.workflow_candidates.return_value = [("WF_WIKIPEDIA_CREATORS", 0.92)]
     router._vector.candidates.return_value = []
 
-    # LLM should NOT be called — patch it to raise if called
+    # LLM confirms the candidate
     with patch.object(llm_filter.llm, "available", return_value=True), \
-         patch.object(llm_filter.llm, "complete", side_effect=AssertionError("LLM should not be called")):
+         patch.object(llm_filter.llm, "complete", return_value="WF_WIKIPEDIA_CREATORS"):
         plan = router.resolve_plan(Intent(raw_text=REDISPATCH_INTENT, timestamp=0.0))
 
     assert plan.kind == "WORKFLOW"
     assert plan.target == "WF_WIKIPEDIA_CREATORS"
-    assert plan.confidence >= HIGH_CONFIDENCE_THRESHOLD
-    assert plan.source == "vector"
+    assert plan.source == "llm_filter"
+
+
+def test_resolve_plan_high_score_still_goes_through_llm_rejected(tmp_path):
+    """Even a high-score candidate (0.92) goes through the LLM filter — rejected."""
+    from router.router import ShepherdIntentRouter
+    from engine.workflow_store import WorkflowStore
+
+    store = WorkflowStore(str(tmp_path / "workflows.json"))
+    store.save(_build_wiki_workflow())
+
+    router = ShepherdIntentRouter()
+    router._workflows = store
+
+    # Mock vector router: workflow candidate at 0.92
+    router._vector = MagicMock()
+    router._vector.workflow_candidates.return_value = [("WF_WIKIPEDIA_CREATORS", 0.92)]
+    router._vector.candidates.return_value = []
+
+    # LLM says NONE — even at 0.92 the filter rejects
+    with patch.object(llm_filter.llm, "available", return_value=True), \
+         patch.object(llm_filter.llm, "complete", return_value="NONE"):
+        plan = router.resolve_plan(Intent(raw_text=RESEARCH_INTENT, timestamp=0.0))
+
+    assert plan.kind == "GENERIC"
+    assert plan.source == "llm_filter"
 
 
 def test_resolve_plan_llm_unavailable_degrades_to_threshold(tmp_path):
