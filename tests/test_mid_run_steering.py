@@ -154,6 +154,7 @@ class TestSteerGoalInjection:
             result = MagicMock()
             if call_count[0] >= 4:
                 result.outcome = "done"
+                result.code = ""
             else:
                 result.outcome = "action"
                 result.code = "print('ok')"
@@ -166,7 +167,7 @@ class TestSteerGoalInjection:
              patch("engine.engine.rlog"), \
              patch("engine.engine.submit_trace"), \
              patch("engine.engine.current_trace_id", return_value="trace123"), \
-             patch("engine.engine.summarize_agent_code", return_value=([], [])), \
+             patch("engine.engine.summarize_agent_code", return_value=("", "")), \
              patch.object(engine, "_exec_agent_code"):
             result = engine._execute_autonomous_reactive("fill form")
 
@@ -192,6 +193,7 @@ class TestSteerGoalInjection:
             result = MagicMock()
             if call_count[0] >= 3:
                 result.outcome = "done"
+                result.code = ""
             else:
                 result.outcome = "action"
                 result.code = "print('ok')"
@@ -204,7 +206,7 @@ class TestSteerGoalInjection:
              patch("engine.engine.rlog"), \
              patch("engine.engine.submit_trace"), \
              patch("engine.engine.current_trace_id", return_value="trace123"), \
-             patch("engine.engine.summarize_agent_code", return_value=([], [])), \
+             patch("engine.engine.summarize_agent_code", return_value=("", "")), \
              patch.object(engine, "_exec_agent_code"):
             result = engine._execute_autonomous_reactive("original goal")
 
