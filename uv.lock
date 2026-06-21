@@ -470,6 +470,21 @@ wheels = [
 ]
 
 [[package]]
+name = "armoriq-sdk"
+version = "0.3.7"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5c/7e/f3161eff5ac661ffbd948f754fdec648a3e4d573d554735d8ccef7dbb366/armoriq_sdk-0.3.7.tar.gz", hash = "sha256:2544b151fab3e726022ba608e5c40d17ad1be815b150d334e754259d9f2346a9", size = 92552, upload-time = "2026-05-15T18:53:50.708Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cf/8a/94681647ea0ba3a07d4fbceb4e061e86722e5c6ce896358c2cd9df9dbb50/armoriq_sdk-0.3.7-py3-none-any.whl", hash = "sha256:0c90c660dfe248ad6a89df8ee1a8a836f00aa76b3123478e8792001e39b25871", size = 84799, upload-time = "2026-05-15T18:53:48.512Z" },
+]
+
+[[package]]
 name = "astor"
 version = "0.8.1"
 source = { registry = "https://pypi.org/simple" }
@@ -7734,6 +7749,7 @@ dependencies = [
     { name = "agentspan" },
     { name = "arize-phoenix" },
     { name = "arize-phoenix-otel" },
+    { name = "armoriq-sdk" },
     { name = "browserbase" },
     { name = "deepgram-sdk" },
     { name = "fastapi" },
@@ -7784,6 +7800,7 @@ requires-dist = [
     { name = "aiortc", marker = "extra == 'webrtc'", specifier = ">=1.9.0" },
     { name = "arize-phoenix", specifier = ">=8.0.0" },
     { name = "arize-phoenix-otel", specifier = ">=0.9.0" },
+    { name = "armoriq-sdk", specifier = ">=0.3.7" },
     { name = "band-sdk", extras = ["anthropic"], marker = "extra == 'band'", specifier = ">=1.0.0" },
     { name = "browserbase", specifier = "==0.3.0" },
     { name = "deepgram-sdk", specifier = ">=3.2.7" },

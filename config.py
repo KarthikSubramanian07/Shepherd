@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # ── Arize Phoenix (local) ──────────────────────────────────────────────
     arize_project_name: str = "shepherd"
     phoenix_collector_endpoint: str = "http://localhost:6006"
+    # Optional override for trace URLs. Leave empty to resolve from Phoenix GraphQL.
+    phoenix_project_slug: str = ""
 
     # ── Sentry ─────────────────────────────────────────────────────────────
     sentry_dsn: str = ""
@@ -180,6 +182,7 @@ settings = Settings()
 # Existing code imports these UPPER_CASE names directly from `config`.
 ARIZE_PROJECT_NAME         = settings.arize_project_name
 PHOENIX_COLLECTOR_ENDPOINT = settings.phoenix_collector_endpoint
+PHOENIX_PROJECT_SLUG       = settings.phoenix_project_slug
 SENTRY_DSN                 = settings.sentry_dsn
 REDIS_URL                  = settings.redis_url
 BROWSERBASE_API_KEY        = settings.browserbase_api_key

@@ -94,6 +94,29 @@ def _extract_variables(goal: str) -> dict[str, str]:
     return variables
 
 
+_DEFAULT_BROWSER = "Google Chrome"
+
+
+def _looks_like_url(value: str) -> bool:
+    v = (value or "").strip().lower()
+    return v.startswith("http://") or v.startswith("https://") or (
+        "://" in v or ("/" in v and "." in v)
+    )
+
+
+def normalize_open_app_step(step: RoutineStep) -> None:
+    """Routines use target=app name, text=URL. LLMs often swap or omit target."""
+    if step.action != "open_app":
+        return
+    target = (step.target or "").strip()
+    if _looks_like_url(target):
+        if not step.text:
+            step.text = target
+        step.target = _DEFAULT_BROWSER
+    elif not target and step.text and _looks_like_url(step.text):
+        step.target = _DEFAULT_BROWSER
+
+
 def _fill_type_steps(steps: list[RoutineStep], extracted: dict[str, str]) -> None:
     """Ensure type steps have text when the planner only wrote a description."""
     for step in steps:
@@ -108,78 +131,6 @@ def _fill_type_steps(steps: list[RoutineStep], extracted: dict[str, str]) -> Non
             step.text = "{EMAIL_BODY}"
         elif "search" in desc or "query" in desc:
             step.text = "{SEARCH_QUERY}"
-
-
-def _optimize_planned_steps(
-    steps: list[RoutineStep], goal: str, extracted: dict[str, str],
-) -> list[RoutineStep]:
-    """
-    Prefer reliable shortcuts over fragile vision clicks where we know them.
-    Ensures Gmail opens at the inbox URL when the goal mentions email/Gmail.
-    """
-    lower = goal.lower()
-    gmail_task = "gmail" in lower or ("email" in lower and "youtube" not in lower)
-    youtube_task = "youtube" in lower
-    optimized: list[RoutineStep] = []
-    after_gmail_open = False
-
-    for step in steps:
-        if (
-            gmail_task
-            and step.action == "open_app"
-            and not step.target
-        ):
-            step.target = "Google Chrome"
-
-        if step.action == "open_app" and gmail_task:
-            if not step.text or "mail.google" not in step.text.lower():
-                step.text = "https://mail.google.com/mail/u/0/#inbox"
-            step.target = step.target or "Google Chrome"
-            after_gmail_open = True
-
-        if step.action == "open_app" and youtube_task:
-            step.target = step.target or "Google Chrome"
-            if not step.text or "youtube" not in step.text.lower():
-                step.text = "https://www.youtube.com"
-
-        if step.action == "wait" and after_gmail_open and (step.seconds or 0) < 2.5:
-            step.seconds = 2.5
-
-        if step.action == "wait" and youtube_task and (step.seconds or 0) < 2.0:
-            step.seconds = 2.0
-
-        # YouTube: "/" focuses the search bar — more reliable than vision click
-        if (
-            youtube_task
-            and step.action == "click"
-            and step.description
-            and "search" in step.description.lower()
-        ):
-            optimized.append(RoutineStep(
-                action="hotkey",
-                keys=["/"],
-                description="Focus YouTube search bar (shortcut /)",
-            ))
-            continue
-
-        # Gmail Compose: keyboard shortcut beats vision click
-        if (
-            after_gmail_open
-            and step.action == "click"
-            and step.description
-            and "compose" in step.description.lower()
-        ):
-            optimized.append(RoutineStep(
-                action="hotkey",
-                keys=["c"],
-                description="Open new compose window (Gmail shortcut: c)",
-            ))
-            continue
-
-        optimized.append(step)
-
-    _fill_type_steps(optimized, extracted)
-    return optimized
 
 
 class RoutinePlanner:
@@ -197,7 +148,7 @@ class RoutinePlanner:
         payload = self._parse_json(raw)
         extracted = _extract_variables(goal)
         routine = self._to_definition(goal, payload, extracted)
-        routine.steps = _optimize_planned_steps(routine.steps, goal, extracted)
+        _fill_type_steps(routine.steps, extracted)
         return routine, extracted
 
     @staticmethod
@@ -307,6 +258,7 @@ class RoutinePlanner:
                 step_data["text"] = raw["url"]
             fields_raw = raw.get("fields")
             step = RoutineStep(**step_data)
+            normalize_open_app_step(step)
             if fields_raw:
                 step.fields = [BatchField(**f) for f in fields_raw]
             if not step.description:

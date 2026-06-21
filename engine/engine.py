@@ -37,12 +37,14 @@ from engine.coords import get as get_coord
 from engine.text_input import enter_text, hotkey as do_hotkey
 from engine.routines import get_routine
 from engine.agent_s_adapter import AgentSAdapter
-from engine.routine_planner import RoutinePlanner
+from engine.routine_planner import RoutinePlanner, normalize_open_app_step
 from engine.task_graph import TaskGraphStore, summarize, milestone_key
 from engine.coalescer import submit as submit_trace
 from dashboard.events import event_bus
 from telemetry import audit_log
 from telemetry import request_log as rlog
+from telemetry.telemetry import current_trace_id
+from telemetry.sentry_init import capture as sentry_capture
 from services import policy_engine
 from telemetry.agent_trace import (
     apply_chain_span,
@@ -77,6 +79,7 @@ class ShepherdExecutionEngine:
         self._active_graph = None   # task graph loaded as reference for the current run
         self._step_ms      = {}     # fine-step index → milestone reference for Agent S
         self.last_step_records: list[StepRecord] = []
+        self.last_trace_id: Optional[str] = None  # Phoenix trace id of the most recent run
         self._interventions: list[InterventionEvent] = []  # human teaching this run → coalescer
         self._halt_flag = threading.Event()
         self._pending_override: str = ""
@@ -184,6 +187,7 @@ class ShepherdExecutionEngine:
         """
         self._halt_flag.clear()
         self.last_step_records = []
+        self.last_trace_id = None
         self._interventions = []
         self._agent_s.reset_autonomous()
         run_id = str(uuid.uuid4())[:8]
@@ -232,6 +236,7 @@ class ShepherdExecutionEngine:
 
         try:
             with self._telemetry.span("routine.execute", oi_kind="CHAIN") as span:
+                self.last_trace_id = current_trace_id()
                 span.set_attribute("routine.id", AUTONOMOUS_ROUTINE_ID)
                 span.set_attribute("routine.mode", "AUTONOMOUS")
                 span.set_attribute("routine.goal", goal)
@@ -356,9 +361,18 @@ class ShepherdExecutionEngine:
                             error = step_error
                             status = "failed"
                             print(f"[engine] autonomous step {i} failed: {step_error}")
-                            if FEATURES["sentry"]:
-                                import sentry_sdk
-                                sentry_sdk.capture_exception(exc)
+                            sentry_capture(exc, tags={
+                                "routine_id": AUTONOMOUS_ROUTINE_ID,
+                                "mode": "AUTONOMOUS",
+                                "action": "agent_s",
+                                "step_index": i,
+                            }, context={
+                                "run_id": run_id,
+                                "goal": goal,
+                                "step_index": i,
+                                "code": result.code,
+                                "variables": variables,
+                            })
                             s.set_attribute("error.message", step_error)
                             event_bus.emit("step.error", {
                                 "run_id": run_id, "index": i, "error": step_error,
@@ -467,6 +481,7 @@ class ShepherdExecutionEngine:
     ) -> ExecutionResult:
         self._halt_flag.clear()
         self.last_step_records = []
+        self.last_trace_id = None
         self._interventions = []
         self._run_action_times = []
         # Fresh Agent S trajectory per run — its reflection/trajectory state is
@@ -575,6 +590,7 @@ class ShepherdExecutionEngine:
 
         try:
             with self._telemetry.span("routine.execute", oi_kind="CHAIN") as span:
+                self.last_trace_id = current_trace_id()
                 span.set_attribute("routine.id",   resolved.routine_id)
                 span.set_attribute("routine.mode", self._mode)
                 for k, v in variables.items():
@@ -712,9 +728,18 @@ class ShepherdExecutionEngine:
                             error       = step_error
                             status      = "failed"
                             print(f"[engine] step {i} failed: {step_error}")
-                            if FEATURES["sentry"]:
-                                import sentry_sdk
-                                sentry_sdk.capture_exception(exc)
+                            sentry_capture(exc, tags={
+                                "routine_id": resolved.routine_id,
+                                "mode": self._mode,
+                                "action": step.action,
+                                "step_index": i,
+                            }, context={
+                                "run_id": run_id,
+                                "step_index": i,
+                                "step_description": step.description or step.action,
+                                "instruction": step_instruction,
+                                "variables": variables,
+                            })
                             s.set_attribute("error.message", step_error)
                             event_bus.emit("step.error", {
                                 "run_id": run_id, "index": i, "error": step_error
@@ -1429,6 +1454,7 @@ class ShepherdExecutionEngine:
             do_hotkey(step.keys or [])
 
         elif a == "open_app":
+            normalize_open_app_step(step)
             app_name = sub(step.target) or ""
             url = sub(step.text) or ""
             # Containment check — app + URL against policy allowlists

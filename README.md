@@ -227,12 +227,12 @@ is real OpenTelemetry into Arize Phoenix. None of this is a screenshot of a logo
 | Sponsor | How Shepherd uses it |
 |---|---|
 | **Simular (Agent S)** | The execution engine. Agent S plans every LIVE action against the demonstration and actuates via pyautogui. The cursor moving on its own is Agent S. |
-| **Arize Phoenix** | OpenTelemetry spans on every run, action, and workflow node. `routine.run -> action.N -> workflow.node` nests into one trace. Phoenix caught real coordinate and variable bugs during the build. |
+| **Arize Phoenix** | OpenTelemetry spans on every run, action, and workflow node (`routine.run → agent_s.plan → action.N`). OpenInference I/O on LLM/TOOL spans. Start with `./scripts/serve_phoenix.sh` → http://localhost:6006 |
 | **Deepgram** | Voice three ways: speak the intent, narrate per-step instructions while recording a demonstration, and say "stop" to halt mid-run. Voice is the authoring tool and the oversight control surface. |
 | **Orkes / Agentspan** | The research step is a real Agentspan agent. `shepherd-researcher` compiles into a durable workflow on the self-hosted Agentspan server, reasons, and calls a `fetch_page` tool (Browserbase under the hood). Every run leaves a queryable execution. Open-source, keyless locally, reuses the Anthropic key. |
 | **Browserbase** | The agent's hands on the open web. Mid-task it opens a real cloud browser, reads a live page, and fills from what it found. Degrades to a deterministic local value offline. |
 | **Redis** | Beyond caching: vector search for intent routing (Redis 8 vectorset, VADD/VSIM), agent replay memory, and a semantic LLM cache that skips repeat milestone segmentation by meaning. |
-| **Sentry** | Error monitoring on a tool performing destructive OS actions. Auto-captures exceptions with full traces. |
+| **Sentry** | Error monitoring with Phoenix cross-links. Failed runs and exceptions attach a clickable `phoenix.trace_url` in the event context. Set `SENTRY_DSN` in `.env`. |
 | **Band (band.ai)** | A genuine two-agent collaboration over Band's agentic mesh. When the monitor is uncertain about a high-stakes screen, the engine peer posts the flagged action into a Band oversight room; the independent `shepherd-verifier` peer (Claude, wired into Band via its AnthropicAdapter) reads the @mention, judges the risk, and replies with a verdict the human gate consumes. This is Band's Drafter/Reviewer pattern mapped onto Shepherd's Monitor/Verifier handoff. Boundary-only (off the click path), free Agent API tier, and it degrades to the in-process verifier when Band is offline. |
 | **Anthropic / Claude Code** | Built end to end with Claude Code, and aimed at the hardest swing: oversight is the precondition for putting agents anywhere that matters. A clinician, a benefits caseworker, a finance back office cannot hand work to a black box. Shepherd is what makes an agent deployable in health, public services, and economic-opportunity settings at all. Claude is also the verifier, the milestone segmenter, the routine planner, and the Agentspan research brain. |
 | **Cognition / Devin** | Built with Devin alongside Claude Code. Devin drove whole feature branches end to end (the workflow dispatch + finalize gate, the remote command center with WebRTC P2P + Cloudflare Tunnel, the live execution-trace graph, ad-hoc dispatch, fleet session summaries) and self-reviewed via Devin Review, whose findings we resolved in-branch before merge. |
@@ -299,8 +299,9 @@ cp .env.example .env
 
 # 3. Supporting services (all optional, all degrade gracefully)
 redis-server                 # vector routing, memory, semantic cache
-uv run phoenix serve         # developer traces at http://localhost:6006
+./scripts/serve_phoenix.sh   # developer traces at http://localhost:6006
 agentspan server start       # durable research agent (open-source, keyless)
+# Optional: SENTRY_DSN in .env → errors cross-linked to Phoenix traces
 ```
 
 Then run it, either way:
@@ -317,6 +318,26 @@ BACKEND_URL=http://localhost:8765 uv run python main.py
 
 Open **http://localhost:3000** and speak or type an intent.
 
+## Observability (Phoenix + Sentry)
+
+Both are optional and off the click path.
+
+```bash
+# Phoenix — live OTel traces (no API key for local)
+./scripts/serve_phoenix.sh          # Terminal 1 → http://localhost:6006
+uv run python main.py               # Terminal 2
+
+# Sentry — add to .env, then failed runs link back to Phoenix
+SENTRY_DSN=https://xxx@oXXX.ingest.sentry.io/XXX
+```
+
+Sentry events include **Contexts → phoenix → trace_url** (clickable) and tag
+`phoenix.trace_id`. The project slug in trace URLs is resolved automatically via
+Phoenix GraphQL (`getProjectByName`).
+
+Implementation: `telemetry/telemetry.py`, `telemetry/agent_trace.py`,
+`telemetry/phoenix_client.py`, `telemetry/sentry_init.py`.
+
 ## Project layout
 
 ```
@@ -328,7 +349,7 @@ engine/            Execution core (the only code that actuates): recorder, task 
                    trace journal, Agent S adapter + grounding
 services/          Boundary integrations: monitor, policy, verifier, deepgram,
                    browserbase, band, agentspan research agent, coordinator relay client
-telemetry/         Arize Phoenix spans, hash-chain audit log, Redis replay memory
+telemetry/         Phoenix OTel spans, Sentry capture, hash-chain audit, Redis replay
 dashboard/         FastAPI: REST + WebSocket event stream
 coordinator/       Remote relay + WebRTC signaling so a Command Center can watch + steer
 frontend/          Next.js Control Hub

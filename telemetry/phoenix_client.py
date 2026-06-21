@@ -5,7 +5,7 @@ import json
 import urllib.error
 import urllib.request
 
-from config import ARIZE_PROJECT_NAME, PHOENIX_COLLECTOR_ENDPOINT
+from config import ARIZE_PROJECT_NAME, PHOENIX_COLLECTOR_ENDPOINT, PHOENIX_PROJECT_SLUG
 
 _TRACE_SPANS_QUERY = """
 query TraceSpans($project: String!, $traceId: ID!) {
@@ -59,6 +59,17 @@ query LatestTrace($project: String!) {
   }
 }
 """
+
+_PROJECT_BY_NAME_QUERY = """
+query ProjectByName($name: String!) {
+  getProjectByName(name: $name) {
+    id
+    name
+  }
+}
+"""
+
+_cached_project_slug: str | None = None
 
 
 def _graphql(query: str, variables: dict) -> dict | None:
@@ -145,10 +156,33 @@ def fetch_latest_trace() -> dict | None:
     return fetch_trace(trace_id)
 
 
+def resolve_project_slug(*, force_refresh: bool = False) -> str:
+    """Return the Phoenix UI project slug (global id) for trace URLs.
+
+    Uses PHOENIX_PROJECT_SLUG when set, otherwise queries getProjectByName once
+    and caches the result. Falls back to ARIZE_PROJECT_NAME if Phoenix is down.
+    """
+    global _cached_project_slug
+    if PHOENIX_PROJECT_SLUG:
+        return PHOENIX_PROJECT_SLUG
+    if _cached_project_slug and not force_refresh:
+        return _cached_project_slug
+
+    data = _graphql(_PROJECT_BY_NAME_QUERY, {"name": ARIZE_PROJECT_NAME})
+    project = (data or {}).get("getProjectByName") or {}
+    slug = project.get("id")
+    if slug:
+        _cached_project_slug = slug
+        return slug
+
+    return ARIZE_PROJECT_NAME
+
+
 def phoenix_trace_url(trace_id: str | None) -> str:
     base = PHOENIX_COLLECTOR_ENDPOINT.rstrip("/").replace("/v1/traces", "")
     tid = trace_id or ""
-    return f"{base}/projects/{ARIZE_PROJECT_NAME}/traces/{tid}"
+    slug = resolve_project_slug()
+    return f"{base}/projects/{slug}/traces/{tid}"
 
 
 def annotate_span(
