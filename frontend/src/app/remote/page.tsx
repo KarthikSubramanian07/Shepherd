@@ -326,7 +326,12 @@ export default function RemoteCommandCenterPage() {
                 {trace?.promoted && (
                   <Card className="flex items-center gap-2 border-ok/40 bg-ok/5 px-4 py-2 text-sm text-ok">
                     <ShieldCheck size={16} />
-                    Baked into workflow: <span className="font-mono text-[12px]">{trace.promoted.name}</span>
+                    <span>
+                      Baked into workflow: <span className="font-mono text-[12px]">{trace.promoted.name}</span>
+                      {trace.promoted.description && (
+                        <span className="ml-1 text-[11px] text-ok/70">— {trace.promoted.description}</span>
+                      )}
+                    </span>
                   </Card>
                 )}
 

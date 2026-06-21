@@ -357,11 +357,14 @@ class Hub:
                 conn.trace["promote_ready"] = True
         elif t == "task.graph.promoted":
             if conn.trace:
-                conn.trace["promoted"] = {
+                promoted: dict = {
                     "workflow_id": d.get("workflow_id"),
                     "name": d.get("name"),
                     "version": d.get("version"),
                 }
+                if d.get("description"):
+                    promoted["description"] = d["description"]
+                conn.trace["promoted"] = promoted
         elif t == "mode.changed":
             conn.mode = d.get("mode", conn.mode)
         elif t.startswith("workflow."):

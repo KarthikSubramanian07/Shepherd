@@ -478,6 +478,7 @@ class ShepherdExecutionEngine:
             executed=executed,
             interventions=list(self._interventions),
             deviations=deviations,
+            intent_text=goal,
         ))
         self._active_graph = None
 
@@ -497,6 +498,7 @@ class ShepherdExecutionEngine:
         routine: RoutineDefinition | None = None,
         mode_override: str | None = None,
         graph_key: str | None = None,
+        intent_text: str = "",
     ) -> ExecutionResult:
         self._halt_flag.clear()
         self.last_step_records = []
@@ -923,6 +925,7 @@ class ShepherdExecutionEngine:
             executed=executed,
             interventions=list(self._interventions),
             deviations=deviations,
+            intent_text=intent_text,
         ))
         self._active_graph = None
         self._step_ms = {}

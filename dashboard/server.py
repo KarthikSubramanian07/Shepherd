@@ -485,9 +485,10 @@ async def list_workflows() -> JSONResponse:
     try:
         from engine.workflow_store import WorkflowStore
         return JSONResponse([
-            {"id": w.id, "name": w.name, "version": w.version,
-             "intent_patterns": w.intent_patterns, "params": w.params,
-             "nodes": len(w.nodes), "updated_at": w.updated_at}
+            {"id": w.id, "name": w.name, "description": w.description,
+             "version": w.version, "intent_patterns": w.intent_patterns,
+             "params": w.params, "nodes": len(w.nodes),
+             "updated_at": w.updated_at}
             for w in WorkflowStore().list()
         ])
     except Exception:
@@ -693,26 +694,15 @@ async def promote_task_graph(task_key: str) -> JSONResponse:
     """Promote a crystallized task graph into a dispatchable workflow.
 
     Called by the Command Center's 'Bake out a new workflow' toggle after a
-    first-time ad-hoc run completes and the coalescer saves the graph."""
+    first-time ad-hoc run completes and the coalescer saves the graph.
+    Delegates to the shared promote_graph() helper which also fires async
+    LLM description generation."""
     try:
-        from engine.task_graph import TaskGraphStore
-        from engine.workflow_store import WorkflowStore
+        from engine.workflow_promote import promote_graph
 
-        graph = TaskGraphStore().load(task_key, {})
-        if graph.run_count == 0 and not graph.nodes:
+        wf = promote_graph(task_key)
+        if wf is None:
             return JSONResponse({"error": "graph not ready"}, status_code=404)
-
-        raw_name = graph.intents[0] if graph.intents else task_key.replace("AUTONOMOUS::", "")
-        name = raw_name.strip()[:60]
-        intent_patterns = list(graph.intents) if graph.intents else [raw_name]
-        slug = task_key.replace("AUTONOMOUS::", "").replace(" ", "_")
-        workflow_id = f"WF_{slug.upper()[:40]}"
-
-        wf = WorkflowStore().promote(graph, workflow_id, name, intent_patterns)
-        event_bus.emit("task.graph.promoted", {
-            "task_key": task_key, "workflow_id": wf.id,
-            "name": wf.name, "version": wf.version,
-        })
         return JSONResponse({
             "workflow_id": wf.id, "name": wf.name,
             "version": wf.version, "node_count": len(wf.nodes),
