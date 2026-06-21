@@ -624,6 +624,35 @@ async def resolve_intervention(intervention_id: str, request: Request) -> JSONRe
     return JSONResponse(iv)
 
 
+@app.post("/api/ingest")
+async def ingest_event(request: Request) -> JSONResponse:
+    """
+    Accept an event from a separate agent process and re-emit it on this backend's
+    bus → broadcast to connected dashboards + recorded in history. Lets the backend
+    run as its own persistent process while agents (which set BACKEND_URL) push to it.
+    Accepts {"type": str, "data": {...}} or a list of such messages.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    msgs = body if isinstance(body, list) else [body]
+    n = 0
+    for m in msgs:
+        if isinstance(m, dict) and m.get("type"):
+            event_bus.emit(m["type"], m.get("data") or {})
+            n += 1
+    return JSONResponse({"ok": True, "ingested": n})
+
+
 def start_dashboard() -> None:
-    """Called from main.py as a daemon thread."""
+    """Run the FastAPI backend. Used both as a daemon thread (in-process, from
+    main.py) and as a standalone persistent server (python -m dashboard.server)."""
     uvicorn.run(app, host="127.0.0.1", port=DASHBOARD_PORT, log_level="warning")
+
+
+if __name__ == "__main__":
+    # Standalone persistent backend — survives across agent runs, serves graphs,
+    # runs, replay, policy, audit from disk, and live events ingested from agents.
+    print(f"[backend] Shepherd backend → http://localhost:{DASHBOARD_PORT}  (Ctrl-C to stop)")
+    start_dashboard()
