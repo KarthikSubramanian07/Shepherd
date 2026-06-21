@@ -317,7 +317,7 @@ class TestE2ECoordinatorEventTracking:
 
         assert conn.status == "suspended"
         assert conn.block["type"] == "suspended"
-        assert conn.block["step_index"] == 4
+        assert conn.block["stepIndex"] == 4
         assert conn.trace["status"] == "suspended"
 
     def test_coordinator_resumed_status(self):

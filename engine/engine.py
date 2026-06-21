@@ -356,7 +356,8 @@ class ShepherdExecutionEngine:
         steps_done = 0
         error: Optional[str] = None
         status = "completed"
-        executed: list[RoutineStep] = []   # one step per action turn → coalescer
+        # Restore pre-suspension steps on resume so the final trace is complete.
+        executed: list[RoutineStep] = list(resume_ctx.executed) if resume_ctx else []
         monitor_step = RoutineStep(action="agent_s", description=goal)
 
         try:
@@ -669,22 +670,25 @@ class ShepherdExecutionEngine:
         # Hand the executed trace to the coalescer (COLD PATH): it LLM-segments into
         # milestones + edges and persists under task_key — the same per-goal memory
         # graph the planner consulted. Runs async; survives interrupt via the journal.
-        deviations = [
-            {"step_index": r.index, "reason": r.deviation}
-            for r in self.last_step_records if r.deviation
-        ]
-        submit_trace(RunTrace(
-            run_id=run_id,
-            routine_id=task_key,
-            variables=variables,
-            status=status,
-            started_at=started_at,
-            ended_at=ended_at,
-            executed=executed,
-            interventions=list(self._interventions),
-            deviations=deviations,
-            intent_text=goal,
-        ))
+        # SKIP on suspension — the trace is incomplete. It will be submitted when the
+        # task completes (after resume) or is discarded (new_task clears suspended).
+        if status != "suspended":
+            deviations = [
+                {"step_index": r.index, "reason": r.deviation}
+                for r in self.last_step_records if r.deviation
+            ]
+            submit_trace(RunTrace(
+                run_id=run_id,
+                routine_id=task_key,
+                variables=variables,
+                status=status,
+                started_at=started_at,
+                ended_at=ended_at,
+                executed=executed,
+                interventions=list(self._interventions),
+                deviations=deviations,
+                intent_text=goal,
+            ))
         self._active_graph = None
 
         rlog.request_finished(run_id, status, steps_done, result.duration_ms,

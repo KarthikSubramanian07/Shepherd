@@ -33,6 +33,7 @@ export interface RemoteOption {
 }
 
 export interface RemoteBlock {
+  type?: string | null;
   stepIndex: number | null;
   verdict?: string | null;
   trigger: string | null;

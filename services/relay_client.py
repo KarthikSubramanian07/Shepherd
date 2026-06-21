@@ -237,9 +237,11 @@ class RelayClient:
         if not text:
             return
 
-        if self._engine.is_suspended():
+        # Atomically capture the suspended task reference to avoid TOCTOU race
+        # (main loop thread may clear _suspended_task between check and access).
+        ctx = self._engine._suspended_task
+        if ctx is not None:
             # Agent is suspended — amend goal and trigger resume
-            ctx = self._engine._suspended_task
             ctx.goal = f"{ctx.goal}\n\n[OPERATOR STEER]: {text}"
             ctx.chain_history.append(
                 f">>> USER INTERVENED (IMPORTANT): {text}"

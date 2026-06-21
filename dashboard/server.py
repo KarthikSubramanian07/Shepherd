@@ -886,11 +886,13 @@ async def steer_task(request: Request) -> JSONResponse:
     if not text:
         return JSONResponse({"error": "text required"}, status_code=400)
 
-    if _engine_ref.is_suspended():
+    # Atomically capture the suspended task reference to avoid TOCTOU race
+    # (main loop thread may clear _suspended_task between check and access).
+    ctx = _engine_ref._suspended_task
+    if ctx is not None:
         from shepherd_types import InterventionEvent
         import time as _time
 
-        ctx = _engine_ref._suspended_task
         ctx.goal = f"{ctx.goal}\n\n[OPERATOR STEER]: {text}"
         ctx.chain_history.append(f">>> USER INTERVENED (IMPORTANT): {text}")
         flag = "save_as_rule" if remember else "one_off"

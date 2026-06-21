@@ -365,7 +365,7 @@ class Hub:
                 conn.trace["current"] = None
         elif t == "execution.suspended":
             conn.status = "suspended"
-            conn.block = {"type": "suspended", "step_index": d.get("step_index"),
+            conn.block = {"type": "suspended", "stepIndex": d.get("step_index"),
                           "goal": d.get("goal"), "reason": d.get("reason")}
             if conn.trace:
                 conn.trace["status"] = "suspended"

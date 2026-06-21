@@ -91,9 +91,10 @@ export default function RemoteCommandCenterPage() {
   useEffect(() => {
     if (!halting) return;
     for (let i = haltEvtBase.current; i < events.length; i++) {
-      if (events[i].type === "execution.halted") {
+      if (events[i].type === "execution.halted" || events[i].type === "execution.suspended") {
         const stepIdx = events[i].data?.step_index as number | undefined;
-        setToast(`Agent halted at step ${stepIdx ?? "?"}`);
+        const verb = events[i].type === "execution.suspended" ? "suspended" : "halted";
+        setToast(`Agent ${verb} at step ${stepIdx ?? "?"}`);
         setHalting(false);
         return;
       }
@@ -378,7 +379,7 @@ export default function RemoteCommandCenterPage() {
                     onIntervene={intervene}
                     onResume={() => c.sendCommand(c.selected!.id, "workflow.resume")}
                   />
-                ) : c.selected.block ? (
+                ) : c.selected.block && c.selected.block.type !== "suspended" ? (
                   <InterventionBanner
                     agent={c.selected}
                     onApprove={() => c.sendCommand(c.selected!.id, "approve")}
