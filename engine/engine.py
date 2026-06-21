@@ -54,6 +54,7 @@ from telemetry import audit_log
 from telemetry import request_log as rlog
 from telemetry.telemetry import current_trace_id
 from telemetry.sentry_init import capture as sentry_capture
+from engine.permissions import accessibility_ok, AccessibilityDenied
 from services import policy_engine
 from telemetry.agent_trace import (
     apply_chain_span,
@@ -161,6 +162,7 @@ class ShepherdExecutionEngine:
         self.last_step_records: list[StepRecord] = []
         self.last_trace_id: Optional[str] = None  # Phoenix trace id of the most recent run
         self._last_execute_span_id: Optional[str] = None  # routine.execute span → eval annotations
+        self._last_run_sentry_captured = False  # a step already sent capture_exception this run
         self._interventions: list[InterventionEvent] = []  # human teaching this run → coalescer
         self._halt_flag = threading.Event()
         self._pending_override: str = ""
@@ -327,6 +329,7 @@ class ShepherdExecutionEngine:
             self._halt_flag.clear()
             self.last_step_records = []
             self.last_trace_id = None
+            self._last_run_sentry_captured = False
             # Do NOT call reset_autonomous() — preserve chain memory
             # Drain stale steers (the resume steer is already baked into goal)
             while not self._steer_queue.empty():
@@ -344,6 +347,7 @@ class ShepherdExecutionEngine:
             self._halt_flag.clear()
             self.last_step_records = []
             self.last_trace_id = None
+            self._last_run_sentry_captured = False
             self._interventions = []
             self._agent_s.reset_autonomous()
             # Drain any stale steers from a previous task
@@ -676,6 +680,7 @@ class ShepherdExecutionEngine:
                                 "code": result.code,
                                 "variables": variables,
                             })
+                            self._last_run_sentry_captured = True
                             s.set_attribute("error.message", step_error)
                             event_bus.emit("step.error", {
                                 "run_id": run_id, "index": i, "error": step_error,
@@ -806,6 +811,7 @@ class ShepherdExecutionEngine:
         self._halt_flag.clear()
         self.last_step_records = []
         self.last_trace_id = None
+        self._last_run_sentry_captured = False
         self._interventions = []
         self._run_action_times = []
         self._armoriq_denial = None   # set when ArmorIQ refuses the plan's intent
@@ -1070,6 +1076,11 @@ class ShepherdExecutionEngine:
                             if agent_code:
                                 try:
                                     self._exec_agent_code(agent_code)
+                                except AccessibilityDenied:
+                                    # Permission, not a code error — falling back to the
+                                    # defined step would also silently no-op. Propagate so
+                                    # the run fails loudly and is captured to Sentry.
+                                    raise
                                 except Exception as agent_exc:
                                     # Agent S code failed to execute — fall back to the
                                     # deterministic defined step rather than aborting the run.
@@ -1104,6 +1115,7 @@ class ShepherdExecutionEngine:
                                 "instruction": step_instruction,
                                 "variables": variables,
                             })
+                            self._last_run_sentry_captured = True
                             s.set_attribute("error.message", step_error)
                             event_bus.emit("step.error", {
                                 "run_id": run_id, "index": i, "error": step_error
@@ -1295,6 +1307,7 @@ class ShepherdExecutionEngine:
         # a prior routine/autonomous execution. Mirrors execute().
         self.last_step_records = []
         self.last_trace_id = None
+        self._last_run_sentry_captured = False
         self._interventions = []
         run_id = str(uuid.uuid4())[:8]
         started_at = time.time()
@@ -1871,6 +1884,17 @@ class ShepherdExecutionEngine:
             _fn = getattr(pyautogui, _verb, None)
             if callable(_fn):
                 ns[_verb] = _fn
+        # This is the exact moment Agent S drives the mouse/keyboard. Without
+        # macOS Accessibility, pyautogui silently no-ops (no exception), so we
+        # check here and raise — turning an invisible miss into a failed step
+        # that the run loop captures to Sentry.
+        if accessibility_ok() is False:
+            raise AccessibilityDenied(
+                "macOS Accessibility permission not granted — mouse/keyboard "
+                "events are silently dropped. Enable it in System Settings → "
+                "Privacy & Security → Accessibility, then quit and reopen your "
+                "terminal."
+            )
         with self._actuation_lease():
             exec(code, ns)  # noqa: S102
 

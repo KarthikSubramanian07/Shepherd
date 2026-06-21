@@ -641,8 +641,10 @@ def _after_run(engine, telemetry, memory, result, confidence: float) -> None:
     memory.store(result, engine.last_step_records, confidence=confidence)
 
     # Failed runs that were swallowed by the engine (status set, no exception
-    # raised) still surface in Sentry as a message with full run context.
-    if result.status == "failed":
+    # raised) still surface in Sentry as a message with full run context. Skip it
+    # when a step already sent a capture_exception event this run — that exception
+    # issue carries the stack trace, so a message here would just be a duplicate.
+    if result.status == "failed" and not getattr(engine, "_last_run_sentry_captured", False):
         sentry_capture_message(
             f"Run failed: {result.routine_id} — {result.error or 'unknown error'}",
             tags={
