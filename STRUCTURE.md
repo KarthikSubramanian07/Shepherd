@@ -34,8 +34,7 @@ The main loop that wires everything together.
 
 - Parses `--mode LIVE|LOCKED` (overrides `EXECUTION_MODE`).
 - Initializes Sentry, telemetry, memory, routines cache, coordinate map, router, and engine.
-- Starts the dashboard server in a daemon thread, and the Overshoot vision stream in another
-  (both never block the engine).
+- Starts the dashboard server in a daemon thread (never blocks the engine).
 - Loops forever: get an intent (voice or typed) → resolve to a routine → execute → record
   telemetry + memory → print result.
 - `_get_intent_text()` arms the spoken-"stop" halt listener and records voice via Deepgram,
@@ -49,8 +48,7 @@ Central configuration loaded from `.env` (via `python-dotenv`).
 - Reads all API keys and the `EXECUTION_MODE` / `DASHBOARD_PORT` settings.
 - Builds the `FEATURES` dict — every integration is **feature-flagged**, mostly auto-enabled
   by the presence of its API key. With all flags off, core automation + dashboard run fully
-  offline. `arize`, `redis`, and `agent_s` default on; `context` and `fieldguide` are hard-off
-  pending unpublished criteria.
+  offline. `arize`, `redis`, and `agent_s` default on.
 
 ### `shepherd_types.py`
 All shared dataclasses — the type vocabulary used across every module. No logic.
@@ -230,7 +228,6 @@ FastAPI + Uvicorn server (run as a daemon thread from `main.py`):
 ### `dashboard/static/index.html`
 The single-page Control Hub. Connects to `/ws` and renders, from the event stream:
 - **Intent panel** — raw intent, resolved routine, confidence bar, matched keywords, variables.
-- **Vision panel** — live Overshoot screen-description stream.
 - **Task-graph (DAG) panel** — the steps the task knows, marking which are already-learned vs
   newly appended this run.
 - **Monitor panel** — verdict/reason/trigger when the monitor flags or halts.
@@ -249,12 +246,9 @@ off, so the core product runs without any of them. Several use placeholder API c
 |---|---|---|
 | `deepgram_input.py` | Voice STT: records mic → Deepgram → transcript string; also a background "stop" command listener. | Before an `Intent` is built; never between steps. |
 | `browserbase_routine.py` | Runs a web action in a Browserbase cloud browser (Playwright over CDP); local stub fallback. | Only as the `browser` action at a routine boundary. |
-| `overshoot_vision.py` | Passive screen-vision audit: parallel daemon polls the screen, POSTs to Overshoot, emits `vision.update` events. | A daemon thread; never inside `engine.execute()`. |
 | `band_boundary.py` | Multi-agent messaging: publishes routine start/complete to a Band room. | Fire-and-forget threads around `execute()`. |
 | `monitor_agent.py` | The safety monitor (see §4). | At `high_stakes_steps` boundaries. |
 | `orkes_workflow.py` | Orkes Agentspan wrapper around an agent run — VERIFY Saturday; may be dropped. | Wraps an agent run if enabled. |
-| `context_adapter.py` | Context integration — disabled, criteria unpublished. | n/a |
-| `fieldguide_adapter.py` | Fieldguide audit-record submission — disabled, criteria unpublished. | n/a |
 
 ---
 

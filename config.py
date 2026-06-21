@@ -40,7 +40,6 @@ class Settings(BaseSettings):
     # ── External service keys ──────────────────────────────────────────────
     browserbase_api_key: str = ""
     deepgram_api_key: str = ""
-    overshoot_api_key: str = ""
     band_api_key: str = ""
     band_room_key: str = ""
     orkes_server_url: str = ""
@@ -125,10 +124,7 @@ class Settings(BaseSettings):
             "redis":       True,
             "browserbase": bool(self.browserbase_api_key),
             "band":        bool(self.band_api_key and self.band_room_key),
-            "overshoot":   bool(self.overshoot_api_key),
             "orkes":       bool(self.orkes_server_url and self.orkes_api_key),
-            "context":     False,   # criteria unpublished — check Saturday
-            "fieldguide":  False,   # criteria unpublished — check Saturday
             "agent_s":     True,
             "remote":      bool(self.coordinator_url),
         }
@@ -147,7 +143,6 @@ BROWSERBASE_API_KEY        = settings.browserbase_api_key
 DEEPGRAM_API_KEY           = settings.deepgram_api_key
 DEEPGRAM_MODEL             = settings.deepgram_model
 DEEPGRAM_LANGUAGE          = settings.deepgram_language
-OVERSHOOT_API_KEY          = settings.overshoot_api_key
 BAND_API_KEY               = settings.band_api_key
 BAND_ROOM_KEY              = settings.band_room_key
 ORKES_SERVER_URL           = settings.orkes_server_url

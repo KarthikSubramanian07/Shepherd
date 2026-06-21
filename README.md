@@ -94,8 +94,7 @@ Every action — including the halt — signed into the hash-chain audit log.
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        OBSERVABILITY + MEMORY                               │
 │   Arize Phoenix  — OTel spans at routine.execute → action.N level          │
-│   Overshoot      — parallel real-time screen vision narration               │
-│   Redis memory   — full per-step ReplayRecord for every run                 │
+│   Redis          — vector routing · replay memory · semantic cache          │
 │   RoutineEvolution — auto-promotes risky steps to monitored over time       │
 └─────────────────────────────────────────────────────────────────────────────┘
                    ↓
@@ -225,28 +224,9 @@ brew install redis && brew services start redis
 
 ---
 
-### Overshoot — Real-Time Screen Vision
-
-A parallel daemon thread captures screenshots and streams them to Overshoot's vision API with the prompt: *"Describe what the AI agent is currently doing on screen in one short phrase."* Results appear in the **Vision Audit** panel alongside the action log.
-
-- Runs as a daemon thread — never blocks `engine.execute()`
-- `FEATURES["overshoot"] = False` → panel shows "vision audit offline" gracefully
-- WiFi down → same graceful state; core automation unaffected
-
----
-
 ### Orkes / Agentspan — Workflow Orchestration
 
 Track is judged on Agentspan. Build only after VERIFY Saturday — if Agentspan maps cleanly to wrapping the agent run, a thin `services/orkes_workflow.py` wrapper is ready to wire. If it doesn't map cleanly, this integration is dropped entirely per the spec. No Conductor workflow is built.
-
----
-
-### Context + Fieldguide — Optional Tracks
-
-Criteria publish Saturday on Slack. Stubs are in place (`services/context_adapter.py`, `services/fieldguide_adapter.py`). Build only if a fast, genuine fit appears.
-
-- Context angle: frame the Redis execution memory + audit log as agent context management
-- Fieldguide angle: governance/compliance framing maps to their audit-software domain
 
 ---
 
@@ -437,11 +417,10 @@ services/
   policy_engine.py     Loads + evaluates data/policy.yaml — hot reload
   verifier.py          Independent Haiku second-opinion verifier
   deepgram_input.py    Voice STT — transcribe + spoken-stop halt path
-  overshoot_vision.py  Parallel real-time screen vision narration
+  embeddings.py        Shared local embedding model (bge-small)
+  semantic_cache.py    Redis vectorset LLM response cache
   band_boundary.py     Band multi-agent boundary messaging
   browserbase_routine.py  Cloud browser action (Browserbase + Playwright)
-  context_adapter.py   Context integration stub (criteria Saturday)
-  fieldguide_adapter.py   Fieldguide integration stub (criteria Saturday)
 
 telemetry/
   audit_log.py         Tamper-evident SHA-256 hash-chain audit log

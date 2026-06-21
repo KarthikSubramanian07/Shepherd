@@ -108,16 +108,6 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
 .vk { color:var(--am); min-width:90px; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .vv { color:var(--th); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
 
-/* Vision panel */
-.vis-lead { display:flex; align-items:flex-start; gap:8px; }
-.vdot { width:6px; height:6px; border-radius:50%; background:var(--dim); flex-shrink:0; margin-top:4px; }
-.vdot.live { background:var(--bl); box-shadow:0 0 5px var(--bl); animation:blink 2.4s ease-in-out infinite; }
-.vcur { color:var(--th); font-size:.72rem; font-style:italic; line-height:1.5; }
-.vhist { margin-top:8px; }
-.vhe { font-size:.64rem; color:var(--dim2); padding:3px 0; border-top:1px solid var(--b); line-height:1.45; }
-.vscreen { margin-top:10px; border:1px solid var(--b2); border-radius:3px; overflow:hidden; }
-.vscreen img { width:100%; display:block; opacity:.85; }
-
 /* ── DAG ── */
 #dag-panel { background:var(--s); display:flex; flex-direction:column; overflow:hidden; }
 #dag-scroll { flex:1; overflow-y:auto; padding:16px 22px; scrollbar-width:thin; scrollbar-color:var(--b2) transparent; }
@@ -467,7 +457,7 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
 <!-- Body -->
 <div id="body">
 
-  <!-- Left: Intent + Vision -->
+  <!-- Left: Intent -->
   <div id="left">
     <div class="panel">
       <div class="plbl">Intent</div>
@@ -481,19 +471,6 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
         </div>
         <div class="kv"><div class="k">Keywords</div><div class="chips" id="ikw"></div></div>
         <div class="kv"><div class="k">Variables</div><div class="vars" id="ivars"></div></div>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="plbl">Vision Audit</div>
-      <div class="pbody">
-        <div class="vis-lead">
-          <div class="vdot" id="vdot"></div>
-          <div class="vcur" id="vcur">Waiting for stream…</div>
-        </div>
-        <div class="vhist" id="vhist"></div>
-        <div class="vscreen">
-          <img id="vscreen-img" src="/api/screenshot" alt="live screen">
-        </div>
       </div>
     </div>
   </div>
@@ -590,7 +567,7 @@ const S = {
   runId: null, routineId: null, stepsTotal: 0, nodeStates: {},
   routineSteps: {},   // index → {action, description, high_stakes}
   highStakes: new Set(),
-  vhist: [], status: 'idle',
+  status: 'idle',
   centerTab: 'steps',
   spans: {},          // span_id → span record
   traceRoots: [],     // root span_ids for current run
@@ -634,8 +611,6 @@ function handle({type, data}){
     case 'monitor.decision':   onMonitorDecision(data); break;
     case 'step.deviation':        onDeviation(data);       break;
     case 'step.agent_s_thinking': onAgentSThinking(data); break;
-    case 'vision.update':         onVision(data);          break;
-    case 'vision.offline':        onVisionOff();           break;
     case 'mode.changed':          onModeChanged(data);     break;
     case 'trace.span.start':      onSpanStart(data);       break;
     case 'trace.span.end':        onSpanEnd(data);         break;
@@ -862,21 +837,6 @@ function onMonitorDecision(d){
 function onDeviation(d){
   updateNodeDeviation(d.step_index, d.reason);
   log('DEV', d.step_index, d.reason || 'deviation detected', 'flag', '');
-}
-
-function onVision(d){
-  $('vdot').className = 'vdot live';
-  $t('vcur', '"' + d.description + '"');
-  S.vhist.unshift(d.description);
-  if(S.vhist.length > 7) S.vhist.pop();
-  $('vhist').innerHTML = S.vhist.slice(1).map(t =>
-    `<div class="vhe">${x(t)}</div>`
-  ).join('');
-}
-
-function onVisionOff(){
-  $('vdot').className = 'vdot';
-  $t('vcur', 'vision audit offline');
 }
 
 function onAgentSThinking(d){
@@ -1470,12 +1430,6 @@ function applyNodeStats(s){
     updateNodeDeviation(i, `deviated ${s.deviation_count}× in history`);
   }
 }
-
-// ── Live screen refresh (Vision panel) ────────────────────────────────────
-setInterval(() => {
-  const img = document.getElementById('vscreen-img');
-  if(img) img.src = '/api/screenshot?' + Date.now();
-}, 3000);
 
 // ── Utils ──────────────────────────────────────────────────────────────────
 function $(id)        { return document.getElementById(id); }

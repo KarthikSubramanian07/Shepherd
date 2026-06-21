@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Cpu, Play, ShieldAlert, Square } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Play, ShieldAlert, Square } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAsync } from "@/lib/hooks";
 import { useShepherd } from "@/lib/shepherd-ws";
@@ -127,13 +127,6 @@ export default function CommandCenterPage() {
             </div>
           )}
 
-          {/* Vision stream */}
-          {state.visionOnline && state.visionDescription && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-muted">
-              <Cpu size={11} className="shrink-0" />
-              <span className="italic">Vision: {state.visionDescription}</span>
-            </div>
-          )}
         </Card>
 
         {/* Stats */}

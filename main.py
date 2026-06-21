@@ -70,7 +70,19 @@ def _get_intent_text(
             print("[deepgram] Empty transcript — falling back to typed input.")
         except Exception as e:
             print(f"[deepgram] {e} — falling back to typed input.")
-    return input("Intent → ").strip()
+    try:
+        return input("Intent → ").strip()
+    except EOFError:
+        # No interactive stdin (headless / detached / piped). Don't busy-loop the
+        # outer while-True — block on the remote-intent queue instead, so the
+        # dashboard + Command Center stay live while we wait for an intent.
+        print("[shepherd] No interactive stdin — serving dashboard; "
+              "send intents from the Command Center. (Ctrl-C to quit.)")
+        while True:
+            try:
+                return remote_intents.get(timeout=1.0)
+            except queue.Empty:
+                continue
 
 
 def _record_mode(routine_id: str) -> None:
@@ -199,14 +211,6 @@ def main() -> None:
             print("[relay] └──────────────────────────────────────────────┘\n")
         except Exception as e:
             print(f"[relay] Could not start: {e}")
-
-    # ── Start Overshoot vision stream (parallel, never blocks engine) ─────────
-    if FEATURES["overshoot"]:
-        try:
-            from services.overshoot_vision import start_vision_stream
-            threading.Thread(target=start_vision_stream, daemon=True).start()
-        except Exception as e:
-            event_bus.emit("vision.offline", {"reason": str(e)})
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     print("Speak an intent or type it. Ctrl-C to quit.")

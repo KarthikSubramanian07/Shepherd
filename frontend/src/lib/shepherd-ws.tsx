@@ -34,8 +34,6 @@ export interface ExecutionState {
   stepIndex: number | null;
   monitorAlert: MonitorAlert | null;
   verifierResult: VerifierResult | null;
-  visionDescription: string | null;
-  visionOnline: boolean;
 }
 
 const DEFAULT_STATE: ExecutionState = {
@@ -46,8 +44,6 @@ const DEFAULT_STATE: ExecutionState = {
   stepIndex: null,
   monitorAlert: null,
   verifierResult: null,
-  visionDescription: null,
-  visionOnline: false,
 };
 
 interface ShepherdContextValue {
@@ -126,14 +122,6 @@ function applyEvent(
         monitorAlert: d.decision === "halt" ? prev.monitorAlert : null,
         verifierResult: null,
       };
-    case "vision.update":
-      return {
-        ...prev,
-        visionDescription: (d.description as string) ?? null,
-        visionOnline: true,
-      };
-    case "vision.offline":
-      return { ...prev, visionDescription: null, visionOnline: false };
     case "mode.changed":
       return { ...prev, mode: (d.mode as string) ?? prev.mode };
     default:
