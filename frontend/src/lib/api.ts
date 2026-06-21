@@ -292,6 +292,8 @@ export interface FleetAgent {
   surface: string | null;
   status: string;
   error: string | null;
+  /** Medium NL summary of the finished run (empty while running). */
+  response?: string;
   started_at: number;
   duration_ms: number;
 }

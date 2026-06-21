@@ -5,9 +5,12 @@ Plays the same loop AgentSAdapter plays on the desktop, but on a Playwright
 ``page``: screenshot the page → ask Claude (vision) for the next batch of browser
 actions as JSON → actuate them via Playwright → repeat until done/fail/budget.
 
-Every actuation runs inside the session's arbiter lease (``guard``), so it shows
-up in the action-queue UI and is serialized *within* the session — while
-different sessions run fully in parallel (each is its own surface).
+Each session is isolated (own page/browser) and driven by exactly one worker
+thread, so sessions run fully in parallel with NO action queue — the orchestrator
+passes ``guard=None`` and actuation goes straight to Playwright. (An optional
+``guard`` is still supported for contended surfaces; the shared LOCAL desktop
+keeps its arbiter lease. Halt is independent of the lease — the loop polls the
+session/worker halt flag between ops.)
 
 Oversight is preserved: every ``goto`` URL is checked against the policy
 containment allowlist + SSRF floor before navigation, exactly like the desktop

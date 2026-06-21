@@ -99,6 +99,7 @@ class AgentWorker(threading.Thread):
             self._emit("agent.end", {
                 "status": self.status, "error": self.error,
                 "duration_ms": int((self.ended_at - self.started_at) * 1000),
+                "response": getattr(self.result, "response", "") or "",
             })
             if self._on_done:
                 try:
@@ -138,6 +139,9 @@ class AgentWorker(threading.Thread):
             "surface": self.surface,
             "status": self.status,
             "error": self.error,
+            # Medium NL summary of the finished run (empty while running). Shown
+            # as an expandable element per agent in the Fleet view.
+            "response": getattr(self.result, "response", "") or "",
             "started_at": self.started_at,
             "duration_ms": int(((self.ended_at or time.time()) - self.started_at) * 1000)
             if self.started_at else 0,
@@ -159,16 +163,21 @@ class AgentWorker(threading.Thread):
         return self._engine.execute_autonomous(self.task.goal)
 
     def _run_browserbase(self):
-        """Drive an isolated Browserbase session under its own lease (parallel)."""
+        """Drive an isolated Browserbase session directly — in parallel, with NO
+        action queue. Each session is its own page/browser and is driven only by
+        THIS worker thread, so the surface can never be contended; the arbiter
+        lease would always be uncontended overhead (and noise on the event bus).
+        Halt still works: the driver polls the session/worker halt flag between
+        ops. (The LOCAL desktop still goes through the arbiter — it's one shared
+        cursor/keyboard.)"""
         from services.browserbase_session import open_session
         from engine.browserbase_driver import BrowserbaseDriver
 
         self._session = open_session(agent_id=self.agent_id)
         self.surface = surfaces.browserbase_surface(self._session.session_id)
-        guard = self.arbiter.guard(self.surface, self.agent_id)
         driver = BrowserbaseDriver(
             session=self._session, agent_id=self.agent_id,
-            guard=guard, on_event=self._on_event, halt=self._halt,
+            guard=None, on_event=self._on_event, halt=self._halt,
         )
         self._emit("agent.surface", {
             "surface": self.surface,

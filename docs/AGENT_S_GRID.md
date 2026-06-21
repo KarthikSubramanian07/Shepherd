@@ -90,15 +90,59 @@ unguarded, then `with arbiter.hold(LOCAL): focus_window(cell); exec_batch()`. Th
 is a small refactor of the turn body that the orchestrator already half-enables
 (each worker has its own adapter).
 
-## Window identification (the fiddly part)
+## Window model (DECIDED): N windows of ONE Chrome, real login
 
-To bind a freshly-opened window to an agent: open it (e.g. a new Chrome window via
-`osascript ... make new window` or `open -na "Google Chrome" --args
---new-window`), then enumerate windows by owner pid and claim the newest
-unassigned window number. Track `window_id -> agent`. First cut targets N Chrome
-windows specifically (direct Browserbase analog, and gives logged-in real Chrome,
-which also fixes the auth-wall problem for things like Gmail). Generic per-app
-binding is a follow-up.
+Each agent gets its own **window of your single, already-running Chrome** — so
+every window inherits **your real profile and logins**. This is the explicit
+choice: it trades session isolation for "everything acts as you, already logged
+in" (the whole point of using real Chrome over Browserbase here).
+
+Use Chrome's own scripting dictionary, which exposes each window with a stable
+`id` and per-window `bounds` and `index`, so N same-app windows are individually
+addressable (no Quartz<->AX correlation needed):
+
+```applescript
+-- create one window per agent and capture its id (do this ONE at a time)
+set wid to id of (make new window)         -- inherits your profile -> logged in
+
+-- place it in the agent's grid cell (screen coords {left, top, right, bottom})
+set bounds of window id wid to {l, t, r, b}
+
+-- focus THAT window before actuation: raise within Chrome, then Chrome frontmost
+set index of window id wid to 1
+activate
+```
+
+Bind `agent -> (window_id, cell_rect)`. Perception needs no window lookup: the
+cell rect is known, tiles don't overlap, so cropping the screenshot to the rect
+isolates that window's content even though all windows are the same app.
+
+### Independence: SHARED session (accepted)
+
+All these windows share one Chrome profile, so they share **cookies, login,
+history, storage**. That is intended (real login). Consequences to design around:
+
+- **Fine:** several agents doing same-account work in parallel windows — draft a
+  Gmail, search Drive, check Calendar, all as you, all logged in.
+- **Not fine:** two agents needing **different accounts of the same service**
+  (e.g. two Google accounts). The session is global to the profile, so one
+  agent's login/logout affects every window. Guard against this: warn (or refuse)
+  when two grid tasks target the same service with different identities.
+- Per-window **navigation/tabs are independent** (each window has its own URL and
+  tabs); only the **auth/cookie layer is shared**.
+- Do NOT use separate `--user-data-dir` or incognito here — both would drop the
+  real login. (If isolation is ever wanted instead, that is the existing local
+  Playwright tiler, not this path.)
+
+A few mechanics that follow from "one Chrome, many windows":
+- Each agent gets its own **window**, never a tab, so they tile separately.
+- Only touch windows **we created** (track their ids); leave your existing Chrome
+  windows alone.
+- Create windows **one at a time** so the id returned by `make new window` is
+  unambiguous.
+- In grid mode, `activate_app` in the agent's generated batch is **overridden** to
+  "focus my bound window id" (otherwise it would front an arbitrary Chrome
+  window).
 
 ## Work breakdown (parallel streams)
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Cpu, Globe, Loader2, Plus, Rocket, Square, Trash2, Users, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Cpu, Globe, Loader2, MessageSquareText, Plus, Rocket, Square, Trash2, Users, X } from "lucide-react";
 import { api, type FleetSnapshot } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, CardBody, CardHeader } from "@/components/ui/primitives";
@@ -32,6 +32,7 @@ export default function FleetPage() {
   const [kind, setKind] = useState<"local" | "browserbase">("browserbase");
   const [staged, setStaged] = useState<StagedTask[]>([]);
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const idRef = useRef(1);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -213,6 +214,33 @@ export default function FleetPage() {
                     <p className="mt-0.5 font-mono text-[11px] text-muted">
                       {fmtMs(a.duration_ms)}
                     </p>
+
+                    {/* Response · expandable medium summary of the finished run */}
+                    {a.response && (
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpanded((e) => ({ ...e, [a.agent_id]: !e[a.agent_id] }))
+                          }
+                          className="flex items-center gap-1 text-[11px] font-medium text-muted hover:text-ink"
+                          aria-expanded={!!expanded[a.agent_id]}
+                        >
+                          {expanded[a.agent_id] ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3" />
+                          )}
+                          <MessageSquareText className="h-3 w-3" />
+                          Response
+                        </button>
+                        {expanded[a.agent_id] && (
+                          <p className="mt-1 whitespace-pre-wrap rounded-lg border border-edge bg-panel2/60 p-2.5 text-xs leading-relaxed text-ink">
+                            {a.response}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                   {a.status === "running" && (
                     <Button variant="outline" size="sm" onClick={() => api.haltAgent(a.agent_id).then(load)}>
