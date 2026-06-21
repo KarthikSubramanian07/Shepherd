@@ -3,12 +3,10 @@ Tests for agent-initiated help signal: the agent can proactively suspend
 itself when it encounters obstacles requiring human assistance (CAPTCHAs,
 login walls, missing credentials, unknown field values).
 """
-import queue
-import time
 from unittest.mock import MagicMock, patch
 
 from engine.agent_s_adapter import _terminal_outcome
-from engine.engine import ShepherdExecutionEngine, SuspendedTask
+from engine.engine import ShepherdExecutionEngine
 from shepherd_types import AutonomousStepResult
 
 
