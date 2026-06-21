@@ -355,6 +355,41 @@ Say or type: **"fill out the application form"** — watch it run, and halt at t
 
 ---
 
+## Persistent Backend (dashboard separate from agents)
+
+By default the dashboard/API runs **inside** the agent process, so it stops when the
+agent exits. To keep the backend up across many agent runs — so you can browse graphs,
+runs, replays, policy, and the audit log at any time — run it as its own process and
+point agents at it with `BACKEND_URL`.
+
+```bash
+# Terminal 1 — persistent backend (stays up across agent runs)
+uv run python -m dashboard.server          # → http://localhost:8765
+
+# Terminal 2 — frontend (optional; live + historical views)
+cd frontend && npm run dev                 # → http://localhost:3000
+
+# Terminal 3+ — run agents, streaming their events to the backend
+BACKEND_URL=http://localhost:8765 uv run python main.py
+# (or set BACKEND_URL=http://localhost:8765 in .env)
+```
+
+- The agent **streams events** (start/step/halt/complete, task-graph nodes, monitor
+  alerts) to `POST /api/ingest`, which re-broadcasts them to every connected dashboard.
+- Forwarding is **off the click path** (queued + sent by a daemon worker) and
+  **best-effort**: if the backend is down, the agent never blocks — the run still lands
+  on disk (`data/task_graphs.json`, runs DB) and appears in the backend's REST views.
+- When `BACKEND_URL` is set the agent does **not** bind port 8765 itself, so you can run
+  several agents against one backend.
+- Leave `BACKEND_URL` unset for the original all-in-one behavior (in-process dashboard).
+
+| Layout | Command | When |
+| --- | --- | --- |
+| All-in-one | `uv run python main.py` | quick single run; dashboard dies with the agent |
+| Persistent backend | `uv run python -m dashboard.server` + `BACKEND_URL=… uv run python main.py` | keep graphs/runs visible across many agent runs |
+
+---
+
 ## Setup for LIVE Mode (Agent S + Ollama, fully offline)
 
 ```bash
