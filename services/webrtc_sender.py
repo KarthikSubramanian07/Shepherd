@@ -82,27 +82,22 @@ class ScreenCaptureTrack(MediaStreamTrack if AIORTC_AVAILABLE else object):  # t
 
     async def recv(self) -> "VideoFrame":
         """Called by aiortc when it needs the next frame."""
-        # Pace the frames
         self._frame_count += 1
         target_time = self._start + (self._frame_count * self._interval)
         now = time.time()
         if target_time > now:
             await asyncio.sleep(target_time - now)
 
-        # Capture screen in executor to avoid blocking the event loop
         loop = asyncio.get_running_loop()
         img = await loop.run_in_executor(None, _capture_pil_image)
 
         if img is None:
-            # Return a black frame if capture fails
             img = _black_frame(self._width)
 
-        # Resize if needed
         if self._width and img.width > self._width:
             ratio = self._width / img.width
             img = img.resize((self._width, int(img.height * ratio)))
 
-        # Convert to VideoFrame
         img = img.convert("RGB")
         frame = VideoFrame.from_image(img)
         frame.pts = int((time.time() - self._start) * 90000)
@@ -156,27 +151,13 @@ class WebRTCSender:
             self._pc = RTCPeerConnection(configuration=config)
             self._track = ScreenCaptureTrack(fps=self._fps, width=self._width)
 
-            # Add the video track
             self._pc.addTrack(self._track)
 
-            # Buffer ICE candidates to send after the offer
-            ice_candidates = []
-
-            @self._pc.on("icecandidate")
-            def on_ice(candidate):
-                if candidate:
-                    ice_candidates.append(candidate)
-
-            # Trickle ICE candidates as they arrive
-            @self._pc.on("icegatheringstatechange")
-            async def on_gathering_state_change():
-                pass  # We trickle candidates via connectionstatechange
-
-            # Create and set local description (offer)
+            # aiortc completes ICE gathering synchronously during createOffer/
+            # setLocalDescription, so the SDP already contains all candidates.
             offer = await self._pc.createOffer()
             await self._pc.setLocalDescription(offer)
 
-            # Send the offer through the coordinator
             import json
             await self._ws.send(json.dumps({
                 "type": "webrtc.offer",
@@ -186,44 +167,13 @@ class WebRTCSender:
                 },
             }))
 
-            # Start ICE candidate trickling in background
-            asyncio.ensure_future(self._trickle_ice())
-
             self._started = True
-            print("[webrtc] offer sent — waiting for answer from UI")
+            print("[webrtc] offer sent, waiting for answer from UI")
             return True
         except Exception as e:
             print(f"[webrtc] failed to create offer: {e}")
             self.close()
             return False
-
-    async def _trickle_ice(self) -> None:
-        """Send ICE candidates as they become available."""
-        if not self._pc:
-            return
-        import json
-
-        # Wait for ICE gathering to progress
-        while self._pc and self._pc.iceGatheringState != "complete":
-            await asyncio.sleep(0.1)
-            # Check for new local candidates via the transport
-            for transceiver in self._pc.getTransceivers():
-                transport = transceiver.sender.transport
-                if transport and transport.transport:
-                    iceTransport = transport.transport
-                    # aiortc doesn't expose individual candidates easily via events,
-                    # but the offer already contains all candidates when gathering
-                    # completes quickly. The UI will get them from the SDP.
-                    break
-            break
-
-        # aiortc typically completes ICE gathering before setLocalDescription returns
-        # (non-trickle by default), so the offer SDP already contains all candidates.
-        # If we do get late candidates, send them:
-        if self._pc and self._pc.localDescription:
-            # In aiortc, candidates are embedded in the SDP offer. No separate
-            # trickle needed unless we switch to trickle-ICE mode in the future.
-            pass
 
     async def handle_answer(self, data: dict) -> None:
         """Process the SDP answer from the remote UI."""
@@ -232,7 +182,7 @@ class WebRTCSender:
         try:
             answer = RTCSessionDescription(sdp=data["sdp"], type=data["type"])
             await self._pc.setRemoteDescription(answer)
-            print("[webrtc] answer applied — P2P connection establishing")
+            print("[webrtc] answer applied, P2P connection establishing")
         except Exception as e:
             print(f"[webrtc] failed to apply answer: {e}")
 
@@ -244,39 +194,47 @@ class WebRTCSender:
             candidate_data = data.get("candidate", data)
             if not candidate_data:
                 return
-            # Parse the ICE candidate string
             candidate_str = candidate_data.get("candidate", "")
             if not candidate_str:
                 return
-            sdp_mid = candidate_data.get("sdpMid", "")
+            sdp_mid = candidate_data.get("sdpMid")
             sdp_mline_index = candidate_data.get("sdpMLineIndex", 0)
 
+            # Parse the SDP candidate line using aioice (aiortc's ICE layer)
+            from aioice import Candidate
+            parsed = Candidate.from_sdp(candidate_str)
+
             candidate = RTCIceCandidate(
-                component=1,
-                foundation="",
-                ip="",
-                port=0,
-                priority=0,
-                protocol="udp",
-                type="host",
+                component=parsed.component,
+                foundation=parsed.foundation,
+                ip=parsed.host,
+                port=parsed.port,
+                priority=parsed.priority,
+                protocol=parsed.transport,
+                type=parsed.type,
+                relatedAddress=parsed.related_address,
+                relatedPort=parsed.related_port,
                 sdpMid=sdp_mid,
                 sdpMLineIndex=sdp_mline_index,
+                tcpType=parsed.tcptype,
             )
-            # aiortc parses candidates from the full candidate string
-            # Use the lower-level approach
             await self._pc.addIceCandidate(candidate)
         except Exception as e:
-            # Non-fatal — aiortc often has all candidates from the SDP already
-            pass
+            print(f"[webrtc] addIceCandidate failed (non-fatal): {e}")
 
     def close(self) -> None:
-        """Tear down the peer connection."""
+        """Tear down the peer connection and release resources."""
         if self._track:
             self._track.stop()
             self._track = None
         if self._pc:
-            asyncio.ensure_future(self._pc.close())
+            pc = self._pc
             self._pc = None
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(pc.close())
+            except RuntimeError:
+                pass
         self._started = False
 
     @property

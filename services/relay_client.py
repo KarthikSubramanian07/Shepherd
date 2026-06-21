@@ -114,6 +114,9 @@ class RelayClient:
                                  "protocol_version": PROTOCOL_VERSION}))
 
             # Start WebRTC P2P screen streaming if enabled.
+            # Close any previous sender from a prior connection cycle.
+            if getattr(self, '_webrtc', None):
+                self._webrtc.close()
             self._webrtc = None
             if WEBRTC_ENABLED:
                 try:
@@ -144,6 +147,10 @@ class RelayClient:
     async def _pump_frames(self, ws) -> None:
         interval = 1.0 / max(RELAY_FPS, 0.1)
         while True:
+            # Skip JPEG frames when WebRTC P2P is connected (video goes direct).
+            if getattr(self, '_webrtc', None) and self._webrtc.is_connected:
+                await asyncio.sleep(interval)
+                continue
             frame = await self._loop.run_in_executor(None, _capture_frame)  # type: ignore[union-attr]
             if frame:
                 await ws.send(_json({"type": "frame", "data": frame}))
