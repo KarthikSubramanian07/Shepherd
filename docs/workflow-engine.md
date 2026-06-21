@@ -101,6 +101,106 @@ human intervention.
 
 ---
 
+## 0b. Refactor in progress — fold the executor into the agentic loop
+
+This section is the concrete plan for bringing the code in line with §0. It records
+**what is slow, why, and the exact approach**, so the implementation (and its review)
+stays anchored to the measured problem.
+
+### The performance problem we are fixing
+
+A teammate reported a dispatched **workflow** run is *much slower* than running the
+**same task with no workflow**. Root cause, confirmed in code:
+
+- The standalone executor (`engine/workflow_executor.py`) walks the graph one node at
+  a time and, for each milestone, `AgentSWorker.act` calls **`plan_action` →
+  `_render_turn` → `self._agent.predict`** — a **single-action** vision grounding with
+  a heavy per-node prompt. So an N-milestone workflow ⇒ **N heavy vision round-trips**,
+  one per node, *plus* a routing decision per node.
+- The plain agent path (`predict_autonomous` → `_plan_chain`) instead plans a **batch
+  of chained UI actions from one screenshot in a single call** (up to
+  `AUTONOMOUS_CHAIN_MAX`), so a whole form is filled in **one** turn. A 5-field form is
+  ~1 call here vs. ~5+ grounding calls under the executor.
+
+So the regression is **structural**: a second execution layer that re-grounds and
+re-routes per node, instead of the agent's existing batched loop.
+
+### Target
+
+A dispatched workflow costs **no more LLM calls than the same goal with no workflow**.
+The workflow contributes *only* background intent (which milestone, what's next, the
+conditional branches) — never an extra grounding or an extra routing round-trip.
+
+### Approach — one loop, batched turns, self-routing
+
+Run a dispatched workflow **through the pre-existing agentic loop**, not the executor:
+
+1. **Background intent, not a driver.** Inject the workflow's *current* milestone
+   instruction + the *next* milestone + the outgoing edges/conditionals into the
+   `_plan_chain` prompt — the same slot `memory_hint` already uses. The agent keeps
+   planning batched actions per screenshot; it is not single-stepped per node.
+
+2. **Single-message advance with explicit edge-awareness (the new prompt contract).**
+   The prompt lists each outgoing edge as an NL clause and tells the agent: *evaluate
+   each edge's `when` against what you currently see; when the actions you are taking
+   satisfy/handle an edge, emit that edge's target.* The returned JSON gains two fields
+   alongside `actions`:
+   ```jsonc
+   {
+     "reasoning": "...",
+     "status": "continue|done|fail",
+     "actions": ["<python line>", ...],
+     "next":   "<target node key | SAME | END>",  // SAME = stay on this milestone
+     "branch": "<the `when` I matched, or null>"   // names the conditional taken
+   }
+   ```
+   Worked example (the v2 taught branch): on *Fill projects field* the prompt carries
+   `when the projects field is empty → goto "navigate::projects::Research projects page"
+   (open the applicant's GitHub and summarize it)`. If the agent sees the field empty,
+   it emits the research actions **and** `next: "navigate::projects::Research projects
+   page"`, `branch: "the projects field is empty"` in the **same** reply. No second
+   call to ask "where next".
+
+3. **Engine applies the cursor move.** The loop reads `next`: `SAME` ⇒ re-observe the
+   same milestone next turn; a node key ⇒ advance the cursor (validated against the
+   real graph, same loop/:unknown-ref guards the executor had); `END`/terminal ⇒ stop.
+
+### What stays identical (so observability + teaching don't regress)
+
+- **Events.** The loop still emits `workflow.start` / `workflow.node.enter` /
+  `workflow.intervention` / `workflow.step` / `workflow.done` so the live
+  execution-trace graph, the coordinator roster, and tests are unchanged. Tracing
+  remains strictly side-channel (§0.4).
+- **Human gate + teaching.** The Control Hub gate (`engine/workflow_control.review`)
+  is still consulted at each milestone boundary; `remember`-flagged steers are still
+  baked via `workflow_control.bake` → `await_finalize` → `persist_baked` after the run.
+- **Conditions** stay NL clauses evaluated in-context (§0.3) — no predicate engine.
+
+### Where the changes land
+
+| Change | Module |
+|---|---|
+| New batched, workflow-aware planner (`_plan_chain` + `next`/`branch`/edge context) | `engine/agent_s_adapter.py` |
+| `execute_workflow` rewritten to walk the graph **through** the agentic batched loop (gate + events + teaching reused) | `engine/engine.py` |
+| Forward-preview / option assembly + start-key/advance helpers reused as-is | `engine/workflow_executor.py` (`options_for`, `WS.*`), `engine/workflow_store.py` |
+| Standalone `AgentSWorker` retired from the dispatch path (kept only as a headless test worker until tests migrate) | `engine/workflow_executor.py` |
+
+The headless `LLMWorker` / `ScriptedWorker` + `WorkflowExecutor` graph-walk stay for
+the deterministic dispatch tests (`tests/test_workflow_dispatch.py`); they validate
+the traversal/advance/teaching logic without a GUI. The **real GUI dispatch** no
+longer goes through them.
+
+### Validation
+
+- Existing `tests/test_workflow_dispatch.py` stays green (traversal/teaching logic).
+- A new test asserts a workflow dispatch makes **one batched planning call per turn**
+  (not one grounding per milestone) and that an emitted `next`/`branch` advances the
+  cursor — i.e. zero extra routing calls.
+- Live check on the Acme form: workflow run issues ~the same number of LLM calls as
+  the autonomous run of the same goal.
+
+---
+
 ## 1. The three artifacts
 
 These are **distinct layers**, not duplicates. Each is a different granularity /
