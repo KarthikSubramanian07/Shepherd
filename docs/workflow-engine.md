@@ -57,7 +57,7 @@ lifecycle of "how to do a task".
 - **Workflow** = the *opinionated, dispatchable* artifact. Form-**agnostic** milestones,
   some carrying human-taught conditional procedures. **This is what the router dispatches.**
 
-A single Workflow (e.g. "apply to this job") serves Greenhouse *and* Workday because
+A single Workflow (ex. "apply to this job") serves Greenhouse *and* Workday because
 milestones are form-agnostic; Agent S handles the per-site grounding.
 
 ---
@@ -227,7 +227,7 @@ so the segmenter/coalescer don't care which model runs:
   fences/prose).
 - **Gotcha**: Gemma-4 always reasons before answering (~90s/call), so `LLM_TIMEOUT_S`
   defaults to 180s — fine on the cold path. Switch `GEMINI_MODEL` to a Flash-Lite
-  (e.g. `gemini-2.5-flash-lite`, ~5s) for fast dev iteration.
+  (ex. `gemini-2.5-flash-lite`, ~5s) for fast dev iteration.
 
 ---
 

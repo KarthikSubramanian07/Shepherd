@@ -236,7 +236,7 @@ function RunGoalForm({ disabled }: { disabled: boolean }) {
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder='Run a goal… (e.g. "draft an email")'
+          placeholder='Run a goal… (ex. "draft an email")'
           className="flex-1 rounded-lg border border-edge bg-panel px-3 py-2 text-sm text-ink outline-none placeholder:text-muted focus:border-accent/50"
         />
         <Button onClick={send} disabled={!goal.trim() || sending}>

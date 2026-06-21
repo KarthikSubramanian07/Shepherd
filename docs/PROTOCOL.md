@@ -493,7 +493,7 @@ With WebRTC active, the coordinator only relays signaling messages (~5-10 KB per
 
 ### Fallback
 
-If WebRTC negotiation fails (e.g., both peers behind symmetric NAT with no TURN server), the system falls back to the standard base64 frame relay transparently.
+If WebRTC negotiation fails (ex., both peers behind symmetric NAT with no TURN server), the system falls back to the standard base64 frame relay transparently.
 
 ---
 

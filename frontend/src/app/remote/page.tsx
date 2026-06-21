@@ -274,7 +274,7 @@ export default function RemoteCommandCenterPage() {
                       value={intent}
                       onChange={(e) => setIntent(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && send(intent)}
-                      placeholder={`Dispatch a task to ${c.selected.name}… (e.g. "apply to the job")`}
+                      placeholder={`Dispatch a task to ${c.selected.name}… (ex. "apply to the job")`}
                     />
                     <Button onClick={() => send(intent)} disabled={!intent.trim()}>
                       <Send size={15} /> Dispatch
@@ -683,7 +683,7 @@ function FinalizePanel({
           <Input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="New workflow name (e.g. Apply to a job — taught)"
+            placeholder="New workflow name (ex. Apply to a job — taught)"
           />
           <Input
             value={newId}
@@ -823,14 +823,14 @@ function WorkflowIntervenePanel({
       <Textarea
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}
-        placeholder="Steer this milestone · e.g. “research the projects page and fill in the summary”"
+        placeholder="Steer this milestone · ex. “research the projects page and fill in the summary”"
         rows={2}
       />
       <Input
         className="mt-2"
         value={scenario}
         onChange={(e) => setScenario(e.target.value)}
-        placeholder="When does this apply? (the condition to remember, e.g. “the projects field is empty”)"
+        placeholder="When does this apply? (the condition to remember, ex. “the projects field is empty”)"
       />
 
       <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-ink">

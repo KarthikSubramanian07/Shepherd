@@ -94,9 +94,14 @@ export function Sidebar() {
       <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
         <ShepherdMark />
         <div>
-          <div className="font-serif text-[17px] font-semibold leading-none tracking-tight text-ink">
-            Shepherd
-          </div>
+          {/* Wordmark in the logo's own typeface (extracted from the brand art) */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/shepherd-wordmark.png"
+            alt="Shepherd"
+            className="h-[19px] w-auto"
+            draggable={false}
+          />
           <div className="mt-1 text-[10px] font-medium uppercase tracking-eyebrow text-muted">
             Oversight Console
           </div>

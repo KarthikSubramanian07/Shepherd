@@ -10,7 +10,7 @@
  * at a specific agent.
  *
  * Configure the coordinator location with NEXT_PUBLIC_COORDINATOR_URL
- * (e.g. "http://localhost:8770" or "https://<ngrok-host>"). A token may be set
+ * (ex. "http://localhost:8770" or "https://<ngrok-host>"). A token may be set
  * with NEXT_PUBLIC_COORDINATOR_TOKEN when the coordinator enforces one.
  */
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";

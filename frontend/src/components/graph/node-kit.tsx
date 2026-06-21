@@ -28,7 +28,7 @@ export const toneHex = (t: NodeTone): string => TONE_HEX[t];
 
 // ── Frame: the outer card + status ring + blocked pulse ─────────────────────
 export interface NodeFrameProps {
-  /** Colors the border ring (e.g. runtime status). Omit for the neutral edge. */
+  /** Colors the border ring (ex. runtime status). Omit for the neutral edge. */
   tone?: NodeTone;
   /** Red pulsing ring · agent is blocked here. Overrides `tone`. */
   blocked?: boolean;

@@ -168,7 +168,7 @@ After `tailscale up` on both machines, note each machine's Tailscale IP:
 
 ```bash
 tailscale ip -4
-# → e.g. 100.64.0.1 (Machine A), 100.64.0.2 (Machine B)
+# → ex. 100.64.0.1 (Machine A), 100.64.0.2 (Machine B)
 ```
 
 ### Step 2: Start the Coordinator (Machine A)
