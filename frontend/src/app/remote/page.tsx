@@ -362,6 +362,41 @@ function ConnBadge({ conn }: { conn: "connecting" | "open" | "closed" }) {
   );
 }
 
+function WorkflowBadge({ agent }: { agent: RemoteAgent }) {
+  const routing = agent.routing;
+  const wfName = agent.workflow?.name;
+
+  if (wfName) {
+    return (
+      <Badge tone="accent">
+        <WorkflowIcon size={11} /> {wfName}
+      </Badge>
+    );
+  }
+  if (routing?.state === "matched" && routing.target) {
+    return (
+      <Badge tone="accent">
+        <WorkflowIcon size={11} /> {routing.target}
+      </Badge>
+    );
+  }
+  if (routing?.state === "autonomous" || routing?.kind === "AUTONOMOUS") {
+    return (
+      <Badge tone="neutral">
+        <Sparkles size={11} /> autonomous
+      </Badge>
+    );
+  }
+  if (agent.status === "running" || agent.status === "blocked") {
+    return (
+      <Badge tone="neutral">
+        <Sparkles size={11} /> new task
+      </Badge>
+    );
+  }
+  return null;
+}
+
 function RosterCard({
   agent,
   active,
@@ -405,10 +440,33 @@ function RosterCard({
           {agent.online ? s.label : "Offline"}
         </Badge>
       </div>
-      <div className="mt-1 text-xs text-muted">
-        {agent.workflow?.name ?? agent.routineId ?? "idle"}
+      {/* Title — async-generated summary of what the agent is working on */}
+      {agent.title && (
+        <div className="mt-1 truncate text-xs font-medium text-ink/80">
+          {agent.title}
+        </div>
+      )}
+      {/* Workflow badge — which saved workflow was routed to */}
+      <div className="mt-1 flex items-center gap-1.5">
+        <WorkflowBadge agent={agent} />
+        {!agent.title && (
+          <span className="text-xs text-muted">
+            {agent.workflow?.name ?? agent.routineId ?? "idle"}
+          </span>
+        )}
       </div>
       <Progress className="mt-2" value={agent.progress} tone={s.hex} />
+      {/* Recent-steps peek — last 2-3 step descriptions */}
+      {agent.recentSteps && agent.recentSteps.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5">
+          {agent.recentSteps.slice(-3).map((step, i) => (
+            <li key={i} className="truncate text-[11px] text-muted">
+              <span className="text-accent/70">#{step.index ?? "·"}</span>{" "}
+              {step.description}
+            </li>
+          ))}
+        </ul>
+      )}
       {agent.block?.reason && (
         <div className="mt-2 rounded-lg border border-halt/30 bg-halt/10 px-2 py-1 text-[11px] text-halt">
           {agent.block.reason}

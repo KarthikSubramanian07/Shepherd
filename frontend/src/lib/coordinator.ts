@@ -127,6 +127,11 @@ export interface RemoteRouting {
   text?: string | null;
 }
 
+export interface RemoteStepPeek {
+  index: number | null;
+  description: string;
+}
+
 export interface RemoteAgent {
   id: string;
   name: string;
@@ -145,6 +150,10 @@ export interface RemoteAgent {
   hasFrame: boolean;
   workflow: RemoteWorkflow | null;
   routing: RemoteRouting | null;
+  /** Async-generated short label of what this agent is working on this run. */
+  title: string | null;
+  /** Last 2-3 step descriptions from the current/last run. */
+  recentSteps: RemoteStepPeek[];
 }
 
 export interface RemoteEvent {
