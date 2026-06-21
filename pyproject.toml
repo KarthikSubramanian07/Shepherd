@@ -71,6 +71,12 @@ dev = [
     "ruff>=0.6",
 ]
 
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so `from services import ...` resolves under the
+# `pytest` console script (CI), not just `python -m pytest` (which adds cwd itself).
+pythonpath = ["."]
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 100
 extend-exclude = [".venv", "node_modules", "frontend", "data"]

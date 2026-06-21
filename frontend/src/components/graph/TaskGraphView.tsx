@@ -200,6 +200,7 @@ function MetricsPanel({ m }: { m: GraphMetrics }) {
         <Stat label="Branching factor" value={m.meanBranching.toFixed(2)} hint="Average transitions per milestone" />
         <Stat label="Decision entropy" value={`${m.avgEntropy.toFixed(2)} bits`} hint="Mean Shannon entropy at decision points. 0 = fully deterministic." />
         <Stat label="Modal coverage" value={`${Math.round(m.modalCoverage * 100)}%`} hint="Probability mass of the single most-likely run (highlighted path)" />
+        <Stat label="Cyclomatic" value={String(m.cyclomatic)} hint="McCabe complexity (E − N + 2): the number of linearly-independent paths through the workflow" />
       </div>
       <div className="mt-2.5 flex items-center gap-1.5 border-t border-edge pt-2">
         <span className="h-1.5 w-5 rounded-full" style={{ background: MODAL_COLOR }} />
