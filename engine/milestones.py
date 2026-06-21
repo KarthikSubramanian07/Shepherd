@@ -303,8 +303,8 @@ def _render_trace(
                 if instr:
                     parts.append(instr)
                 if reason:
-                    parts.append(f"reason: {reason}")
-                annotations.append("; ".join(parts) if parts else "user override")
+                    parts.append(f"(reason: {reason})")
+                annotations.append(" ".join(parts) if parts else "user override")
             line += f"  <<< USER INTERVENED: {' | '.join(annotations)} >>>"
         trace_lines.append(line)
 
