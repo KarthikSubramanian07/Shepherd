@@ -6,20 +6,14 @@ like ``hotkey('ctrl','l')`` / ``press('enter')`` / ``click(760, 300)`` instead o
 the documented ``pyautogui.`` prefixed form. The exec namespace previously only
 bound ``pyautogui``/``time``/``activate_app``/``type_text``, so a bare call raised
 ``NameError: name 'hotkey' is not defined`` and aborted the run mid-step (observed
-live during the AUTONOMOUS e2e). ``_exec_agent_code`` now binds every public
-pyautogui callable as a top-level name so both forms execute identically.
+live during the AUTONOMOUS e2e). ``_exec_agent_code`` now binds an allowlist of
+mouse/keyboard action verbs as top-level names so both forms execute identically.
 """
+
+import pytest
 
 import engine.engine as eng_mod
 from engine.engine import ShepherdExecutionEngine
-
-# Verbs the fake pyautogui advertises via __dir__ (mirrors the real module's API
-# surface), since the executor discovers bare names through dir(pyautogui).
-_FAKE_VERBS = (
-    "click", "doubleClick", "rightClick", "tripleClick", "moveTo", "moveRel",
-    "dragTo", "dragRel", "press", "hotkey", "keyDown", "keyUp", "typewrite",
-    "write", "scroll", "hscroll", "vscroll", "mouseDown", "mouseUp",
-)
 
 
 class _Recorder:
@@ -27,9 +21,6 @@ class _Recorder:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple, dict]] = []
-
-    def __dir__(self):
-        return list(_FAKE_VERBS)
 
     def __getattr__(self, name):
         def _fn(*args, **kwargs):
@@ -73,3 +64,18 @@ def test_bare_and_prefixed_dispatch_identically(monkeypatch):
     bare = _run("hotkey('ctrl', 'l')", monkeypatch)
     prefixed = _run("pyautogui.hotkey('ctrl', 'l')", monkeypatch)
     assert bare.calls == prefixed.calls == [("hotkey", ("ctrl", "l"), {})]
+
+
+def test_blocking_dialogs_not_exposed_as_bare_names(monkeypatch):
+    # alert/confirm/prompt are deliberately kept out of the bare allowlist so a
+    # stray bare call can't pop a modal that stalls the run; a bare alert() must
+    # raise NameError rather than silently opening a dialog.
+    for dialog in ("alert", "confirm", "prompt"):
+        rec = _Recorder()
+        monkeypatch.setattr(eng_mod, "pyautogui", rec)
+        with pytest.raises(NameError):
+            ShepherdExecutionEngine._exec_agent_code(object(), f"{dialog}('x')")
+        assert rec.calls == []
+    # ...but the explicit pyautogui.-prefixed form is still reachable.
+    rec = _run("pyautogui.alert('x')", monkeypatch)
+    assert ("alert", ("x",), {}) in rec.calls
