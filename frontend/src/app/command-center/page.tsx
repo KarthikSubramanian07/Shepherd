@@ -13,6 +13,7 @@ import { MicCommandButton } from "@/components/remote/MicCommandButton";
 import { Badge, Button, Card, Stat, StatusDot } from "@/components/ui/primitives";
 import { LiveExecutionGraph } from "@/components/LiveExecutionGraph";
 import { RedisPanel } from "@/components/RedisPanel";
+import { IntegrationsPanel } from "@/components/IntegrationsPanel";
 import { formatDuration, timeAgo } from "@/lib/utils";
 
 export default function CommandCenterPage() {
@@ -276,6 +277,8 @@ export default function CommandCenterPage() {
         </div>
 
         {/* Redis as the substrate · vector routing, agent memory, semantic cache */}
+        <IntegrationsPanel />
+
         <RedisPanel />
 
         {/* Past runs */}

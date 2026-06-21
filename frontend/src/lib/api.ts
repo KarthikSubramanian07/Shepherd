@@ -144,11 +144,20 @@ export interface RedisStats {
   last_match: { routine_id: string | null; similarity: number | null } | null;
 }
 
+export interface Integration {
+  name: string;
+  category: string;
+  status: "active" | "ready" | "off";
+  detail: string;
+}
+
 export const api = {
   // Routines (the recorded "tools")
   listRoutines: () => http<RoutineSummary[]>("/routines"),
   // Redis — vector routing, agent memory, semantic cache
   getRedisStats: () => http<RedisStats>("/redis/stats"),
+  // Live status of every integration (active / ready / off)
+  getIntegrations: () => http<{ integrations: Integration[] }>("/integrations"),
   getRoutine: (id: string) => http<Routine>(`/routines/${id}`),
 
   // Agents (live instances)
