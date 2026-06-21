@@ -50,6 +50,8 @@ export interface ExecutionState {
   stepIndex: number | null;
   monitorAlert: MonitorAlert | null;
   verifierResult: VerifierResult | null;
+  /** ArmorIQ pre-flight intent authorization for the active run (null until issued). */
+  armoriqGate: { authorized: boolean; reason: string } | null;
   /** Live milestone graph that replays node-by-node as the agent runs. */
   graphNodes: LiveGraphNode[];
   /** Maps a fine step index → graph node key (built from task.graph.loaded). */
@@ -66,6 +68,7 @@ const DEFAULT_STATE: ExecutionState = {
   stepIndex: null,
   monitorAlert: null,
   verifierResult: null,
+  armoriqGate: null,
   graphNodes: [],
   stepToNode: {},
   totalSteps: 0,
@@ -118,6 +121,7 @@ function applyEvent(
         stepIndex: 0,
         monitorAlert: null,
         verifierResult: null,
+        armoriqGate: null,
         // Reset the live graph; task.graph.loaded (if any) re-seeds it below.
         graphNodes: [],
         stepToNode: {},
@@ -315,6 +319,24 @@ function applyEvent(
             ? { ...n, status: "done" }
             : n,
         ),
+      };
+    // ── ArmorIQ pre-flight intent authorization ─────────────────────────────
+    case "armoriq.authorized":
+      return {
+        ...prev,
+        armoriqGate: {
+          authorized: true,
+          reason: (d.reason as string) ?? "Intent token issued",
+        },
+      };
+    case "armoriq.denied":
+      return {
+        ...prev,
+        status: "halted",
+        armoriqGate: {
+          authorized: false,
+          reason: (d.reason as string) ?? "ArmorIQ denied the plan",
+        },
       };
     case "mode.changed":
       return { ...prev, mode: (d.mode as string) ?? prev.mode };

@@ -91,7 +91,7 @@ export default function CommandCenterPage() {
                 {state.monitorAlert.reason}
               </p>
 
-              {/* Verifier second opinion */}
+              {/* Verifier second opinion · names its source (Band peer vs local) */}
               {state.verifierResult && (
                 <div className="mt-3 rounded-lg border border-edge bg-panel2/60 p-3 text-xs">
                   <span className="font-semibold text-ink">AI verifier: </span>
@@ -107,6 +107,15 @@ export default function CommandCenterPage() {
                   >
                     {state.verifierResult.verdict}
                   </Badge>
+                  {state.verifierResult.model.startsWith("band:") && (
+                    <span
+                      className="mr-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-accent-ink"
+                      style={{ background: "var(--accent-soft, #cf6a4322)" }}
+                      title="Second opinion came from an independent shepherd-verifier agent over Band's mesh"
+                    >
+                      via Band peer
+                    </span>
+                  )}
                   <span className="text-muted">
                     {Math.round(state.verifierResult.confidence * 100)}% conf ·{" "}
                     {state.verifierResult.explanation}
@@ -129,6 +138,35 @@ export default function CommandCenterPage() {
                 >
                   <Square size={12} /> Halt
                 </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ArmorIQ pre-flight intent authorization · cryptographic gate before step 1 */}
+          {state.armoriqGate && (
+            <div
+              className={`mt-4 flex items-start gap-2 rounded-xl border p-3 text-xs ${
+                state.armoriqGate.authorized
+                  ? "border-ok/40 bg-ok/[0.06]"
+                  : "border-halt/40 bg-halt/[0.06]"
+              }`}
+            >
+              {state.armoriqGate.authorized ? (
+                <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-ok" />
+              ) : (
+                <ShieldAlert size={14} className="mt-0.5 shrink-0 text-halt" />
+              )}
+              <div>
+                <span className="font-semibold text-ink">
+                  {state.armoriqGate.authorized
+                    ? "Intent authorized by ArmorIQ"
+                    : "ArmorIQ blocked this plan"}
+                </span>
+                <span className="ml-1.5 text-muted">
+                  {state.armoriqGate.authorized
+                    ? "signed intent token issued before the first action"
+                    : state.armoriqGate.reason}
+                </span>
               </div>
             </div>
           )}
