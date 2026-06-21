@@ -257,8 +257,10 @@ class Hub:
             conn.total_steps = d.get("total_steps")
             conn.step_index = None
             conn.block = None
-            # A routine/autonomous run is starting — it does NOT follow a saved
-            # workflow, so drop any stale workflow graph and open a fresh trace.
+            # A run is starting: drop any stale workflow graph and open a fresh
+            # trace. If this run is actually following a saved workflow, a
+            # subsequent workflow.start re-establishes the workflow and clears
+            # this trace (the two are mutually exclusive per run).
             conn.workflow = None
             conn.trace = _new_trace(d.get("run_id"), d.get("routine_id"), d.get("mode"))
         elif t == "task.graph.loaded":
