@@ -8,6 +8,16 @@
 
 [![CI](https://github.com/KarthikSubramanian07/shepherd/actions/workflows/ci.yml/badge.svg)](https://github.com/KarthikSubramanian07/shepherd/actions/workflows/ci.yml)
 
+![Python](https://img.shields.io/badge/Python-3.11+-2c6e60?logo=python&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-223b3a?logo=nextdotjs&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-8_vector_sets-cf6a43?logo=redis&logoColor=white)
+![OpenTelemetry](https://img.shields.io/badge/OTel-Arize_Phoenix-2c6e60?logo=opentelemetry&logoColor=white)
+![Claude](https://img.shields.io/badge/oversight-Claude-cf6a43?logo=anthropic&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-223b3a)
+![Sponsor tech](https://img.shields.io/badge/sponsor_tech-10_integrated_live-cf6a43)
+
+🐑 &nbsp;**Local-first** &nbsp;·&nbsp; 🛰️ **Operate any machine** &nbsp;·&nbsp; 🔗 **Tamper-evident audit** &nbsp;·&nbsp; 🗣️ **Voice in, voice out** &nbsp;·&nbsp; ⚡ **Sub-ms policy gate**
+
 </div>
 
 Right now, somewhere, an AI agent is clicking through a real interface on
@@ -31,7 +41,7 @@ It is the first thing you install *alongside* your agent, not instead of it.
 
 ---
 
-## Why now
+## ⚡ Why now
 
 The agent-capability curve went vertical and the trust curve did not move. Every
 month a new model can drive a computer better, and every month the gap widens
@@ -50,29 +60,29 @@ into production is the business.
 
 ---
 
-## The demo in 90 seconds
+## ⏱️ The demo in 90 seconds
 
-```
-You say:  "send the candidate decision email"
-   |
-   v  Deepgram transcribes your voice, the router resolves the intent
-   |
-Agent S opens the mail composer (Simular drives the real desktop)
-   |
-   v  It is missing context, so a durable Agentspan agent researches the
-   |     candidate on the live web (Browserbase) and drafts the body
-   |
-The agent moves to Send.
-   |
-   v  Policy engine (rule-based, under 1 ms): external recipient, secret in the
-   |  body. Verdict: HALT, before a single irreversible click.
-   |
-Control Hub lights up: the milestone graph that replayed node by node, the reason
-it stopped, the independent verifier's second opinion, the live screen.
-   |
-   v  You approve, or say "stop" out loud, and it halts at the boundary.
-   |
-Every action, including the halt, is signed into a SHA-256 hash-chain audit log.
+```mermaid
+flowchart TD
+    V["🗣️ You say: send the candidate decision email"] --> STT["Deepgram transcribes · router resolves the intent"]
+    STT --> AS["Agent S opens the mail composer<br/>Simular drives the real desktop"]
+    AS --> RES["Missing context, so a durable Agentspan agent<br/>researches the candidate on the live web Browserbase<br/>and drafts the body"]
+    RES --> SEND(["The agent moves to Send"])
+    SEND --> POL["⚡ Policy engine, under 1ms:<br/>external recipient + secret in the body"]
+    POL -->|"Verdict: HALT"| GATE["🛑 Stopped before a single irreversible click"]
+    GATE --> HUB["🎛️ Control Hub lights up<br/>milestone graph · verifier second opinion · live screen"]
+    HUB --> HUMAN{"You approve,<br/>or say stop out loud"}
+    HUMAN -->|approve| GO["▶️ It continues"]
+    HUMAN -->|stop| STOP["🛑 Halts at the boundary"]
+    GO --> AUDIT["🔗 Every action, including the halt,<br/>signed into a SHA-256 hash chain"]
+    STOP --> AUDIT
+
+    classDef danger fill:#bb4a3a,stroke:#bb4a3a,color:#fff;
+    classDef gate fill:#cf6a43,stroke:#cf6a43,color:#fff;
+    classDef proof fill:#223b3a,stroke:#223b3a,color:#fff;
+    class GATE,STOP danger;
+    class POL,HUMAN gate;
+    class AUDIT proof;
 ```
 
 Change one rule in `data/policy.yaml`, re-run, and the behavior changes
@@ -80,7 +90,7 @@ immediately. That is the difference between a demo and a product.
 
 ---
 
-## What you get (the Control Hub)
+## 🎛️ What you get (the Control Hub)
 
 A single console, not a pile of scripts. Every tab is live over WebSocket.
 
@@ -102,34 +112,34 @@ A single console, not a pile of scripts. Every tab is live over WebSocket.
 
 ---
 
-## How it works
+## ⚙️ How it works
 
-```
- Voice / typed intent
-   -> Deepgram STT (voice to text, boundary only)
-   -> Intent router       (USE_ROUTER=true) Redis vector search (BAAI/bge, local)
-                          + keyword fallback; else skipped
-   -> Execution engine    autonomous (default): an LLM drafts a plan, then Agent S
-                                      executes it screenshot-by-screenshot
-                          routed + ROUTINE_REPLAY=vision: Agent S plans against the demo
-                          routed + ROUTINE_REPLAY=deterministic: verbatim replay (offline floor)
-        |  (at high-stakes boundaries only, never mid-click)
-        v
-   3-layer oversight stack
-        1. Policy engine    rule-based, always on, under 1 ms (data/policy.yaml)
-                            credential / captcha / phishing / external-send triggers,
-                            app + domain containment, action + step rate limits
-        2. Verifier         independent Claude second opinion on a flag
-        3. Human gate       any surviving flag blocks; approve, halt, or steer.
-                            Spoken "stop" fires the same halt path.
-        |
-        v
-   Tamper-evident audit log     SHA-256 hash chain, GET /api/audit/verify
-   Telemetry                    Arize Phoenix spans, routine.run -> action.N -> workflow.node
-   Memory + crystallization     Redis replay store; runs coalesce into workflows
-        |
-        v
-   Control Hub (Next.js)  +  Remote Command Center (coordinator relay / tunnel)
+```mermaid
+flowchart TD
+    IN["🗣️ Voice / typed intent"] --> STT["Deepgram STT · boundary only"]
+    STT --> ROUTER["Intent router<br/>Redis vector search BAAI/bge + keyword fallback"]
+    ROUTER --> ENGINE["Execution engine<br/>autonomous plan, or routine replay vision/deterministic<br/>Agent S drives the desktop"]
+    ENGINE -->|"at high-stakes boundaries only, never mid-click"| STACK
+
+    subgraph STACK["🛡️ 3-layer oversight stack, fastest first"]
+        direction TB
+        L1["1 · Policy engine<br/>rule-based, always on, under 1ms · data/policy.yaml"]
+        L2["2 · Verifier<br/>independent Claude, or a Band council"]
+        L3["3 · Human gate<br/>approve / halt / steer · spoken stop fires the same halt"]
+        L1 --> L2 --> L3
+    end
+
+    STACK --> AUDIT["🔗 Tamper-evident audit log<br/>SHA-256 hash chain"]
+    STACK --> TEL["📊 Telemetry<br/>Arize Phoenix spans"]
+    STACK --> MEM["🧠 Memory + crystallization<br/>Redis recall · runs coalesce into workflows"]
+    AUDIT --> HUB["🎛️ Control Hub Next.js<br/>+ Remote Command Center"]
+    TEL --> HUB
+    MEM --> HUB
+
+    classDef gate fill:#cf6a43,stroke:#cf6a43,color:#fff;
+    classDef proof fill:#223b3a,stroke:#223b3a,color:#fff;
+    class STACK gate;
+    class AUDIT proof;
 ```
 
 A single rule runs through the whole codebase: **the click path is sacred.**
@@ -139,9 +149,9 @@ a model stall can never strand the mouse mid-action.
 
 ---
 
-## The five things that make it a product, not a demo
+## 🏆 The five things that make it a product, not a demo
 
-### 1. Two ways to hand it a task: show it once, or just say it
+### 1. 🎬 Two ways to hand it a task: show it once, or just say it
 
 For a task you repeat, **demonstrate it once** and the demonstration becomes the
 routine. No node graph, no Zapier-style flowchart. The agent works in the same
@@ -164,7 +174,7 @@ recorder and an actual agent: it generalizes to tasks nobody scripted. And the
 part that matters most, **the same oversight stack watches an autonomous run
 exactly as it watches a recorded one.** Open-ended capability, still on a leash.
 
-### 2. The oversight stack catches it before it costs you
+### 2. 🛡️ The oversight stack catches it before it costs you
 
 Defense in depth, fastest first, each layer independent so a miss in one is caught
 by the next.
@@ -195,7 +205,7 @@ demo flows ship today: a job application that halts at the credential field, and
 an email that halts before sending to an external recipient with a secret in the
 body. Both are governance moments, not form-fillers.
 
-### 3. It learns: runs crystallize into reusable workflows
+### 3. 🧠 It learns: runs crystallize into reusable workflows
 
 Most agent tools forget a run the second it ends. Shepherd remembers, at the
 altitude a person thinks at. Off the hot path, a finished run is coalesced into a
@@ -230,7 +240,7 @@ safety net tightens exactly where reality showed it should. And in LIVE mode,
 demonstration and flags drift the moment the agent goes off-script, before it
 compounds.
 
-### 4. Operate any machine, with no inbound ports
+### 4. 🛰️ Operate any machine, with no inbound ports
 
 Shepherd runs an agent on a machine across the country as easily as on your own.
 The operated agent dials out to a coordinator relay (one outbound connection, no
@@ -243,7 +253,7 @@ left off, or teach it a better move that bakes into the workflow. Deploy the rel
 anywhere with a one-command Cloudflare Tunnel. The full remote-operation and
 theoretical peering model is in `docs/PEERING.md`.
 
-### 5. Built on real agent infrastructure, not glue
+### 5. 🧩 Built on real agent infrastructure, not glue
 
 The execution engine is Simular's Agent S planning against your demonstration.
 The research digression is a genuine Agentspan (Orkes) agent that compiles into a
@@ -258,7 +268,7 @@ build, not stubbed: none of it is a screenshot of a logo.
 
 ---
 
-## Integrations
+## 🔌 Integrations
 
 Ordered by how load-bearing each one actually is in the code. **Status** says what
 it takes to light up: _Core_ (always on, the product needs it), _On by default_,
@@ -285,7 +295,7 @@ you can't remove is Agent S (the engine) and a planner/verifier model.
 
 ---
 
-## Governance policy
+## 📋 Governance policy
 
 `data/policy.yaml` is the whole oversight contract, hot-reloaded on every
 evaluation. No code change, no restart.
@@ -310,7 +320,7 @@ containment:
   max_steps_per_run: 100
 ```
 
-## Audit log
+## 🔗 Audit log
 
 Every action is appended to a SHA-256 hash chain. Change one byte anywhere and
 verification pinpoints the break.
@@ -320,7 +330,7 @@ curl localhost:8765/api/audit/verify
 # {"valid": true, "entries": 47, "tampered_at": null, "reason": "chain intact"}
 ```
 
-## Execution modes
+## 🎚️ Execution modes
 
 Two un-bundled knobs decide how an intent is handled (`USE_ROUTER` / `ROUTINE_REPLAY`):
 
@@ -339,7 +349,7 @@ runtime override wins for the live process until changed.
 
 ---
 
-## Quick start
+## 🚀 Quick start
 
 ```bash
 # 1. Install (Python via uv, Node for the Control Hub)
@@ -371,7 +381,7 @@ BACKEND_URL=http://localhost:8765 uv run python main.py
 
 Open **http://localhost:3000** and speak or type an intent.
 
-## Observability (Phoenix + Sentry)
+## 📊 Observability (Phoenix + Sentry)
 
 Both are optional and off the click path.
 
@@ -391,7 +401,7 @@ Phoenix GraphQL (`getProjectByName`).
 Implementation: `telemetry/telemetry.py`, `telemetry/agent_trace.py`,
 `telemetry/phoenix_client.py`, `telemetry/sentry_init.py`.
 
-## Project layout
+## 🗂️ Project layout
 
 ```
 main.py            Entry loop: intent -> router -> engine -> telemetry + memory
@@ -412,7 +422,7 @@ data/              routines.json, policy.yaml, workflows, demo target pages
 
 ---
 
-## The bet
+## 🎯 The bet
 
 Every wave of computing got a control plane once it touched things that mattered.
 Networks got the firewall. Cloud got IAM. Code got CI and code review. Agents that
