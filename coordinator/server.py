@@ -206,9 +206,16 @@ class Hub:
         elif t == "plan.resolved":
             # The vector/keyword router resolved the intent to a target.
             kind = d.get("kind")
-            matched = kind in ("WORKFLOW", "ROUTINE")
+            if kind in ("WORKFLOW", "ROUTINE"):
+                state = "matched"
+            elif kind == "AUTONOMOUS":
+                # A plan that resolves straight to autonomous is the same
+                # outcome as the intent.autonomous_fallback path.
+                state = "autonomous"
+            else:
+                state = "unmatched"
             conn.routing = {
-                "state": "matched" if matched else "unmatched",
+                "state": state,
                 "kind": kind, "target": d.get("target"),
                 "confidence": d.get("confidence"), "source": d.get("source"),
                 "matched": d.get("matched", []),
