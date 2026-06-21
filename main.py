@@ -201,16 +201,25 @@ def main() -> None:
     # If BACKEND_URL is set, a separate persistent backend owns the dashboard/API;
     # stream events to it (and don't bind the port here). Otherwise run the
     # all-in-one in-process dashboard as before.
-    if BACKEND_URL:
+    # Resolve where this agent's dashboard/API lives. Explicit BACKEND_URL wins;
+    # otherwise, if the port is already serving (e.g. ./scripts/serve.sh is up),
+    # attach to that backend instead of crashing on a bind conflict.
+    attach_url = BACKEND_URL
+    if not attach_url and _port_in_use(DASHBOARD_PORT):
+        attach_url = f"http://localhost:{DASHBOARD_PORT}"
+        print(f"[backend] :{DASHBOARD_PORT} already serving — attaching to it "
+              f"(not starting another dashboard).")
+
+    if attach_url:
         try:
             from dashboard.forwarder import start_forwarding, start_intent_polling
-            start_forwarding(BACKEND_URL)
-            # Pull goals submitted from the frontend (POST /api/intent on the backend)
-            # into this agent's queue — the reverse channel for separate agents.
-            start_intent_polling(BACKEND_URL, remote_intents)
-            print(f"[backend] streaming to persistent backend at {BACKEND_URL}\n")
+            start_forwarding(attach_url)
+            # Pull goals submitted from the frontend (POST /api/intent) into this
+            # agent's queue — the reverse channel for separately-running agents.
+            start_intent_polling(attach_url, remote_intents)
+            print(f"[backend] streaming to backend at {attach_url}\n")
         except Exception as e:
-            print(f"[backend] Could not start forwarder: {e}")
+            print(f"[backend] Could not attach to backend: {e}")
     else:
         try:
             from dashboard.server import start_dashboard, register_intent_queue
@@ -372,6 +381,13 @@ def main() -> None:
 
 
 _listen_mode = False  # set True by --listen; keeps the agent serving across goals
+
+
+def _port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.3)
+        return s.connect_ex((host, port)) == 0
 
 
 def _should_end_session() -> bool:
