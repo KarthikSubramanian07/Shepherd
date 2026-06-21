@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Cpu, Globe, Loader2, MessageSquareText, Plus, Rocket, Square, Trash2, Users, X } from "lucide-react";
-import { api, type FleetSnapshot } from "@/lib/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Activity, ChevronDown, ChevronRight, Cpu, Globe, Loader2, MessageSquareText, Plus, Rocket, Square, Trash2, Users, X } from "lucide-react";
+import { api, type FleetAgentTrace, type FleetSnapshot } from "@/lib/api";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, CardBody, CardHeader } from "@/components/ui/primitives";
+import { TraceGraph } from "@/components/graph/TraceGraph";
 
 const STATUS_TONE: Record<string, "neutral" | "ok" | "flag" | "halt" | "accent"> = {
   running: "accent",
@@ -33,8 +34,11 @@ export default function FleetPage() {
   const [staged, setStaged] = useState<StagedTask[]>([]);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [traceOpen, setTraceOpen] = useState<Record<string, boolean>>({});
+  const [traces, setTraces] = useState<Record<string, FleetAgentTrace>>({});
   const idRef = useRef(1);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const traceTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function load() {
     try {
@@ -51,6 +55,34 @@ export default function FleetPage() {
       if (timer.current) clearInterval(timer.current);
     };
   }, []);
+
+  const loadTraces = useCallback(async () => {
+    const openIds = Object.entries(traceOpen)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+    if (openIds.length === 0) return;
+    const results = await Promise.all(
+      openIds.map(async (id) => {
+        const tr = await api.getAgentTrace(id);
+        return [id, tr] as const;
+      }),
+    );
+    setTraces((prev) => {
+      const next = { ...prev };
+      for (const [id, tr] of results) {
+        if (tr) next[id] = tr;
+      }
+      return next;
+    });
+  }, [traceOpen]);
+
+  useEffect(() => {
+    loadTraces();
+    traceTimer.current = setInterval(loadTraces, 1500);
+    return () => {
+      if (traceTimer.current) clearInterval(traceTimer.current);
+    };
+  }, [loadTraces]);
 
   function addToQueue() {
     const g = goal.trim();
@@ -215,9 +247,27 @@ export default function FleetPage() {
                       {fmtMs(a.duration_ms)}
                     </p>
 
-                    {/* Response · expandable medium summary of the finished run */}
-                    {a.response && (
-                      <div className="mt-2">
+                    {/* Execution graph toggle */}
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTraceOpen((e) => ({ ...e, [a.agent_id]: !e[a.agent_id] }))
+                        }
+                        className="flex items-center gap-1 text-[11px] font-medium text-muted hover:text-ink"
+                        aria-expanded={!!traceOpen[a.agent_id]}
+                      >
+                        {traceOpen[a.agent_id] ? (
+                          <ChevronDown className="h-3 w-3" />
+                        ) : (
+                          <ChevronRight className="h-3 w-3" />
+                        )}
+                        <Activity className="h-3 w-3" />
+                        Execution graph
+                      </button>
+
+                      {/* Response · expandable medium summary of the finished run */}
+                      {a.response && (
                         <button
                           type="button"
                           onClick={() =>
@@ -234,12 +284,27 @@ export default function FleetPage() {
                           <MessageSquareText className="h-3 w-3" />
                           Response
                         </button>
-                        {expanded[a.agent_id] && (
-                          <p className="mt-1 whitespace-pre-wrap rounded-lg border border-edge bg-panel2/60 p-2.5 text-xs leading-relaxed text-ink">
-                            {a.response}
-                          </p>
-                        )}
+                      )}
+                    </div>
+
+                    {traceOpen[a.agent_id] && traces[a.agent_id] && (
+                      <div className="mt-2 h-[320px] rounded-lg border border-edge bg-panel2/40">
+                        <TraceGraph
+                          trace={traces[a.agent_id] as Parameters<typeof TraceGraph>[0]["trace"]}
+                          nodeShots={{}}
+                        />
                       </div>
+                    )}
+                    {traceOpen[a.agent_id] && !traces[a.agent_id] && (
+                      <div className="mt-2 flex h-[120px] items-center justify-center rounded-lg border border-edge bg-panel2/40">
+                        <span className="text-xs text-muted">No trace data yet</span>
+                      </div>
+                    )}
+
+                    {expanded[a.agent_id] && a.response && (
+                      <p className="mt-1 whitespace-pre-wrap rounded-lg border border-edge bg-panel2/60 p-2.5 text-xs leading-relaxed text-ink">
+                        {a.response}
+                      </p>
                     )}
                   </div>
                   {a.status === "running" && (
