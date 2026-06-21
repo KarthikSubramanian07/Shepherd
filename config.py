@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     band_verifier_agent_id: str = ""    # the shepherd-verifier agent's UUID (for @mention)
     band_verifier_handle: str = "shepherd-verifier"
     band_api_base: str = "https://app.band.ai/api/v1/agent"
+    # Oversight council: extra specialist verifier agents that deliberate + vote in
+    # the room alongside (or instead of) the single verifier. Comma-separated
+    # `handle:agent_uuid` pairs, e.g.
+    #   "shepherd-security:uuid1,shepherd-privacy:uuid2,shepherd-destructive:uuid3"
+    # Empty = fall back to the single shepherd-verifier (a council of one).
+    band_council: str = ""
 
     # ── ArmorIQ — intent-intelligence authorization for the oversight stack ──
     # Before a run executes, the resolved plan is captured and ArmorIQ issues a
@@ -71,6 +77,10 @@ class Settings(BaseSettings):
     # ── Deepgram STT tuning ────────────────────────────────────────────────
     deepgram_model: str = "nova-2"
     deepgram_language: str = "en-US"
+    # Voice oversight: the agent speaks the high-stakes gate question via Aura TTS
+    # and takes a spoken approve/stop answer. Additive to the on-screen gate.
+    deepgram_tts_voice: str = "aura-asteria-en"
+    voice_oversight: bool = True
 
     # ── Engine ─────────────────────────────────────────────────────────────
     # The front door for every intent. The old three-mode EXECUTION_MODE enum
@@ -238,12 +248,15 @@ BROWSERBASE_PROJECT_ID     = settings.browserbase_project_id
 DEEPGRAM_API_KEY           = settings.deepgram_api_key
 DEEPGRAM_MODEL             = settings.deepgram_model
 DEEPGRAM_LANGUAGE          = settings.deepgram_language
+DEEPGRAM_TTS_VOICE         = settings.deepgram_tts_voice
+VOICE_OVERSIGHT            = settings.voice_oversight
 BAND_ENABLED               = settings.band_enabled
 BAND_ROOM_ID               = settings.band_room_id
 BAND_ENGINE_API_KEY        = settings.band_engine_api_key
 BAND_VERIFIER_AGENT_ID     = settings.band_verifier_agent_id
 BAND_VERIFIER_HANDLE       = settings.band_verifier_handle
 BAND_API_BASE              = settings.band_api_base
+BAND_COUNCIL               = settings.band_council
 ARMORIQ_ENABLED            = settings.armoriq_enabled
 ARMORIQ_API_KEY            = settings.armoriq_api_key
 ARMORIQ_STRICT             = settings.armoriq_strict

@@ -297,6 +297,27 @@ export default function RemoteCommandCenterPage() {
                         <WorkflowIcon size={12} /> {wf.name}
                       </Badge>
                     )}
+                    {/* Mode switcher */}
+                    <div className="ml-2 inline-flex overflow-hidden rounded-md border border-edge text-[10px]">
+                      {(["LIVE", "LOCKED", "AUTONOMOUS"] as const).map((m) => (
+                        <button
+                          key={m}
+                          disabled={c.selected!.status === "running"}
+                          onClick={() => {
+                            c.sendCommand(c.selected!.id, "mode", { mode: m });
+                            setToast(`Mode → ${m}`);
+                          }}
+                          className={[
+                            "px-2 py-0.5 font-semibold transition-colors",
+                            c.selected!.mode === m
+                              ? "bg-accent text-white"
+                              : "text-muted hover:bg-panel2 hover:text-ink",
+                          ].join(" ")}
+                        >
+                          {m === "AUTONOMOUS" ? "AUTO" : m}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   {wf && (
                     <div className="flex items-center gap-2">

@@ -19,11 +19,19 @@ export interface MonitorAlert {
   stepIndex: number;
 }
 
+export interface CouncilVote {
+  handle: string;
+  verdict: string;
+  reason: string;
+}
+
 export interface VerifierResult {
   verdict: string;
   confidence: number;
   explanation: string;
   model: string;
+  /** Per-agent breakdown when the verdict came from the Band oversight council. */
+  votes: CouncilVote[];
 }
 
 export type LiveNodeStatus =
@@ -242,6 +250,7 @@ function applyEvent(
           confidence: (d.confidence as number) ?? 0.5,
           explanation: (d.explanation as string) ?? "",
           model: (d.model as string) ?? "",
+          votes: (d.votes as CouncilVote[]) ?? [],
         },
       };
     case "monitor.decision":

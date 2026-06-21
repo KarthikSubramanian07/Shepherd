@@ -262,6 +262,23 @@ def main() -> None:
         except Exception as e:
             print(f"[relay] Could not start: {e}")
 
+    # ── Durable run ledger: detect + resume any run orphaned by a crash ───────
+    # Each run is durably checkpointed milestone by milestone (off the click path).
+    # If the process died mid-run, the ledger is left "running"; on this boot we
+    # detect that and re-dispatch the task so a crash never silently abandons work.
+    try:
+        from services import agentspan_durable
+        agentspan_durable.install()
+        for led in agentspan_durable.resume_incomplete():
+            goal = led.get("goal") or ""
+            print(f"[durable] Interrupted run {led.get('run_id')} detected at "
+                  f"milestone {led.get('done', 0)}/{led.get('total', 0)} — "
+                  f"re-dispatching: {goal}")
+            if goal and not listen:
+                remote_intents.put(goal)
+    except Exception as e:
+        print(f"[durable] resume skipped (non-fatal): {e}")
+
     # ── Main loop ─────────────────────────────────────────────────────────────
     # Goals flow into ONE queue from any producer: the command line (stdin thread
     # below, unless --listen), the frontend (POST /api/intent), the coordinator,
@@ -299,8 +316,30 @@ def main() -> None:
 
             effective_mode = engine.effective_mode()
 
-            # ── AUTONOMOUS mode — any intent runs as a free-form Agent S goal ──
+            # ── AUTONOMOUS mode — prefer a saved WORKFLOW, else free-form Agent S goal
             if effective_mode == "AUTONOMOUS":
+                plan = router.resolve_plan(intent, mode="AUTONOMOUS")
+                event_bus.emit("plan.resolved", {
+                    "kind": plan.kind, "target": plan.target,
+                    "confidence": plan.confidence, "source": plan.source,
+                    "matched": plan.matched, "params": plan.params,
+                })
+
+                if plan.kind == "WORKFLOW":
+                    workflow = router._workflows.get(plan.target)
+                    if workflow is not None:
+                        print(f"[router] → WORKFLOW {plan.target}  confidence={plan.confidence} ({plan.source})")
+                        result = engine.execute_workflow(
+                            workflow, goal=intent.raw_text, params=plan.params
+                        )
+                        telemetry.record(result, engine.last_step_records)
+                        print(f"[shepherd] {result.status.upper()} — {result.steps_completed} milestones in {result.duration_ms}ms\n")
+                        if _should_end_session():
+                            print("[shepherd] Task complete — ending session.\n")
+                            break
+                        continue
+
+                # No workflow matched — fall through to free-form autonomous
                 if not engine._agent_s.available:
                     print("[autonomous] Agent S unavailable — set AGENT_S_* keys in .env\n")
                     event_bus.emit("intent.unmatched", {"raw_text": intent.raw_text, "reason": "agent_s_unavailable"})
@@ -319,6 +358,7 @@ def main() -> None:
                         listen_for_stop_command(halt_callback=engine.request_halt)
                     except Exception:
                         pass
+                event_bus.emit("intent.autonomous_fallback", {"raw_text": intent.raw_text})
                 result = engine.execute_autonomous(raw)
                 _after_run(engine, telemetry, memory, result, confidence=1.0)
                 if _should_end_session():
@@ -326,7 +366,7 @@ def main() -> None:
                     break
                 continue
 
-            plan = router.resolve_plan(intent)
+            plan = router.resolve_plan(intent, mode=effective_mode)
             event_bus.emit("plan.resolved", {
                 "kind": plan.kind, "target": plan.target,
                 "confidence": plan.confidence, "source": plan.source,
@@ -346,7 +386,7 @@ def main() -> None:
                     continue
 
             if plan.kind != "ROUTINE":
-                if AUTONOMOUS_ON_UNMATCHED and engine._agent_s.available:
+                if effective_mode != "LOCKED" and AUTONOMOUS_ON_UNMATCHED and engine._agent_s.available:
                     print(f"[router] No routine matched — autonomous fallback for: {raw}")
                     event_bus.emit("intent.autonomous_fallback", {"raw_text": intent.raw_text})
                     event_bus.emit("routine.resolved", {

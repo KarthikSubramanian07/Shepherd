@@ -2,8 +2,12 @@
 ShepherdExecutionEngine
 
 LIVE mode       — Agent S plans actions against the recorded demonstration; pyautogui actuates.
+                  Router generates WORKFLOW + ROUTINE candidates → LLM filter → autonomous fallback.
 LOCKED mode     — Deterministic verbatim replay of pre-mapped steps (offline demo floor).
+                  Router uses keyword-only routine resolution (zero-API, fully offline).
 AUTONOMOUS mode — Agent S receives the raw user goal and loops until DONE/FAIL/max steps.
+                  Router generates WORKFLOW candidates only (no routines); if a saved workflow
+                  matches it is dispatched, otherwise free-form autonomous execution proceeds.
 
 The click path is synchronous and sacred.
 Nothing async, networked, or ML-based runs inside a routine's step sequence.
@@ -1829,6 +1833,9 @@ class ShepherdExecutionEngine:
                     "run_id": run_id, "step_index": index,
                     "verdict": vr["verdict"], "confidence": vr["confidence"],
                     "explanation": vr["explanation"], "model": vr["model"],
+                    # Per-agent breakdown when the second opinion came from the
+                    # Band oversight council (absent for the in-process verifier).
+                    "votes": vr.get("votes") or [],
                 })
                 if vr["verdict"] == "halt" and vr["confidence"] >= 0.7:
                     # Both layers agree — halt immediately, no approval gate needed
@@ -1870,8 +1877,31 @@ class ShepherdExecutionEngine:
             "history_note":       history_note,
         })
 
+        # Voice oversight (additive): the agent speaks the flagged action and takes
+        # a spoken approve/stop, racing alongside the on-screen gate. It never
+        # overrides the gate — whichever channel answers first wins via set_decision.
+        if FEATURES["deepgram"] and getattr(_cfg, "VOICE_OVERSIGHT", False):
+            def _voice_gate(_reason=reason):
+                try:
+                    from services.deepgram_input import voice_gate as _vg
+                    from engine.approvals import set_decision
+                    d = _vg(_reason)
+                    if d in ("approve", "halt"):
+                        set_decision(d)
+                except Exception as e:
+                    print(f"[voice] gate non-fatal: {e}")
+            threading.Thread(target=_voice_gate, daemon=True).start()
+
         default   = "approve" if verdict == "flag" else "halt"
         decision  = request_approval(index, reason, timeout=30.0, default=default)
+
+        # Speak the outcome so a hands-free operator hears the result (best-effort).
+        if FEATURES["deepgram"] and getattr(_cfg, "VOICE_OVERSIGHT", False):
+            _spoken = "Halted. The action was not taken." if decision == "halt" else "Approved. Continuing."
+            threading.Thread(
+                target=lambda: __import__("services.deepgram_input", fromlist=["speak_and_play"]).speak_and_play(_spoken),
+                daemon=True,
+            ).start()
 
         event_bus.emit("monitor.decision", {
             "run_id": run_id, "step_index": index, "decision": decision,

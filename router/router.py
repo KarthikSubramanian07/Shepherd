@@ -41,11 +41,19 @@ class ShepherdIntentRouter:
             print(f"[router] workflow indexing skipped (non-fatal): {e}")
 
     # ── dispatch: prefer a saved WORKFLOW, else a ROUTINE, else GENERIC ────────
-    def resolve_plan(self, intent: Intent) -> Plan:
+    def resolve_plan(self, intent: Intent, *, mode: str | None = None) -> Plan:
         """Return how to satisfy the intent.
 
-        Pipeline (when vector search is available):
-          1. Gather top-K candidates from BOTH workflow and routine vector sets.
+        The optional *mode* parameter gates which candidate sources participate:
+          - AUTONOMOUS: WORKFLOW candidates only (no routines); LLM filter active.
+          - LIVE (default / mode=None): WORKFLOW + ROUTINE candidates; LLM filter.
+          - LOCKED: keyword-only routine resolution (zero-API, fully offline/
+            deterministic). No vector search, no LLM filter, no workflows, no
+            autonomous fallback.
+
+        Pipeline (when vector search is available, i.e. non-LOCKED):
+          1. Gather top-K candidates from workflow and/or routine vector sets
+             (filtered by mode).
           2. Call LLM filter (select) on ALL candidates — no score-based bypass.
           3. If LLM picks a candidate -> route to it; if NONE -> GENERIC.
           4. Graceful degradation: LLM unavailable/errored -> conservative top-1
@@ -54,10 +62,34 @@ class ShepherdIntentRouter:
         Offline fallback (Redis down): intent_pattern substring matching.
         """
         text = intent.raw_text
+        effective_mode = (mode or "").upper() or None
 
-        # ── Gather candidates from both vector sets (each source toggleable) ─
-        wf_candidates = self._vector.workflow_candidates(text) if self._match_workflows else []
-        rt_candidates = self._vector.candidates(text) if self._match_routines else []
+        # A source participates only when BOTH the execution mode AND its config
+        # toggle allow it (the two gates compose):
+        #   mode  — LOCKED: routines only; AUTONOMOUS: workflows only; LIVE: both.
+        #   config — MATCH_WORKFLOWS / MATCH_ROUTINES turn each source off entirely.
+        wf_on = self._match_workflows and effective_mode != "LOCKED"
+        rt_on = self._match_routines and effective_mode != "AUTONOMOUS"
+
+        # ── LOCKED: deterministic keyword-only, zero-API ────────────────────
+        if effective_mode == "LOCKED":
+            resolved = self._resolve_keyword(intent) if rt_on else None
+            if resolved is not None:
+                return Plan(
+                    kind="ROUTINE",
+                    target=resolved.routine_id,
+                    params=resolved.variables,
+                    confidence=resolved.confidence,
+                    matched=resolved.matched_keywords,
+                    source="keyword",
+                )
+            return Plan(
+                kind="GENERIC", target="", params={}, confidence=0.0, source="fallback"
+            )
+
+        # ── Gather candidates from the enabled vector sets ──────────────────
+        wf_candidates = self._vector.workflow_candidates(text) if wf_on else []
+        rt_candidates = self._vector.candidates(text) if rt_on else []
 
         # When vector search returned anything, also let an explicit intent_pattern
         # match compete. A pattern hit is a deliberate, high-precision trigger, so
@@ -67,7 +99,7 @@ class ShepherdIntentRouter:
         # index. The fully-offline case (no vector candidates at all) falls through
         # to the dedicated pattern fallback below, which preserves source="pattern".
         if wf_candidates or rt_candidates:
-            off = self._match_workflow_offline(text) if self._match_workflows else None
+            off = self._match_workflow_offline(text) if wf_on else None
             if off is not None:
                 wf_off = off[0]
                 wf_candidates = [
@@ -79,7 +111,7 @@ class ShepherdIntentRouter:
             # shortlist). Before giving up, compare the intent against the FULL
             # workflow set with a prompt — but skip workflows the filter already
             # judged in the shortlist (no point re-asking the same set).
-            if plan.kind == "GENERIC":
+            if plan.kind == "GENERIC" and wf_on:
                 already = [cid for cid, _ in wf_candidates]
                 similar = self._similar_workflow_plan(text, exclude_ids=already)
                 if similar is not None:
@@ -87,7 +119,7 @@ class ShepherdIntentRouter:
             return plan
 
         # ── Offline fallback: substring match on workflow intent_patterns ───
-        wf = self._match_workflow_offline(text) if self._match_workflows else None
+        wf = self._match_workflow_offline(text) if wf_on else None
         if wf is not None:
             workflow, confidence, source, matched = wf
             return Plan(
@@ -103,12 +135,13 @@ class ShepherdIntentRouter:
         # pattern hit, so compare the intent to every workflow by MEANING. This
         # is what lets a phrased intent ("email my boss about Q3") match a
         # generalized workflow ("send an email") offline. ───────────────────
-        similar = self._similar_workflow_plan(text)
-        if similar is not None:
-            return similar
+        if wf_on:
+            similar = self._similar_workflow_plan(text)
+            if similar is not None:
+                return similar
 
         # ── Keyword fallback for routines ───────────────────────────────────
-        resolved = self._resolve_keyword(intent) if self._match_routines else None
+        resolved = self._resolve_keyword(intent) if rt_on else None
         if resolved is not None:
             return Plan(
                 kind="ROUTINE",
