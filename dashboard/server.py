@@ -692,10 +692,16 @@ async def ingest_event(request: Request) -> JSONResponse:
 
 
 # ── Run a goal from the frontend ────────────────────────────────────────────
-# An in-process agent (main.py, all-in-one mode) registers its intent queue here
-# so POST /api/intent can hand it a goal. A standalone/persistent backend has no
-# local agent attached, so the endpoint reports that and you use the coordinator.
+# Two ways an agent gets a goal submitted here:
+#   • all-in-one: the in-process agent registers its queue (register_intent_queue),
+#     so POST /api/intent hands it the goal directly.
+#   • separate agent: a standalone backend buffers goals in _pending_intents, and
+#     agents (BACKEND_URL set) poll GET /api/intent/next to pull them. This is what
+#     lets the backend+frontend run independently of agents that come and go.
+import queue as _queue
+
 _intent_queue = None
+_pending_intents: "_queue.Queue[str]" = _queue.Queue()
 
 
 def register_intent_queue(q) -> None:
@@ -705,12 +711,8 @@ def register_intent_queue(q) -> None:
 
 @app.post("/api/intent")
 async def submit_intent(request: Request) -> JSONResponse:
-    """Queue a goal for the local in-process agent to run."""
-    if _intent_queue is None:
-        return JSONResponse(
-            {"error": "no local agent attached to this backend — drive it via the coordinator"},
-            status_code=503,
-        )
+    """Queue a goal: hand it to an in-process agent if attached, else buffer it for
+    a separately-running agent to poll."""
     try:
         body = await request.json()
         text = (body.get("text") or "").strip()
@@ -718,9 +720,21 @@ async def submit_intent(request: Request) -> JSONResponse:
         text = ""
     if not text:
         return JSONResponse({"error": "text required"}, status_code=400)
-    _intent_queue.put(text)
+    if _intent_queue is not None:
+        _intent_queue.put(text)
+    else:
+        _pending_intents.put(text)
     event_bus.emit("remote.intent", {"text": text, "source": "dashboard"})
     return JSONResponse({"ok": True, "queued": text})
+
+
+@app.get("/api/intent/next")
+async def next_intent() -> JSONResponse:
+    """A separately-running agent polls this for goals submitted via POST /api/intent."""
+    try:
+        return JSONResponse({"text": _pending_intents.get_nowait()})
+    except _queue.Empty:
+        return JSONResponse({"text": None})
 
 
 def start_dashboard() -> None:

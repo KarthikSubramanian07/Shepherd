@@ -355,27 +355,34 @@ Say or type: **"fill out the application form"** — watch it run, and halt at t
 
 ---
 
-## Simplest setup — one command (recommended)
+## Simplest setup
 
-Run the whole stack (backend + agent + frontend) with a single script and drive it
-from the browser:
+Two ways to run, both driven from **http://localhost:3000/command-center** (type a
+goal in the **"Run a goal"** box). No coordinator, no port juggling.
 
+### A) All-in-one — one command
+Backend + agent + frontend in one go (the agent *is* the backend):
 ```bash
 ./scripts/dev.sh
 ```
 
-It frees the ports, wires the frontend to the local backend, then starts **two
-processes**:
-- the **agent in `--listen` mode**, which also serves the **backend/API on :8765** and
-  waits for goals (no terminal prompt; keeps serving across goals);
-- the **frontend** on :3000.
+### B) Separate agents — backend/frontend persistent, agents come and go (recommended)
+Leave the backend + frontend running; start/stop agents independently without
+restarting anything:
+```bash
+# Terminal 1 — backend + frontend (leave running)
+./scripts/serve.sh
 
-Then open **http://localhost:3000/command-center** and type a goal in the **"Run a
-goal"** box — the agent runs it and you watch live. `Ctrl-C` stops everything; logs
-are in `/tmp/shepherd/{agent,frontend}.log`.
+# Terminal 2 — spin up an agent (repeat in more terminals / machines for more agents)
+./scripts/agent.sh
+```
+The agent connects to the backend, **forwards its events** to it, and **polls it for
+goals** submitted from the frontend — so the UI keeps showing graphs/runs and you can
+restart agents freely. `Ctrl-C` on an agent stops just that agent; the backend and
+frontend keep running. Logs: `/tmp/shepherd/{backend,frontend}.log`.
 
-That's it — no coordinator, no `BACKEND_URL`, no port juggling. The two advanced
-topologies below are optional.
+> Pick **A** for a quick single run; pick **B** when you want the dashboard to stay up
+> across many agents/runs. The coordinator-based remote setup below is still optional.
 
 ---
 

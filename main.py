@@ -203,8 +203,11 @@ def main() -> None:
     # all-in-one in-process dashboard as before.
     if BACKEND_URL:
         try:
-            from dashboard.forwarder import start_forwarding
+            from dashboard.forwarder import start_forwarding, start_intent_polling
             start_forwarding(BACKEND_URL)
+            # Pull goals submitted from the frontend (POST /api/intent on the backend)
+            # into this agent's queue — the reverse channel for separate agents.
+            start_intent_polling(BACKEND_URL, remote_intents)
             print(f"[backend] streaming to persistent backend at {BACKEND_URL}\n")
         except Exception as e:
             print(f"[backend] Could not start forwarder: {e}")

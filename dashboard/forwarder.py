@@ -48,3 +48,38 @@ def start_forwarding(backend_url: str) -> None:
     threading.Thread(target=_worker, name="event-forwarder", daemon=True).start()
     event_bus.subscribe(_enqueue)
     print(f"[forwarder] streaming events → {ingest}")
+
+
+_polling = False
+
+
+def start_intent_polling(backend_url: str, intent_queue, interval: float = 1.0) -> None:
+    """
+    Poll a persistent backend for goals submitted from the frontend and drop them
+    into this agent's intent queue. This is the reverse channel that lets a
+    separately-running backend drive a separately-spun-up agent (the backend can't
+    reach the agent's in-process queue directly). Idempotent.
+    """
+    global _polling
+    with _lock:
+        if _polling or not backend_url:
+            return
+        _polling = True
+
+    url = backend_url.rstrip("/") + "/api/intent/next"
+
+    def _poll() -> None:
+        import time
+        import httpx
+        with httpx.Client(timeout=5.0) as client:
+            while True:
+                try:
+                    text = (client.get(url).json() or {}).get("text")
+                    if text:
+                        intent_queue.put(text)
+                except Exception:
+                    pass  # backend down / slow is non-fatal
+                time.sleep(interval)
+
+    threading.Thread(target=_poll, name="intent-poller", daemon=True).start()
+    print(f"[forwarder] polling for goals ← {url}")
