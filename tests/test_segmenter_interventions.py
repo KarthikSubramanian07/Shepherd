@@ -105,6 +105,21 @@ class TestRenderTraceInterventions:
         result = _render_trace(steps, [], interventions=[iv])
         assert "<<< USER INTERVENED: skip this step >>>" in result
 
+    def test_multiple_interventions_at_same_step(self):
+        """Multiple steers at the same step_index are all rendered."""
+        steps = [_step("type", "Fill field")]
+        ivs = [
+            _intervention(0, "use full legal name", scenario="name field"),
+            _intervention(0, "also add middle name", scenario="name field"),
+        ]
+        result = _render_trace(steps, [], interventions=ivs)
+        assert "use full legal name" in result
+        assert "also add middle name" in result
+        # Both should be on the same line, joined with |
+        lines = result.split("\n")
+        step0_line = [l for l in lines if l.startswith("0 ")][0]
+        assert " | " in step0_line
+
 
 # ── Tests: _render_trace with rich prior nodes ───────────────────────────────
 
@@ -209,6 +224,29 @@ class TestTokenSet:
     def test_strips_punctuation(self):
         # Non-alpha tokens are excluded
         assert "123" not in _token_set("Step 123 done")
+
+    def test_strips_stop_words(self):
+        # Stop words like "the", "a", "to" are excluded
+        result = _token_set("Send the weekly report")
+        assert "the" not in result
+        assert "send" in result
+        assert "weekly" in result
+        assert "report" in result
+
+    def test_stop_words_reduce_false_match_score(self):
+        # Without stop word removal, "Send the weekly report" vs
+        # "Read the weekly report" would be 3/5 = 0.6 (match).
+        # With stop words removed, it drops to 2/4 = 0.5 (borderline).
+        a_with = {"send", "the", "weekly", "report"}
+        b_with = {"read", "the", "weekly", "report"}
+        jaccard_with = len(a_with & b_with) / len(a_with | b_with)
+        assert jaccard_with == 0.6
+
+        a = _token_set("Send the weekly report")
+        b = _token_set("Read the weekly report")
+        jaccard = len(a & b) / len(a | b)
+        assert jaccard < jaccard_with, "Stop words should reduce false match score"
+        assert "the" not in a
 
 
 # ── Tests: segment() passes interventions through ────────────────────────────

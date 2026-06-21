@@ -285,24 +285,27 @@ def _render_trace(
         prior_section = "PRIOR MILESTONES: none — first run"
 
     # Build an index of interventions by step_index for inline annotation.
-    iv_map: dict[int, "InterventionEvent"] = {}
+    # Multiple steers can share the same step_index (batch drain), so collect
+    # all of them per step.
+    iv_map: dict[int, list["InterventionEvent"]] = {}
     for iv in (interventions or []):
-        iv_map[iv.step_index] = iv
+        iv_map.setdefault(iv.step_index, []).append(iv)
 
     trace_lines: list[str] = []
     for i, s in enumerate(steps):
         line = render_step(i, s)
         if i in iv_map:
-            iv = iv_map[i]
-            reason = (iv.scenario or iv.trigger or "").strip()
-            instr = (iv.instruction or "").strip()
-            parts = []
-            if instr:
-                parts.append(instr)
-            if reason:
-                parts.append(f"reason: {reason}")
-            annotation = "; ".join(parts) if parts else "user override"
-            line += f"  <<< USER INTERVENED: {annotation} >>>"
+            annotations: list[str] = []
+            for iv in iv_map[i]:
+                reason = (iv.scenario or iv.trigger or "").strip()
+                instr = (iv.instruction or "").strip()
+                parts = []
+                if instr:
+                    parts.append(instr)
+                if reason:
+                    parts.append(f"reason: {reason}")
+                annotations.append("; ".join(parts) if parts else "user override")
+            line += f"  <<< USER INTERVENED: {' | '.join(annotations)} >>>"
         trace_lines.append(line)
 
     return f"{prior_section}\nTRACE:\n" + "\n".join(trace_lines)
@@ -313,9 +316,15 @@ def _coerce_kind(kind: Optional[str]) -> str:
     return k if k in TAXONOMY else "interact"
 
 
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "to", "in", "on", "at", "of", "for", "and", "or",
+    "is", "it", "its", "this", "that", "with", "from", "by",
+})
+
+
 def _token_set(text: str) -> set[str]:
-    """Lowercase word tokens, stripping punctuation."""
-    return {w for w in text.lower().split() if w.isalpha()}
+    """Lowercase word tokens, stripping punctuation and stop words."""
+    return {w for w in text.lower().split() if w.isalpha() and w not in _STOP_WORDS}
 
 
 def _snap_label(kind: str, label: str, prior_labels: list[str]) -> str:
