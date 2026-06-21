@@ -279,13 +279,16 @@ class Hub:
             conn.title = None
             conn._title_requested = False
             conn.recent_steps = []
-            conn._goal_text = None
+            # Only overwrite _goal_text if execution.start carries an explicit
+            # goal; otherwise preserve intent text from intent.received.
             if d.get("goal"):
                 conn._goal_text = d.get("goal")
             # Attempt title generation on execution start if we have goal text.
             if conn._goal_text and not conn._title_requested:
                 conn._title_requested = True
                 generate_title_async(conn, conn._goal_text)
+                # Consumed — clear so it doesn't leak to an unrelated future run.
+                conn._goal_text = None
             # A run is starting: drop any stale workflow graph and open a fresh
             # trace. If this run is actually following a saved workflow, a
             # subsequent workflow.start re-establishes the workflow and clears
@@ -331,6 +334,7 @@ class Hub:
             conn.status = {"completed": "completed", "failed": "failed"}.get(st, "idle")
             conn.block = None
             conn.routing = None
+            conn._goal_text = None
             # Keep title + recent_steps visible after completion so the fleet card
             # still shows what the run did. They reset on the next execution.start.
             if conn.trace:
@@ -340,6 +344,7 @@ class Hub:
             conn.status = "idle"
             conn.block = None
             conn.routing = None
+            conn._goal_text = None
             if conn.trace:
                 conn.trace["status"] = "halted"
                 conn.trace["current"] = None
@@ -470,6 +475,7 @@ class Hub:
             wf["awaiting"] = False
             wf["status"] = st
             conn.block = None
+            conn._goal_text = None
             # The dispatch routing decision is per-run; drop it so the banner
             # doesn't linger as stale after the run ends (re-set on next dispatch).
             conn.routing = None
