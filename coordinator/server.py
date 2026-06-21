@@ -770,7 +770,10 @@ async def agent_ws(ws: WebSocket) -> None:
             elif mtype == "catalog":
                 conn.catalog = msg.get("catalog")
                 conn.catalog_version += 1
-                save_catalog(agent_id, conn.catalog, conn.catalog_version)
+                try:
+                    save_catalog(agent_id, conn.catalog, conn.catalog_version)
+                except Exception:
+                    pass
             elif mtype in ("webrtc.offer", "webrtc.answer", "webrtc.ice"):
                 # WebRTC signaling: relay to the watching UI(s) for this agent.
                 await hub.broadcast_session(
