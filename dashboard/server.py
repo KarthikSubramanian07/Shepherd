@@ -530,6 +530,32 @@ async def get_routine_stats(routine_id: str) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.get("/api/task-graphs")
+async def list_task_graphs() -> JSONResponse:
+    """Every stored task graph (read from data/task_graphs.json), newest first.
+    Lets the frontend discover and browse graphs without knowing keys up front."""
+    try:
+        from engine.task_graph import TaskGraphStore
+        raw = TaskGraphStore().all_graphs()
+        out = [
+            {
+                "task_key":   key,
+                "routine_id": g.get("routine_id"),
+                "run_count":  g.get("run_count", 0),
+                "node_count": len(g.get("nodes", [])),
+                "edge_count": len(g.get("edges", [])),
+                "updated_at": g.get("updated_at", 0),
+                "intents":    g.get("intents", []),
+                "labels":     [n.get("label") for n in g.get("nodes", [])],
+            }
+            for key, g in raw.items()
+        ]
+        out.sort(key=lambda x: x["updated_at"], reverse=True)
+        return JSONResponse(out)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/task-graph/{routine_id}")
 async def get_task_graph(routine_id: str) -> JSONResponse:
     """The accumulated graph for a task — milestones learned across all runs."""

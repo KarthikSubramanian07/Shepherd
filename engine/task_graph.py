@@ -152,6 +152,10 @@ class TaskGraphStore:
         # Same/similar task == same resolved routine.
         return routine_id
 
+    def all_graphs(self) -> dict:
+        """Every stored graph, keyed by task_key (raw serialized form from disk)."""
+        return self._load_all()
+
     def load(self, routine_id: str, variables: dict, intent_text: str = "") -> TaskGraph:
         key = self.task_key(routine_id, variables)
         raw = self._load_all().get(key)
