@@ -1,18 +1,17 @@
 import { NextResponse } from "next/server";
-import { runs } from "@/lib/mock-data";
-import type { RunSummary } from "@/lib/types";
+
+/**
+ * Proxy: forwards to the Shepherd backend's /api/runs endpoint.
+ * Returns an empty array if the backend is unreachable.
+ */
+const BACKEND = process.env.SHEPHERD_API_BASE ?? "http://localhost:8765";
 
 export async function GET() {
-  const summaries: RunSummary[] = runs.map((r) => ({
-    id: r.id,
-    routineId: r.routineId,
-    routineName: r.routineName,
-    agentId: r.agentId,
-    agentName: r.agentName,
-    status: r.status,
-    startedAt: r.startedAt,
-    endedAt: r.endedAt,
-    confidence: r.confidence,
-  }));
-  return NextResponse.json(summaries);
+  try {
+    const res = await fetch(`${BACKEND}/api/runs`, { cache: "no-store" });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch {
+    return NextResponse.json([]);
+  }
 }
