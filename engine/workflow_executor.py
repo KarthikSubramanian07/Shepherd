@@ -32,6 +32,12 @@ from engine import llm
 END = "END"
 
 
+class _NoopSpan:
+    """Stand-in span when no telemetry is wired — set_attribute is a no-op."""
+    def set_attribute(self, *_a, **_k) -> None:
+        pass
+
+
 # ── worker I/O ──────────────────────────────────────────────────────────────────
 @dataclass
 class NextOption:
@@ -154,13 +160,23 @@ def options_for(workflow: Workflow, node: TaskGraphNode) -> list[NextOption]:
 # ── executor ───────────────────────────────────────────────────────────────────
 class WorkflowExecutor:
     def __init__(self, worker: Worker, event_emit=None, max_steps: int = 50,
-                 gate=None) -> None:
+                 gate=None, telemetry=None) -> None:
         self._worker = worker
         self._max_steps = max_steps
         self._emit = event_emit or (lambda *_a, **_k: None)
         # gate(turn) -> Optional[Intervention]: the human-in-the-loop hook checked
         # at each milestone boundary so the Control Hub can steer / pause / teach.
         self._gate = gate
+        # Telemetry: when provided, the whole traversal and each milestone are
+        # wrapped in OTel spans so Arize Phoenix traces THROUGH the workflow
+        # (workflow.execute → workflow.node), not just routine.execute.
+        self._telemetry = telemetry
+
+    def _span(self, name: str):
+        import contextlib
+        if self._telemetry is None:
+            return contextlib.nullcontext(_NoopSpan())
+        return self._telemetry.span(name)
 
     def run(
         self,
@@ -227,7 +243,15 @@ class WorkflowExecutor:
                     "flag": iv_event.flag,
                 })
             if result is None:                                 # not steered → worker acts
-                result = self._worker.act(turn)
+                with self._span("workflow.node") as nspan:
+                    nspan.set_attribute("workflow.node.key", cur.key)
+                    nspan.set_attribute("workflow.node.label", cur.label)
+                    nspan.set_attribute("workflow.node.kind", cur.kind)
+                    nspan.set_attribute("workflow.step_no", step_no)
+                    result = self._worker.act(turn)
+                    nspan.set_attribute("workflow.node.status", result.status)
+                    if result.branch:
+                        nspan.set_attribute("workflow.node.branch", result.branch)
 
             if result.extracted:
                 kb.update(result.extracted)

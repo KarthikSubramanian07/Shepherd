@@ -495,6 +495,17 @@ class ShepherdExecutionEngine:
                         "reason":     deviation_desc,
                     })
 
+                # Interruptability: a halt requested DURING planning (the slow LLM
+                # step) takes effect here — before any actuation — so a spoken/clicked
+                # "stop" never lands a click it could have prevented. Planning is done
+                # and nothing has actuated yet, so this is still a safe boundary.
+                if self._halt_flag.is_set():
+                    status = "aborted"
+                    event_bus.emit("execution.halted", {
+                        "run_id": run_id, "step_index": i, "reason": "halt_requested",
+                    })
+                    break
+
                 step_status = "completed"
                 step_error: Optional[str] = None
 
@@ -658,8 +669,17 @@ class ShepherdExecutionEngine:
         worker = AgentSWorker(self._agent_s, self._exec_agent_code)
         executor = WorkflowExecutor(
             worker, event_emit=event_bus.emit, gate=workflow_control.review,
+            telemetry=self._telemetry,
         )
-        wf_run = executor.run(workflow, goal=goal, params=params, profile=profile)
+        # Parent span so Arize Phoenix traces THROUGH the workflow: each milestone's
+        # workflow.node span nests under this workflow.execute span.
+        with self._telemetry.span("workflow.execute") as _wspan:
+            _wspan.set_attribute("workflow.id", workflow.id)
+            _wspan.set_attribute("workflow.name", workflow.name or "")
+            _wspan.set_attribute("workflow.goal", goal)
+            wf_run = executor.run(workflow, goal=goal, params=params, profile=profile)
+            _wspan.set_attribute("workflow.status", wf_run.status)
+            _wspan.set_attribute("workflow.steps", len(wf_run.path))
 
         # Teaching loop — bake any `remember`-flagged human steers into the
         # workflow so the branch/procedure is automatic next run, then persist the

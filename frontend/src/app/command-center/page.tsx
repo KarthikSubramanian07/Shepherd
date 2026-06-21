@@ -9,6 +9,7 @@ import type { RunSummary } from "@/lib/types";
 import { runStatusStyle } from "@/lib/status";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, Stat, StatusDot } from "@/components/ui/primitives";
+import { LiveExecutionGraph } from "@/components/LiveExecutionGraph";
 import { formatDuration, timeAgo } from "@/lib/utils";
 
 export default function CommandCenterPage() {
@@ -124,6 +125,26 @@ export default function CommandCenterPage() {
                   <Square size={12} /> Halt
                 </Button>
               </div>
+            </div>
+          )}
+
+          {/* Live execution path — replays milestone-by-milestone as the run streams */}
+          {state.graphNodes.length > 0 && (
+            <div className="mt-4 rounded-xl border border-edge bg-canvas/50 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  {isRunning && (
+                    <span className="h-1.5 w-1.5 animate-pulseRing rounded-full bg-accent" />
+                  )}
+                  Live execution path
+                </span>
+                {isRunning && (
+                  <Button size="sm" variant="danger" onClick={() => api.haltExecution()}>
+                    <Square size={12} /> Stop agent
+                  </Button>
+                )}
+              </div>
+              <LiveExecutionGraph nodes={state.graphNodes} />
             </div>
           )}
 

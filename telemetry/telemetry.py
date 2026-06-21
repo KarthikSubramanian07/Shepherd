@@ -122,7 +122,7 @@ class ShepherdTelemetry:
                     dur = int((time.perf_counter() - t0) * 1000)
                     _emit_span_end(
                         name, trace_id, span_id, dur, status,
-                        _collect_attrs(s, ("routine.", "action.", "step.", "error.")),
+                        _collect_attrs(s, ("routine.", "action.", "step.", "workflow.", "error.")),
                     )
         except Exception:
             yield _Noop()
