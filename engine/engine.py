@@ -535,7 +535,9 @@ class ShepherdExecutionEngine:
             })
         event_bus.emit("task.graph.loaded", {
             "run_id":     run_id,
-            "routine_id": resolved.routine_id,
+            # The graph is stored under gkey (per-goal for autonomous runs); emit
+            # that so the dashboard fetches the same graph the run reads/writes.
+            "routine_id": gkey,
             "known":      was_known,
             "run_count":  graph.run_count,
             "node_count": len(graph.nodes),
