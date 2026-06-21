@@ -1925,6 +1925,25 @@ class ShepherdExecutionEngine:
             "run_id": run_id, "step_index": index, "decision": decision,
         })
 
+        # Reliability backbone: record the intervention as a structured Sentry issue
+        # (decision/trigger/verdict tags, the screenshot, and a Phoenix trace link),
+        # so halt-rate and slow steps are queryable in Sentry. Best-effort.
+        if FEATURES["sentry"]:
+            try:
+                import io as _io2
+                import pyautogui as _pag2
+                from telemetry.sentry_init import capture_intervention
+                _b = _io2.BytesIO()
+                _pag2.screenshot().save(_b, format="PNG")
+                capture_intervention(
+                    decision=decision, reason=reason, run_id=run_id, step_index=index,
+                    trigger=step.monitor_trigger, verdict=verdict,
+                    milestone=self._step_ms.get(index, {}).get("label"),
+                    screenshot_png=_b.getvalue(),
+                )
+            except Exception as _se:
+                print(f"[sentry] intervention capture non-fatal: {_se}")
+
         if decision == "halt":
             self._interventions.append(InterventionEvent(
                 step_index=index, trigger=step.monitor_trigger, decision="halt",
