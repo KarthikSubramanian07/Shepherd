@@ -362,6 +362,9 @@ def main() -> None:
                         workflow, goal=intent.raw_text, params=plan.params
                     )
                     _after_run(engine, telemetry, memory, result, confidence=plan.confidence)
+                    if _should_end_session():
+                        print("[shepherd] Task complete — ending session.\n")
+                        break
                     continue
 
             if plan.kind != "ROUTINE":
