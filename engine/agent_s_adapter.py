@@ -71,6 +71,9 @@ class AgentSAdapter:
     def __init__(self) -> None:
         self._agent = None
         self._autonomous_agent = None
+        # The model's reasoning for its most recent predict (gui-agents executor
+        # info["plan"]). The engine reads this to log WHY each action ran.
+        self.last_reasoning: str = ""
         try:
             self._init_agent()
         except ImportError as e:
@@ -88,6 +91,12 @@ class AgentSAdapter:
             if AGENT_S_ENGINE_TYPE == "openai"
             else os.getenv("ANTHROPIC_API_KEY")
         )
+
+        if AGENT_S_ENGINE_TYPE == "anthropic":
+            # Newer Anthropic models reject `temperature`/`top_p`, which gui-agents
+            # always sends — strip them so plan/ground calls don't 400.
+            from engine._anthropic_compat import apply as _apply_anthropic_compat
+            _apply_anthropic_compat()
 
         engine_params: dict = {
             "engine_type": AGENT_S_ENGINE_TYPE,
@@ -173,6 +182,22 @@ class AgentSAdapter:
         except Exception as e:
             print(f"[agent_s] autonomous reset failed (non-fatal): {e}")
 
+    def _capture(self) -> bytes:
+        """
+        Grab the screen and downscale to the grounding size. Retina screenshots are
+        ~4x logical resolution; downscaling keeps the Anthropic request under its
+        size limit (avoids HTTP 413) and matches the image's pixel space to the
+        coordinate space we ground in (SCREEN_WIDTH x SCREEN_HEIGHT).
+        """
+        import pyautogui
+        screenshot = pyautogui.screenshot()
+        if screenshot.size != (SCREEN_WIDTH, SCREEN_HEIGHT):
+            from PIL import Image
+            screenshot = screenshot.resize((SCREEN_WIDTH, SCREEN_HEIGHT), Image.LANCZOS)
+        buf = io.BytesIO()
+        screenshot.save(buf, format="PNG")
+        return buf.getvalue()
+
     def plan_action(
         self,
         instruction: str,
@@ -190,11 +215,6 @@ class AgentSAdapter:
         if not self._agent:
             return None
         try:
-            import pyautogui
-            screenshot = pyautogui.screenshot()
-            buf = io.BytesIO()
-            screenshot.save(buf, format="PNG")
-
             full_instruction = instruction
             if demonstration_context:
                 full_instruction = (
@@ -202,10 +222,11 @@ class AgentSAdapter:
                     f"Reference demonstration:\n{demonstration_context}"
                 )
 
-            _, action = self._agent.predict(
+            info, action = self._agent.predict(
                 instruction=full_instruction,
-                observation={"screenshot": buf.getvalue()},
+                observation={"screenshot": self._capture()},
             )
+            self.last_reasoning = (info or {}).get("plan", "") or ""
 
             if action and action[0]:
                 code = action[0]
@@ -232,15 +253,11 @@ class AgentSAdapter:
             return AutonomousStepResult(outcome="unavailable")
 
         try:
-            import pyautogui
-            screenshot = pyautogui.screenshot()
-            buf = io.BytesIO()
-            screenshot.save(buf, format="PNG")
-
-            _, action = agent.predict(
+            info, action = agent.predict(
                 instruction=goal,
-                observation={"screenshot": buf.getvalue()},
+                observation={"screenshot": self._capture()},
             )
+            self.last_reasoning = (info or {}).get("plan", "") or ""
 
             raw = (action[0] if action else "") or ""
             outcome = _terminal_outcome(raw)
@@ -268,10 +285,7 @@ class AgentSAdapter:
         if not self._agent:
             return None
         try:
-            import pyautogui
-            screenshot = pyautogui.screenshot()
-            buf = io.BytesIO()
-            screenshot.save(buf, format="PNG")
+            screenshot_bytes = self._capture()
 
             field_lines = []
             for i, bf in enumerate(fields):
@@ -289,10 +303,11 @@ class AgentSAdapter:
             if demonstration_context:
                 instruction += f"\n\nReference demonstration:\n{demonstration_context}"
 
-            _, action = self._agent.predict(
+            info, action = self._agent.predict(
                 instruction=instruction,
-                observation={"screenshot": buf.getvalue()},
+                observation={"screenshot": screenshot_bytes},
             )
+            self.last_reasoning = (info or {}).get("plan", "") or ""
 
             if action and action[0]:
                 code = action[0]

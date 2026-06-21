@@ -141,8 +141,8 @@ def _record_mode(routine_id: str) -> None:
         json.dump(routines, f, indent=2)
 
     print(f"[record] ✓ Saved {len(steps)} steps → {routine_id}.demonstration")
-    print(f"[record]   Screenshots: data/screenshots/step_NNN.png")
-    print(f"[record]   Run 'python main.py' to execute with Agent S against this recording.\n")
+    print("[record]   Screenshots: data/screenshots/step_NNN.png")
+    print("[record]   Run 'python main.py' to execute with Agent S against this recording.\n")
 
 
 def main() -> None:
@@ -159,11 +159,15 @@ def main() -> None:
         if idx + 1 < len(sys.argv):
             mode = sys.argv[idx + 1].upper()
 
-    print(f"\n=== THE SHEPHERD ===")
+    print("\n=== THE SHEPHERD ===")
     print(f"Mode: {mode}  |  Active features: {[k for k, v in FEATURES.items() if v]}\n")
 
     # ── Init ──────────────────────────────────────────────────────────────────
     init_sentry()
+    # Warn loudly if Screen Recording isn't granted — otherwise Agent S is blind
+    # (screenshots show only desktop + menu bar) and silently spins on every task.
+    from engine.permissions import preflight as _perm_preflight
+    _perm_preflight()
     telemetry = ShepherdTelemetry()
     memory    = ExecutionMemory()
     load_routines()          # pre-warm cache

@@ -38,3 +38,18 @@ agent_s = ["gui-agents"]
 
 [tool.uv]
 package = false
+
+# gui-agents pulls in paddlepaddle + paddleocr, but those are only used by its
+# (unused) s1 OCR server — we run the s3 agent with LLM/UI-TARS grounding and the
+# monitor uses pytesseract. paddlepaddle also has no wheel for Intel macOS, which
+# breaks `uv sync` there. Drop both via an always-false marker so they're never
+# installed on any platform.
+override-dependencies = [
+    "paddlepaddle; sys_platform == 'never'",
+    "paddleocr; sys_platform == 'never'",
+    # fastembed (vector router) pulls onnxruntime, which has no wheel for Intel
+    # macOS. Vector routing is optional (falls back to keyword routing), so drop
+    # both ONLY on Intel macOS; keep them everywhere else.
+    "fastembed; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "onnxruntime; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+]

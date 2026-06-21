@@ -31,6 +31,7 @@ from engine.agent_s_adapter import AgentSAdapter
 from engine.task_graph import TaskGraphStore, summarize, milestone_key
 from dashboard.events import event_bus
 from telemetry import audit_log
+from telemetry import request_log as rlog
 from services import policy_engine
 
 pyautogui.FAILSAFE = True   # slam mouse to top-left corner to abort
@@ -93,6 +94,7 @@ class ShepherdExecutionEngine:
             "goal":        goal,
             "steps":       [],
         })
+        rlog.request_started(run_id, goal, "AUTONOMOUS", True, AUTONOMOUS_ROUTINE_ID)
 
         steps_done = 0
         error: Optional[str] = None
@@ -133,10 +135,13 @@ class ShepherdExecutionEngine:
                 })
 
                 result = self._agent_s.predict_autonomous(goal, i)
+                rlog.agent_turn(run_id, i, self._agent_s.last_reasoning,
+                                result.code or "", result.outcome)
                 step_status = "completed"
                 step_error: Optional[str] = None
 
                 if result.outcome == "done":
+                    rlog.note(run_id, f"Agent S reports DONE after {steps_done} actions")
                     steps_done += 1
                     dur_ms = int((time.time() - step_t0) * 1000)
                     self.last_step_records.append(StepRecord(
@@ -214,6 +219,7 @@ class ShepherdExecutionEngine:
                         break
 
                 dur_ms = int((time.time() - step_t0) * 1000)
+                rlog.step_result(run_id, i, step_status, dur_ms, step_error or "")
                 self.last_step_records.append(StepRecord(
                     index=i, action="agent_s", target=None,
                     status=step_status, started_at=step_t0, duration_ms=dur_ms, error=step_error,
@@ -225,6 +231,7 @@ class ShepherdExecutionEngine:
             else:
                 status = "failed"
                 error = f"Step budget exhausted ({max_steps} steps)"
+                rlog.note(run_id, error)
 
         ended_at = time.time()
         result = ExecutionResult(
@@ -244,6 +251,7 @@ class ShepherdExecutionEngine:
             "steps_completed": steps_done,
             "duration_ms":     result.duration_ms,
         })
+        rlog.request_finished(run_id, status, steps_done, result.duration_ms)
         return result
 
     def execute(self, resolved: ResolvedRoutine) -> ExecutionResult:
