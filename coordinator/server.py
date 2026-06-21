@@ -301,6 +301,7 @@ async def agent_ws(ws: WebSocket) -> None:
                 )
                 await hub.push_roster()
             elif mtype == "frame":
+                first_frame = conn.last_frame is None
                 conn.last_frame = msg.get("data")
                 conn.last_frame_ts = time.time()
                 await hub.broadcast_session(
@@ -309,6 +310,10 @@ async def agent_ws(ws: WebSocket) -> None:
                      "data": conn.last_frame, "ts": conn.last_frame_ts},
                     only_watching=True,
                 )
+                # The first frame flips snapshot()["hasFrame"]; refresh the
+                # roster so the UI learns this agent has a live screen.
+                if first_frame:
+                    await hub.push_roster()
             elif mtype == "hello":
                 conn.name = msg.get("name", conn.name)
                 conn.host = msg.get("host", conn.host)
