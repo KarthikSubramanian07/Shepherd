@@ -211,17 +211,19 @@ def main() -> None:
             print(f"[operate] Workflow execution error: {e}")
 
     # Keep alive: stream screen + handle remote intents until Ctrl-C.
+    # NOTE: operate.py is a lightweight launcher for quick demos. For
+    # full intent dispatch (router → workflows/routines/autonomous), run
+    # `main.py --listen` instead — it uses the same relay_client sidecar
+    # for video streaming but routes intents through the full engine.
     print(f"\n[operate] Agent is live on the coordinator (code={AGENT_PAIRING_CODE}).")
     print("[operate] The operator can now connect to the Command Center and drive this machine.")
+    print("[operate] For full intent dispatch, use: python main.py --listen")
     print("[operate] Press Ctrl-C to disconnect.\n")
     try:
         while True:
-            # Check for remote intents from the Command Center.
             try:
                 intent = remote_intents.get(timeout=1.0)
                 print(f"[operate] Remote intent received: {intent}")
-                # In a full agent, this would be routed to the engine.
-                # For now, just acknowledge it.
                 from dashboard.events import event_bus
                 event_bus.emit("remote.intent.received", {"text": intent})
             except queue.Empty:

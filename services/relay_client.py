@@ -216,21 +216,80 @@ def _agent_ws_base() -> str:
     return url
 
 
-def _capture_frame() -> Optional[str]:
-    """Grab the screen, downscale, JPEG-encode, return base64. Best-effort."""
-    try:
-        import pyautogui
-        from PIL import Image
+_cdp_pw = None    # cached Playwright server handle (prevents subprocess leak)
+_cdp_page = None  # cached Playwright CDP page for frame capture fallback
 
-        img = pyautogui.screenshot()
-        if RELAY_FRAME_WIDTH and img.width > RELAY_FRAME_WIDTH:
-            ratio = RELAY_FRAME_WIDTH / img.width
-            img = img.resize((RELAY_FRAME_WIDTH, int(img.height * ratio)), Image.BILINEAR)
-        buf = io.BytesIO()
-        img.convert("RGB").save(buf, format="JPEG", quality=RELAY_FRAME_QUALITY)
-        return base64.b64encode(buf.getvalue()).decode("ascii")
+
+def _get_cdp_page():
+    """Lazily connect to Chrome via CDP and cache the page reference."""
+    global _cdp_pw, _cdp_page
+    if _cdp_page is not None:
+        try:
+            _cdp_page.url  # verify connection is still alive
+            return _cdp_page
+        except Exception:
+            _cdp_page = None
+    # Stop previous Playwright server if it exists (prevents subprocess leak).
+    if _cdp_pw is not None:
+        try:
+            _cdp_pw.stop()
+        except Exception:
+            pass
+        _cdp_pw = None
+    try:
+        from playwright.sync_api import sync_playwright
+        _cdp_pw = sync_playwright().start()
+        browser = _cdp_pw.chromium.connect_over_cdp("http://localhost:29229")
+        ctx = browser.contexts[0] if browser.contexts else None
+        _cdp_page = ctx.pages[0] if ctx and ctx.pages else None
+        return _cdp_page
     except Exception:
         return None
+
+
+def _capture_frame() -> Optional[str]:
+    """Grab the screen, downscale, JPEG-encode, return base64. Best-effort.
+
+    Tries pyautogui first (full desktop), falls back to Playwright CDP screenshot
+    (browser viewport only) if pyautogui fails (e.g. no DISPLAY auth on headless VMs).
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+
+    img = None
+    # Primary: pyautogui full-screen capture.
+    try:
+        import pyautogui
+        img = pyautogui.screenshot()
+    except Exception:
+        pass
+
+    # Fallback: Playwright CDP screenshot (captures active browser tab).
+    if img is None:
+        try:
+            page = _get_cdp_page()
+            if page:
+                raw = page.screenshot(type="jpeg", quality=RELAY_FRAME_QUALITY)
+                # Skip PIL decode if no resize needed — avoids double JPEG encoding.
+                if not RELAY_FRAME_WIDTH:
+                    return base64.b64encode(raw).decode("ascii")
+                img = Image.open(io.BytesIO(raw))
+                if img.width <= RELAY_FRAME_WIDTH:
+                    return base64.b64encode(raw).decode("ascii")
+        except Exception:
+            pass
+
+    if img is None:
+        return None
+
+    if RELAY_FRAME_WIDTH and img.width > RELAY_FRAME_WIDTH:
+        ratio = RELAY_FRAME_WIDTH / img.width
+        img = img.resize((RELAY_FRAME_WIDTH, int(img.height * ratio)), Image.BILINEAR)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=RELAY_FRAME_QUALITY)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def _json(obj: dict) -> str:

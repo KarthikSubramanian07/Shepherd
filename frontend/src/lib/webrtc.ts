@@ -58,6 +58,7 @@ export function useWebRTC(
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
+  const disconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const videoRef = useCallback((el: HTMLVideoElement | null) => {
     videoElRef.current = el;
@@ -68,15 +69,21 @@ export function useWebRTC(
       pcRef.current.close();
       pcRef.current = null;
     }
+    if (disconnectTimer.current) {
+      clearTimeout(disconnectTimer.current);
+      disconnectTimer.current = null;
+    }
+    pendingCandidates.current = [];
     setState("idle");
     if (videoElRef.current) {
       videoElRef.current.srcObject = null;
     }
   }, []);
 
-  // Reset when the watched agent changes.
+  // Reset when the watched agent changes or component unmounts.
   useEffect(() => {
     close();
+    return () => { close(); };
   }, [agentId, close]);
 
   const handleSignal = useCallback(
@@ -87,7 +94,10 @@ export function useWebRTC(
         // Agent sent an SDP offer — create peer connection + answer.
         (async () => {
           try {
+            // Preserve ICE candidates buffered for the incoming connection.
+            const savedCandidates = [...pendingCandidates.current];
             close();
+            pendingCandidates.current = savedCandidates;
             setState("connecting");
 
             const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -104,10 +114,21 @@ export function useWebRTC(
 
             pc.oniceconnectionstatechange = () => {
               const s = pc.iceConnectionState;
+              if (disconnectTimer.current) {
+                clearTimeout(disconnectTimer.current);
+                disconnectTimer.current = null;
+              }
               if (s === "connected" || s === "completed") {
                 setState("connected");
-              } else if (s === "failed" || s === "disconnected") {
+              } else if (s === "failed") {
                 setState("failed");
+              } else if (s === "disconnected") {
+                // Transient — give ICE 10s to recover before falling back.
+                disconnectTimer.current = setTimeout(() => {
+                  if (pc.iceConnectionState === "disconnected") {
+                    setState("failed");
+                  }
+                }, 10_000);
               }
             };
 

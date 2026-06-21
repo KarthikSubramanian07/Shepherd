@@ -99,10 +99,30 @@ The URL is also written to `.tunnel_url` in the repo root for programmatic acces
 
 ### Step 4: Start the Operated Agent (Machine A, third terminal)
 
+There are two modes:
+
+**Full dispatch (recommended)** — intents from the Command Center are routed
+through the full engine (router → workflows/routines/autonomous):
+
 ```bash
 cd shepherd
 
 export COORDINATOR_URL="$(cat .tunnel_url)"    # or paste the URL manually
+export COORDINATOR_TOKEN="my-demo-secret"
+export AGENT_PAIRING_CODE="DEMO"
+
+# main.py --listen uses relay_client as a sidecar for video streaming
+# AND dispatches remote intents through the full engine.
+DISPLAY=:0 .venv/bin/python main.py --listen
+```
+
+**Lightweight demo** — streams the screen but does NOT execute intents
+(just logs them). Useful for testing the video pipeline in isolation:
+
+```bash
+cd shepherd
+
+export COORDINATOR_URL="$(cat .tunnel_url)"
 export COORDINATOR_TOKEN="my-demo-secret"
 export AGENT_PAIRING_CODE="DEMO"
 export TARGET_URL="https://example.com"

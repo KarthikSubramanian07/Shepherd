@@ -38,6 +38,54 @@ Any client that implements the handshake and message schemas below can participa
 - **Star topology**: all agents dial OUT to the coordinator. The coordinator is the only component that needs a public/reachable URL.
 - **Stateless relay**: the coordinator maintains in-memory session state only (agent roster, last frame, event ring buffer). A restart clears state; agents reconnect automatically.
 
+### Coordinator as Sidecar — NOT the Dispatch Layer
+
+The coordinator is a **video/event relay only**. It does NOT dispatch intents or
+execute workflows. The Shepherd agent's existing backend (`main.py`) is the
+canonical dispatch layer:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Operated Machine                                                        │
+│                                                                          │
+│  ┌────────────┐   remote_intents    ┌─────────────────────────────────┐ │
+│  │relay_client│──── queue.put() ───▶│ main.py --listen (main loop)    │ │
+│  │ (sidecar)  │                     │  ├─ ShepherdIntentRouter         │ │
+│  │            │                     │  ├─ WorkflowStore / Engine       │ │
+│  │  • frames  │◀── event_bus ──────│  └─ Agent S (GUI automation)     │ │
+│  │  • events  │                     └─────────────────────────────────┘ │
+│  └─────┬──────┘                                                          │
+│        │ WS /agent                                                       │
+└────────┼─────────────────────────────────────────────────────────────────┘
+         │
+    ┌────▼────────────────┐
+    │    Coordinator       │  ← relay only (frames, events, commands)
+    │  (public URL via     │
+    │   Cloudflare Tunnel) │
+    └────┬────────────────┘
+         │ WS /ui
+    ┌────▼────────────────┐
+    │  Command Center UI   │  ← sends intents via coordinator → relay_client
+    │  (Next.js frontend)  │     → remote_intents queue → main.py router
+    └─────────────────────┘
+```
+
+**Intent flow (Command Center → agent execution):**
+
+1. Operator types an intent in the Command Center UI (e.g. "navigate to example.com")
+2. UI sends `{"type": "command", "command": "intent", "text": "..."}` over WS to coordinator
+3. Coordinator relays it to the agent's WS connection
+4. `relay_client.py` receives the command and puts `text` into the `remote_intents` queue
+5. `main.py`'s main loop picks it up and routes through `ShepherdIntentRouter`
+6. Router resolves to a workflow/routine/autonomous goal → engine executes it
+7. Engine drives the browser (Agent S / Playwright) — screen changes are captured
+8. `relay_client.py` streams updated frames back through the coordinator to the UI
+
+**Key principle**: `operate.py` is a lightweight demo launcher that does NOT dispatch
+intents through the engine. For full E2E with intent execution, always use
+`main.py --listen` with `COORDINATOR_URL` set. Both share the same `relay_client`
+sidecar for video streaming.
+
 ---
 
 ## Connection Endpoints
