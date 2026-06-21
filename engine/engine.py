@@ -978,6 +978,11 @@ class ShepherdExecutionEngine:
 
         self._halt_flag.clear()
         self._agent_s.reset()
+        # Reset per-run tracing state so post-run bookkeeping (telemetry.record /
+        # memory.store via _after_run) never persists step records left over from
+        # a prior routine/autonomous execution. Mirrors execute().
+        self.last_step_records = []
+        self.last_trace_id = None
         run_id = str(uuid.uuid4())[:8]
         started_at = time.time()
 

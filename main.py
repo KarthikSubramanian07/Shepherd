@@ -18,6 +18,7 @@ import queue
 import sys
 import time
 import threading
+from types import SimpleNamespace
 
 from config import (
     FEATURES, EXECUTION_MODE, DASHBOARD_PORT, USE_ROUTER, ROUTINE_REPLAY,
@@ -297,6 +298,12 @@ def main() -> None:
                     workflow = router._workflows.get(plan.target)
                     if workflow is not None:
                         print(f"[router] → WORKFLOW {plan.target}  confidence={plan.confidence} ({plan.source})")
+                        if FEATURES["band"]:
+                            threading.Thread(
+                                target=_band_start,
+                                args=(SimpleNamespace(routine_id=plan.target, confidence=plan.confidence),),
+                                daemon=True,
+                            ).start()
                         result = engine.execute_workflow(
                             workflow, goal=intent.raw_text, params=plan.params
                         )
@@ -345,6 +352,12 @@ def main() -> None:
                 workflow = router._workflows.get(plan.target)
                 if workflow is not None:
                     print(f"[router] → WORKFLOW {plan.target}  confidence={plan.confidence} ({plan.source})")
+                    if FEATURES["band"]:
+                        threading.Thread(
+                            target=_band_start,
+                            args=(SimpleNamespace(routine_id=plan.target, confidence=plan.confidence),),
+                            daemon=True,
+                        ).start()
                     result = engine.execute_workflow(
                         workflow, goal=intent.raw_text, params=plan.params
                     )
