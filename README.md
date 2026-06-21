@@ -177,6 +177,14 @@ conditional, and a finalize gate at run end lets you persist it, save it as a ne
 workflow, or discard it. The judgment calls future agents inherit are an explicit
 decision, not a silent side effect.
 
+The **oversight learns too.** Every step accumulates success / failure / halt /
+deviation stats across runs, surfaced as per-step confidence in the UI, and a
+step that keeps proving risky is **auto-promoted into the monitored set**, so the
+safety net tightens exactly where reality showed it should. And in LIVE mode,
+**deviation detection** compares what Agent S actually did against the
+demonstration and flags drift the moment the agent goes off-script, before it
+compounds.
+
 ### 4. Operate any machine, with no inbound ports
 
 Shepherd runs an agent on a machine across the country as easily as on your own.
