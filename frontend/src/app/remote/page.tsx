@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import {
   AlertTriangle,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Cpu,
   GitBranch,
@@ -59,6 +60,7 @@ export default function RemoteCommandCenterPage() {
   const [showActivity, setShowActivity] = useState(false);
   const [pickedNode, setPickedNode] = useState<string | null>(null);
   const [bakeToggle, setBakeToggle] = useState(true);
+  const [rosterOpen, setRosterOpen] = useState(true);
   // Track whether we've already fired the promote command for this run.
   // Keyed by "agentId:runId" to avoid re-firing after agent switch-back.
   const promotedRef = useRef<string | null>(null);
@@ -177,36 +179,65 @@ export default function RemoteCommandCenterPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-          {/* Roster */}
-          <div className="space-y-2 xl:col-span-1">
-            <h2 className="text-sm font-semibold text-muted">Fleet</h2>
-            {c.agents.length === 0 ? (
-              <EmptyState
-                icon={<Radio size={20} />}
-                title={c.code ? `No agent on session ${c.code}` : "No agents connected"}
-                description={
-                  c.code
-                    ? "Waiting for an agent to dial in with this session code. Check the code printed on the agent machine."
-                    : "Enter the session code printed on the agent machine, or start Shepherd with COORDINATOR_URL set so it dials in here."
-                }
-              />
-            ) : (
-              c.agents.map((a) => (
-                <RosterCard
-                  key={a.id}
-                  agent={a}
-                  active={a.id === c.selectedId}
-                  onClick={() => {
-                    c.watch(a.id);
-                    setPickedNode(null);
-                  }}
+          {/* Roster — full panel or collapsed agent chip */}
+          {rosterOpen ? (
+            <div className="space-y-2 xl:col-span-1">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-muted">Fleet</h2>
+                {c.selectedId && (
+                  <button
+                    onClick={() => setRosterOpen(false)}
+                    className="rounded p-0.5 text-muted hover:bg-panel2 hover:text-ink"
+                    title="Collapse fleet roster"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                )}
+              </div>
+              {c.agents.length === 0 ? (
+                <EmptyState
+                  icon={<Radio size={20} />}
+                  title={c.code ? `No agent on session ${c.code}` : "No agents connected"}
+                  description={
+                    c.code
+                      ? "Waiting for an agent to dial in with this session code. Check the code printed on the agent machine."
+                      : "Enter the session code printed on the agent machine, or start Shepherd with COORDINATOR_URL set so it dials in here."
+                  }
                 />
-              ))
-            )}
-          </div>
+              ) : (
+                c.agents.map((a) => (
+                  <RosterCard
+                    key={a.id}
+                    agent={a}
+                    active={a.id === c.selectedId}
+                    onClick={() => {
+                      c.watch(a.id);
+                      setPickedNode(null);
+                    }}
+                  />
+                ))
+              )}
+            </div>
+          ) : (
+            c.selected && (
+              <div className="flex items-center gap-2 xl:col-span-4">
+                <button
+                  onClick={() => setRosterOpen(true)}
+                  className="flex items-center gap-2 rounded-lg border border-edge bg-panel/80 px-3 py-1.5 text-sm transition-colors hover:border-accent/40"
+                >
+                  <StatusDot
+                    hex={agentStatusStyle[c.selected.status].hex}
+                    pulse={c.selected.status === "running" || c.selected.status === "blocked"}
+                  />
+                  <span className="font-medium text-ink">{c.selected.name}</span>
+                  <ChevronRight size={14} className="text-muted" />
+                </button>
+              </div>
+            )
+          )}
 
           {/* Detail · unified live view */}
-          <div className="xl:col-span-3">
+          <div className={rosterOpen ? "xl:col-span-3" : "xl:col-span-4"}>
             {!c.selected ? (
               <EmptyState
                 icon={<Monitor size={20} />}
