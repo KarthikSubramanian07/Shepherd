@@ -128,12 +128,15 @@ class AgentConn:
             "runId":     tr.get("run_id"),
             "routineId": tr.get("routine_id"),
             "kind":      tr.get("kind"),
-            # known=False means there was no prior task graph → a brand-new task
-            # whose trace is being crystallized into a future workflow.
-            "known":     tr.get("known", False),
+            # known is None until task.graph.loaded arrives, then True/False.
+            # False = no prior task graph → a brand-new task whose trace is being
+            # crystallized into a future workflow (the UI distinguishes false vs null).
+            "known":     tr.get("known"),
             "status":    tr.get("status", "running"),
             "current":   tr.get("current"),
-            "nodes":     tr.get("nodes", []),
+            # copy the list so the roster snapshot never aliases live trace state,
+            # matching _workflow_view (the node dicts are still serialized immediately).
+            "nodes":     list(tr.get("nodes", [])),
         }
 
     def _progress(self) -> float:
