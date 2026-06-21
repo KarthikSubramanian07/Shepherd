@@ -164,7 +164,7 @@ def _evict_finished() -> None:
     """Drop the oldest finished traces when we exceed the cap."""
     with _lock:
         finished = [(k, v) for k, v in _traces.items()
-                    if v.get("status") not in ("running", None)]
+                    if v.get("status") not in ("running", "suspended", None)]
         excess = len(finished) - _MAX_FINISHED_TRACES
         if excess <= 0:
             return
