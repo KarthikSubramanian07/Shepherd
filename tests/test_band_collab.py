@@ -8,8 +8,10 @@ the verifier peer replies with, we must extract a valid verdict.
 from services import band_collab
 
 
-def test_disabled_by_default_is_a_noop():
-    # No BAND_* env set in the test environment → fully inert, never raises.
+def test_disabled_is_a_noop(monkeypatch):
+    # Force the feature off regardless of the ambient .env so this never hits the
+    # live API: inert, returns None, publish is a no-op.
+    monkeypatch.setitem(band_collab.FEATURES, "band", False)
     assert band_collab.available() is False
     assert band_collab.request_verdict("credential field detected") is None
     band_collab.publish_event("run.start", "should not raise")  # no-op

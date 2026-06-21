@@ -78,10 +78,14 @@ def request_verdict(reason: str, context: str = "") -> Optional[dict]:
             )
             client.post(
                 f"{BAND_API_BASE}/chats/{BAND_ROOM_ID}/messages",
-                json={
+                json={"message": {
                     "content": body,
-                    "mentions": [{"agent_id": BAND_VERIFIER_AGENT_ID}],
-                },
+                    "mentions": [{
+                        "id":     BAND_VERIFIER_AGENT_ID,
+                        "handle": BAND_VERIFIER_HANDLE,
+                        "kind":   "mention",
+                    }],
+                }},
             ).raise_for_status()
 
             deadline = time.monotonic() + _VERDICT_TIMEOUT_S
@@ -109,10 +113,12 @@ def publish_event(kind: str, text: str) -> None:
         return
     try:
         import httpx
+        # Events carry a fixed set of message_type values; run lifecycle maps to
+        # an informational "thought". The human-readable kind is prefixed in text.
         httpx.post(
             f"{BAND_API_BASE}/chats/{BAND_ROOM_ID}/events",
             headers=_headers(),
-            json={"type": kind, "content": text},
+            json={"event": {"content": f"[{kind}] {text}", "message_type": "thought"}},
             timeout=5.0,
         )
     except Exception as e:
@@ -122,8 +128,10 @@ def publish_event(kind: str, text: str) -> None:
 # ── internals ──────────────────────────────────────────────────────────────
 
 def _headers() -> dict:
+    # Band's Agent API authenticates with the X-API-Key header (verified against
+    # the live /me endpoint — Bearer and api_key query are both rejected).
     return {
-        "Authorization": f"Bearer {BAND_ENGINE_API_KEY}",
+        "X-API-Key": BAND_ENGINE_API_KEY,
         "Content-Type": "application/json",
     }
 

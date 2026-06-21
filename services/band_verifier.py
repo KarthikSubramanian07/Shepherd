@@ -45,17 +45,22 @@ MODEL = "claude-haiku-4-5"
 
 
 async def main() -> None:
+    import logging
     from dotenv import load_dotenv
-    from thenvoi import Agent
-    from thenvoi.adapters import AnthropicAdapter
-    from thenvoi.config import load_agent_config
+    # band-sdk 1.0.0 exposes the module as `band` (newer docs say `thenvoi`).
+    from band import Agent
+    from band.adapters import AnthropicAdapter
+    from band.config import load_agent_config
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
     load_dotenv()  # ANTHROPIC_API_KEY for the model call
 
     adapter = AnthropicAdapter(
         model=MODEL,
-        custom_section=VERIFIER_PROMPT,
-        enable_execution_reporting=True,
+        prompt=VERIFIER_PROMPT,   # band-sdk 1.0.0: `prompt` (custom_section is deprecated)
     )
 
     agent_id, api_key = load_agent_config("shepherd-verifier")
