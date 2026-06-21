@@ -9,6 +9,7 @@ import { useShepherd } from "@/lib/shepherd-ws";
 import type { RunSummary } from "@/lib/types";
 import { runStatusStyle } from "@/lib/status";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { MicCommandButton } from "@/components/remote/MicCommandButton";
 import { Badge, Button, Card, Stat, StatusDot } from "@/components/ui/primitives";
 import { LiveExecutionGraph } from "@/components/LiveExecutionGraph";
 import { RedisPanel } from "@/components/RedisPanel";
@@ -280,6 +281,14 @@ function RunGoalForm({ disabled }: { disabled: boolean }) {
           onKeyDown={(e) => e.key === "Enter" && send()}
           placeholder='Run a goal… (ex. "draft an email")'
           className="flex-1 rounded-lg border border-edge bg-panel px-3 py-2 text-sm text-ink outline-none placeholder:text-muted focus:border-accent/50"
+        />
+        <MicCommandButton
+          onTranscript={(text) => {
+            setGoal(text);
+            setMsg(`Transcribed: "${text}"`);
+          }}
+          onError={(err) => setMsg(`Mic: ${err}`)}
+          disabled={sending}
         />
         <Button onClick={send} disabled={!goal.trim() || sending}>
           <Play size={14} className="mr-1" />

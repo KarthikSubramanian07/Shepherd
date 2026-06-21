@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
-import { runs } from "@/lib/mock-data";
+
+/**
+ * Proxy: forwards to the Shepherd backend's /api/runs/:id endpoint.
+ */
+const BACKEND = process.env.SHEPHERD_API_BASE ?? "http://localhost:8765";
 
 export async function GET(
   _req: Request,
   { params }: { params: { id: string } },
 ) {
-  const run = runs.find((r) => r.id === params.id);
-  if (!run) {
-    return NextResponse.json({ error: "run not found" }, { status: 404 });
+  try {
+    const res = await fetch(`${BACKEND}/api/runs/${params.id}`, { cache: "no-store" });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch {
+    return NextResponse.json({ error: "backend unreachable" }, { status: 502 });
   }
-  return NextResponse.json(run);
 }
