@@ -5,6 +5,7 @@ import {
   Background,
   Controls,
   Handle,
+  Panel,
   Position,
   ReactFlow,
   type Edge,
@@ -12,6 +13,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import type { Conditional, TaskGraph } from "@/lib/types";
+import { analyzeGraph, type GraphMetrics, type NodeStat } from "@/lib/graph-analysis";
 
 const KIND_COLOR: Record<string, string> = {
   open: "#3b82f6",
@@ -25,24 +27,29 @@ const KIND_COLOR: Record<string, string> = {
   interact: "#94a3b8",
 };
 
+const TAUGHT_COLOR = "#a855f7"; // baked human knowledge
+const MODAL_COLOR = "#cf6a43"; // the modal (most-probable) execution path
+
 interface MilestoneData {
   label: string;
   kind: string;
   value: string | null;
   timesSeen: number;
-  lastStatus: string | null;
   taught: boolean;
   procedure: string | null;
   conditionals: Conditional[];
+  stat: NodeStat;
 }
-
-const TAUGHT_COLOR = "#a855f7";
 
 function MilestoneNode(props: NodeProps) {
   const data = props.data as unknown as MilestoneData;
   const color = KIND_COLOR[data.kind] ?? "#94a3b8";
-  // Taught nodes carry baked human knowledge · highlight them distinctly.
-  const borderColor = data.taught ? TAUGHT_COLOR : color;
+  const { stat } = data;
+  const borderColor = data.taught
+    ? TAUGHT_COLOR
+    : stat.onModalPath
+      ? MODAL_COLOR
+      : color;
   return (
     <div
       className="rounded-xl border bg-panel px-4 py-3 shadow-lg"
@@ -50,7 +57,11 @@ function MilestoneNode(props: NodeProps) {
         borderColor,
         minWidth: 210,
         maxWidth: 280,
-        boxShadow: data.taught ? `0 0 0 1px ${TAUGHT_COLOR}55` : undefined,
+        boxShadow: data.taught
+          ? `0 0 0 1px ${TAUGHT_COLOR}55`
+          : stat.onModalPath
+            ? `0 0 0 1px ${MODAL_COLOR}, 0 0 22px ${MODAL_COLOR}33`
+            : undefined,
       }}
     >
       <Handle type="target" position={Position.Left} className="!bg-edge" />
@@ -70,17 +81,42 @@ function MilestoneNode(props: NodeProps) {
           </span>
         )}
         {data.timesSeen > 1 && (
-          <span className="ml-auto text-[10px] text-muted">seen {data.timesSeen}×</span>
+          <span className="ml-auto font-mono text-[10px] text-muted">×{data.timesSeen}</span>
         )}
       </div>
       <div className="mt-1.5 text-sm font-medium text-ink">{data.label}</div>
       {data.value && (
         <div className="mt-0.5 max-w-[190px] truncate text-[11px] text-muted">{data.value}</div>
       )}
+
+      {/* Graph-theoretic role: decision point (with branch entropy) / merge */}
+      {(stat.isBranch || stat.isMerge) && (
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          {stat.isBranch && (
+            <span
+              className="rounded px-1.5 py-0.5 text-[9px] font-medium"
+              style={{ background: `${MODAL_COLOR}1f`, color: MODAL_COLOR }}
+              title={`Decision point · ${stat.entropy.toFixed(2)} bits of branch entropy`}
+            >
+              ⑂ branch · {stat.entropy.toFixed(2)} bits
+            </span>
+          )}
+          {stat.isMerge && (
+            <span
+              className="rounded px-1.5 py-0.5 text-[9px] font-medium text-muted"
+              style={{ background: "#94a3b81f" }}
+              title="Paths converge here"
+            >
+              ⑃ merge ×{stat.inDegree}
+            </span>
+          )}
+        </div>
+      )}
+
       {data.procedure && (
         <div
           className="mt-2 rounded-md px-2 py-1 text-[11px] leading-snug"
-          style={{ background: `${TAUGHT_COLOR}14`, color: "#d8b4fe" }}
+          style={{ background: `${TAUGHT_COLOR}14`, color: "#9333ea" }}
         >
           <span className="font-semibold">procedure: </span>
           {data.procedure}
@@ -92,7 +128,7 @@ function MilestoneNode(props: NodeProps) {
             <div
               key={i}
               className="rounded-md px-2 py-1 text-[11px] leading-snug"
-              style={{ background: `${TAUGHT_COLOR}14`, color: "#d8b4fe" }}
+              style={{ background: `${TAUGHT_COLOR}14`, color: "#9333ea" }}
             >
               <span className="font-semibold">if</span> {c.when}{" "}
               <span className="font-semibold">→</span> {c.do}
@@ -107,100 +143,89 @@ function MilestoneNode(props: NodeProps) {
 
 const nodeTypes = { milestone: MilestoneNode };
 
-/**
- * Longest-path layering for a (mostly-acyclic) milestone graph: x = depth,
- * siblings on the same depth stack vertically. Falls back to array order for
- * any node a cycle leaves unreached.
- */
-function layout(graph: TaskGraph): Map<string, { x: number; y: number }> {
-  const COL = 300;
-  const ROW = 150;
-  const keys = graph.nodes.map((n) => n.key);
-  const adj = new Map<string, string[]>();
-  const indeg = new Map<string, number>();
-  keys.forEach((k) => {
-    adj.set(k, []);
-    indeg.set(k, 0);
-  });
-  for (const e of graph.edges) {
-    if (adj.has(e.from) && indeg.has(e.to)) {
-      adj.get(e.from)!.push(e.to);
-      indeg.set(e.to, (indeg.get(e.to) ?? 0) + 1);
-    }
-  }
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4" title={hint}>
+      <span className="text-[11px] text-muted">{label}</span>
+      <span className="font-mono text-[12px] tabular-nums text-ink">{value}</span>
+    </div>
+  );
+}
 
-  const level = new Map<string, number>();
-  keys.forEach((k) => level.set(k, 0));
-  const work = new Map(indeg);
-  const queue = keys.filter((k) => (indeg.get(k) ?? 0) === 0);
-  const seen = new Set(queue);
-  while (queue.length) {
-    const k = queue.shift()!;
-    for (const to of adj.get(k) ?? []) {
-      level.set(to, Math.max(level.get(to) ?? 0, (level.get(k) ?? 0) + 1));
-      work.set(to, (work.get(to) ?? 0) - 1);
-      if ((work.get(to) ?? 0) <= 0 && !seen.has(to)) {
-        seen.add(to);
-        queue.push(to);
-      }
-    }
-  }
-  // Any node a cycle left unreached: lay it out by its array index column.
-  graph.nodes.forEach((n, i) => {
-    if (!seen.has(n.key)) level.set(n.key, i);
-  });
-
-  const byLevel = new Map<number, string[]>();
-  for (const k of keys) {
-    const l = level.get(k) ?? 0;
-    (byLevel.get(l) ?? byLevel.set(l, []).get(l)!).push(k);
-  }
-  const pos = new Map<string, { x: number; y: number }>();
-  byLevel.forEach((group, l) => {
-    group.forEach((k, i) => {
-      pos.set(k, { x: l * COL, y: i * ROW - ((group.length - 1) * ROW) / 2 });
-    });
-  });
-  return pos;
+function MetricsPanel({ m }: { m: GraphMetrics }) {
+  return (
+    <div className="w-[212px] rounded-xl border border-edge bg-panel/95 p-3 shadow-card backdrop-blur">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-eyebrow text-muted">
+        Workflow analysis
+      </div>
+      <div className="space-y-1">
+        <Stat label="Milestones" value={String(m.nodeCount)} />
+        <Stat label="Transitions" value={String(m.edgeCount)} />
+        <Stat label="Runs observed" value={String(m.runCount)} />
+        <Stat label="Depth" value={`${m.depth} deep`} hint="Longest path through the workflow" />
+        <Stat label="Decision points" value={String(m.branchPoints)} hint="Milestones with more than one observed next step" />
+        <Stat label="Merge points" value={String(m.mergePoints)} hint="Where paths converge" />
+        <Stat label="Branching factor" value={m.meanBranching.toFixed(2)} hint="Average transitions per milestone" />
+        <Stat label="Decision entropy" value={`${m.avgEntropy.toFixed(2)} bits`} hint="Mean Shannon entropy at decision points. 0 = fully deterministic." />
+        <Stat label="Modal coverage" value={`${Math.round(m.modalCoverage * 100)}%`} hint="Probability mass of the single most-likely run (highlighted path)" />
+      </div>
+      <div className="mt-2.5 flex items-center gap-1.5 border-t border-edge pt-2">
+        <span className="h-1.5 w-5 rounded-full" style={{ background: MODAL_COLOR }} />
+        <span className="text-[10px] text-muted">modal execution path</span>
+      </div>
+    </div>
+  );
 }
 
 export function TaskGraphView({ graph }: { graph: TaskGraph }) {
-  const { nodes, edges } = useMemo(() => {
-    const pos = layout(graph);
+  const { nodes, edges, metrics } = useMemo(() => {
+    const a = analyzeGraph(graph);
+
     const nodes: Node[] = graph.nodes.map((n, i) => ({
       id: n.key,
       type: "milestone",
-      position: pos.get(n.key) ?? { x: i * 300, y: 0 },
+      position: a.pos.get(n.key) ?? { x: i * 300, y: 0 },
       data: {
         label: n.label,
         kind: n.kind,
         value: n.value,
         timesSeen: n.times_seen,
-        lastStatus: n.last_status,
         taught: n.source === "taught",
         procedure: n.procedure ?? null,
         conditionals: n.conditionals ?? [],
+        stat: a.nodeStats.get(n.key)!,
       },
     }));
+
+    // Index the analysis edge-stats by from->to so conditional metadata is kept.
+    const statByKey = new Map(a.edgeStats.map((e) => [`${e.from}->${e.to}`, e]));
     const edges: Edge[] = graph.edges.map((e, i) => {
-      // Conditional/taught branches read as labelled NL guards, styled distinctly.
+      const es = statByKey.get(`${e.from}->${e.to}`);
       const conditional = Boolean(e.condition);
+      const onModal = es?.onModalPath ?? false;
+      const prob = es?.prob ?? 0;
+      const pctLabel = prob > 0 && prob < 1 ? `${Math.round(prob * 100)}%` : undefined;
       return {
         id: `e${i}`,
         source: e.from,
         target: e.to,
         type: "smoothstep",
-        animated: true,
-        label: e.condition ?? (e.times_seen > 1 ? `${e.times_seen}×` : undefined),
-        labelStyle: conditional ? { fill: TAUGHT_COLOR, fontSize: 11 } : undefined,
+        animated: onModal || conditional,
+        label: e.condition ?? pctLabel ?? (e.times_seen > 1 ? `${e.times_seen}×` : undefined),
+        labelStyle: {
+          fill: conditional ? TAUGHT_COLOR : "#7c7064",
+          fontSize: 10,
+          fontFamily: "monospace",
+        },
         style: {
-          strokeWidth: Math.min(1 + e.times_seen, 4),
-          stroke: conditional ? TAUGHT_COLOR : "#3b82f6",
-          strokeDasharray: conditional ? "5 4" : undefined,
+          strokeWidth: conditional ? 2 : onModal ? 3 : 1 + prob * 2,
+          stroke: conditional ? TAUGHT_COLOR : onModal ? MODAL_COLOR : "#c9bfae",
+          strokeDasharray: conditional ? "5 4" : es?.isBackEdge ? "2 3" : undefined,
+          opacity: onModal || conditional ? 1 : 0.5 + prob * 0.4,
         },
       };
     });
-    return { nodes, edges };
+    return { nodes, edges, metrics: a.metrics };
   }, [graph]);
 
   return (
@@ -210,7 +235,7 @@ export function TaskGraphView({ graph }: { graph: TaskGraph }) {
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
-        minZoom={0.2}
+        minZoom={0.15}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={22} size={1} color="#ddd5c8" />
@@ -218,6 +243,9 @@ export function TaskGraphView({ graph }: { graph: TaskGraph }) {
           showInteractive={false}
           className="overflow-hidden rounded-lg border border-edge bg-panel text-ink"
         />
+        <Panel position="top-right">
+          <MetricsPanel m={metrics} />
+        </Panel>
       </ReactFlow>
     </div>
   );

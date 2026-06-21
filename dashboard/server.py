@@ -528,6 +528,99 @@ async def agentspan_status() -> JSONResponse:
         return JSONResponse({"available": False, "error": str(e)})
 
 
+# Cached, reused across polls — the dashboard hits /api/redis/stats every few
+# seconds, so we keep one Redis client + one memory/cache handle alive instead of
+# opening fresh connections each time.
+_stats_redis_client = None
+_stats_memory = None
+_stats_semcache = None
+
+
+def _stats_redis():
+    global _stats_redis_client
+    if _stats_redis_client is None:
+        import redis as _redis
+        from config import REDIS_URL
+        _stats_redis_client = _redis.from_url(REDIS_URL, decode_responses=True)
+    return _stats_redis_client
+
+
+def _stats_memory_handle():
+    global _stats_memory
+    if _stats_memory is None or not _stats_memory.online:
+        from telemetry.memory import ExecutionMemory
+        _stats_memory = ExecutionMemory()
+    return _stats_memory
+
+
+def _stats_semcache_handle():
+    global _stats_semcache
+    if _stats_semcache is None or not _stats_semcache.connected:
+        from services.semantic_cache import SemanticCache
+        _stats_semcache = SemanticCache("milestones")
+    return _stats_semcache
+
+
+@app.get("/api/redis/stats")
+async def redis_stats() -> JSONResponse:
+    """Surface how Redis is used BEYOND caching: vector search for intent routing,
+    agent memory (runs + learned variables), and the semantic LLM cache."""
+    out: dict = {
+        "available": False,
+        "connection": "local",
+        "version": None,
+        "vector_routing": {"available": False},
+        "agent_memory": {"available": False},
+        "semantic_cache": {"available": False},
+        "last_match": None,
+    }
+    try:
+        from config import REDIS_URL
+        r = _stats_redis()
+        r.ping()
+        out["available"] = True
+        host = REDIS_URL.split("@")[-1]
+        out["connection"] = "cloud" if (
+            "redislabs" in host or "redis-cloud" in host or "rediss://" in REDIS_URL
+        ) else "local"
+        try:
+            out["version"] = r.info("server").get("redis_version")
+        except Exception:
+            pass
+
+        # Vector search — routines indexed in a Redis 8 vectorset
+        try:
+            from router.vector_router import VSET_KEY, SIMILARITY_THRESHOLD
+            from services import embeddings
+            count = int(r.execute_command("VCARD", VSET_KEY) or 0)
+            out["vector_routing"] = {
+                "available": count > 0,
+                "indexed_routines": count,
+                "dim": embeddings.EMBEDDING_DIM,
+                "threshold": SIMILARITY_THRESHOLD,
+                "model": "BAAI/bge-small-en-v1.5",
+            }
+        except Exception:
+            pass
+
+        # Agent memory + semantic cache — each module owns its own key scheme.
+        out["agent_memory"] = _stats_memory_handle().stats()
+        out["semantic_cache"] = _stats_semcache_handle().stats()
+
+        # Last routing decision (from the live event history)
+        for ev in reversed(event_bus.get_history()):
+            if ev.get("type") == "routine.resolved":
+                d = ev.get("data", {})
+                out["last_match"] = {
+                    "routine_id": d.get("routine_id"),
+                    "similarity": d.get("confidence"),
+                }
+                break
+    except Exception as e:
+        out["error"] = str(e)
+    return JSONResponse(out)
+
+
 @app.post("/api/mode/{mode}")
 async def set_mode(mode: str) -> JSONResponse:
     mode = mode.upper()

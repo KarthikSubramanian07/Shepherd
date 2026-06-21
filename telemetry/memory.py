@@ -79,6 +79,21 @@ class ExecutionMemory:
         except Exception:
             return None
 
+    def stats(self) -> dict:
+        """Agent-memory summary — runs stored + count of learned variable values.
+        Owns the shepherd:executions / shepherd:var:* key scheme so callers don't
+        have to hardcode it."""
+        if self._r is None:
+            return {"available": False}
+        try:
+            return {
+                "available": True,
+                "runs_stored": int(self._r.llen("shepherd:executions") or 0),
+                "learned_variables": len(self._r.keys("shepherd:var:*")),
+            }
+        except Exception:
+            return {"available": False}
+
 
 def _serialize(r: ReplayRecord) -> dict:
     return {

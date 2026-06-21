@@ -11,6 +11,7 @@ import { runStatusStyle } from "@/lib/status";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, Stat, StatusDot } from "@/components/ui/primitives";
 import { LiveExecutionGraph } from "@/components/LiveExecutionGraph";
+import { RedisPanel } from "@/components/RedisPanel";
 import { formatDuration, timeAgo } from "@/lib/utils";
 
 export default function CommandCenterPage() {
@@ -173,6 +174,9 @@ export default function CommandCenterPage() {
             hint="this session"
           />
         </div>
+
+        {/* Redis as the substrate · vector routing, agent memory, semantic cache */}
+        <RedisPanel />
 
         {/* Past runs */}
         <div>

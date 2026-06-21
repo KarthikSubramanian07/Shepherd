@@ -140,6 +140,27 @@ _FEWSHOT = [
 ]
 
 
+# Semantic cache for segmentation: a repeated run produces a near-identical trace,
+# so we return the prior segmentation by MEANING instead of paying for the LLM
+# again. Lazily built; Redis-optional.
+_CACHE_MIN_SIM = 0.95
+_cache = None
+_cache_init = False
+
+
+def _semantic_cache():
+    global _cache, _cache_init
+    if not _cache_init:
+        _cache_init = True
+        try:
+            from services.semantic_cache import SemanticCache
+            _cache = SemanticCache("milestones")
+        except Exception as e:
+            print(f"[milestones] semantic cache unavailable (non-fatal): {e}")
+            _cache = None
+    return _cache
+
+
 def llm_available() -> bool:
     return llm.available()
 
@@ -254,9 +275,22 @@ def segment(steps, variables: dict, prior_labels: Optional[list[str]] = None) ->
         return []
     prior_labels = prior_labels or []
     if llm_available():
+        # Semantic cache lookup BEFORE the LLM call. The step count guards against
+        # a near-match whose indices would not line up (a hit must be same length).
+        cache = _semantic_cache()
+        cache_key = _render_trace(steps, prior_labels)
+        if cache and cache.available:
+            hit = cache.get(cache_key, min_sim=_CACHE_MIN_SIM)
+            if hit:
+                cached, sim = hit
+                if cached.get("n_steps") == len(steps) and cached.get("milestones"):
+                    print(f"[milestones] semantic cache HIT (sim={sim}) — skipped LLM call")
+                    return cached["milestones"]
         try:
             ms = _llm_segment(steps, variables, prior_labels)
             if ms:
+                if cache and cache.available:
+                    cache.put(cache_key, {"n_steps": len(steps), "milestones": ms})
                 return ms
         except Exception as e:
             print(f"[milestones] LLM segmentation failed (using heuristic): {e}")

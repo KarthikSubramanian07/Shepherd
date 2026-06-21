@@ -104,9 +104,37 @@ export interface WorkflowDetail {
   edges: WorkflowEdgeRaw[];
 }
 
+export interface RedisStats {
+  available: boolean;
+  connection: "local" | "cloud";
+  version: string | null;
+  vector_routing: {
+    available: boolean;
+    indexed_routines?: number;
+    dim?: number;
+    threshold?: number;
+    model?: string;
+  };
+  agent_memory: {
+    available: boolean;
+    runs_stored?: number;
+    learned_variables?: number;
+  };
+  semantic_cache: {
+    available: boolean;
+    entries?: number;
+    hits?: number;
+    misses?: number;
+    hit_rate?: number;
+  };
+  last_match: { routine_id: string | null; similarity: number | null } | null;
+}
+
 export const api = {
   // Routines (the recorded "tools")
   listRoutines: () => http<RoutineSummary[]>("/routines"),
+  // Redis — vector routing, agent memory, semantic cache
+  getRedisStats: () => http<RedisStats>("/redis/stats"),
   getRoutine: (id: string) => http<Routine>(`/routines/${id}`),
 
   // Agents (live instances)
