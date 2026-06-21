@@ -327,24 +327,35 @@ def _token_set(text: str) -> set[str]:
     return {w for w in text.lower().split() if w.isalpha() and w not in _STOP_WORDS}
 
 
-def _snap_label(kind: str, label: str, prior_labels: list[str]) -> str:
+def _snap_label(
+    kind: str,
+    label: str,
+    prior_labels: list[str],
+    prior_kinds: Optional[list[str]] = None,
+) -> str:
     """Reuse a prior milestone's label when it's the same action — fuzzy match.
 
     Matching tiers (first hit wins):
-      1. Exact case-insensitive match.
-      2. Token-set Jaccard similarity >= 0.5 — picks the highest-scoring prior.
+      1. Exact case-insensitive match (any kind).
+      2. Token-set Jaccard similarity >= 0.5, same kind only — picks the
+         highest-scoring prior.
     This prevents key divergence from minor LLM wording variations
-    (e.g. "Fill applicant info" vs "Fill applicant details")."""
+    (e.g. "Fill applicant info" vs "Fill applicant details") while avoiding
+    cross-kind false matches (e.g. "Research application form" should not
+    snap to "Open application form")."""
     low = label.strip().lower()
     for p in prior_labels:
         if p.strip().lower() == low:
             return p
-    # Fuzzy tier: token-set Jaccard.
+    # Fuzzy tier: token-set Jaccard, restricted to same kind.
     label_tokens = _token_set(label)
     if not label_tokens:
         return label.strip()
     best_score, best_label = 0.0, ""
-    for p in prior_labels:
+    for idx, p in enumerate(prior_labels):
+        # Skip priors with a different kind (when kind info is available).
+        if prior_kinds and idx < len(prior_kinds) and prior_kinds[idx] != kind:
+            continue
         p_tokens = _token_set(p)
         if not p_tokens:
             continue
@@ -357,7 +368,12 @@ def _snap_label(kind: str, label: str, prior_labels: list[str]) -> str:
     return label.strip()
 
 
-def _parse(data: list, n_steps: int, prior_labels: list[str]) -> list[dict]:
+def _parse(
+    data: list,
+    n_steps: int,
+    prior_labels: list[str],
+    prior_kinds: Optional[list[str]] = None,
+) -> list[dict]:
     """Validate the model's parsed JSON array into milestone dicts."""
     if not isinstance(data, list) or not data:
         raise ValueError("not a non-empty JSON array")
@@ -369,7 +385,10 @@ def _parse(data: list, n_steps: int, prior_labels: list[str]) -> list[dict]:
         if fe < fs:
             fs, fe = fe, fs
         kind = _coerce_kind(item.get("kind"))
-        label = _snap_label(kind, str(item.get("label") or "Step")[:60], prior_labels)
+        label = _snap_label(
+            kind, str(item.get("label") or "Step")[:60],
+            prior_labels, prior_kinds=prior_kinds,
+        )
         milestones.append({
             "kind": kind,
             "label": label,
@@ -403,7 +422,9 @@ def _llm_segment(
     )))
 
     text = llm.complete(_SYSTEM, messages, prefill="[")
-    return _parse(llm.parse_json_array(text), len(steps), prior_labels)
+    prior_kinds = [n.kind for n in prior_nodes] if prior_nodes else None
+    return _parse(llm.parse_json_array(text), len(steps), prior_labels,
+                  prior_kinds=prior_kinds)
 
 
 def _heuristic_segment(steps, variables: dict) -> list[dict]:

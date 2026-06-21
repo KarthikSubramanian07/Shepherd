@@ -216,6 +216,34 @@ class TestSnapLabelFuzzy:
         result = _snap_label("fill", "Fill stuff", [])
         assert result == "Fill stuff"
 
+    def test_cross_kind_rejected(self):
+        # "Research application form" should NOT snap to "Open application form"
+        # even though Jaccard >= 0.5, because kinds differ.
+        result = _snap_label(
+            "research", "Research application form",
+            ["Open application form"],
+            prior_kinds=["open"],
+        )
+        assert result == "Research application form"
+
+    def test_same_kind_accepted(self):
+        # Same kind allows fuzzy match
+        result = _snap_label(
+            "fill", "Fill applicant info",
+            ["Fill applicant details"],
+            prior_kinds=["fill"],
+        )
+        assert result == "Fill applicant details"
+
+    def test_cross_kind_exact_still_works(self):
+        # Exact case-insensitive match ignores kind (tier 1)
+        result = _snap_label(
+            "research", "Open application form",
+            ["Open application form"],
+            prior_kinds=["open"],
+        )
+        assert result == "Open application form"
+
 
 class TestTokenSet:
     def test_basic(self):
