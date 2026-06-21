@@ -61,9 +61,10 @@ class Settings(BaseSettings):
     # or if the chained planner is unavailable.
     autonomous_chain: bool = True
     autonomous_chain_max: int = 6   # max actions to plan in one request
-    # End the session once a task finishes instead of looping for another intent.
-    # Ignored in remote mode (the command center keeps the agent serving).
-    exit_when_done: bool = True
+    # Exit after one task instead of staying up for more goals. Off by default:
+    # the agent is a persistent server taking goals from the CLI and/or frontend.
+    # Set true for one-shot use. Ignored in remote/--listen mode.
+    exit_when_done: bool = False
     # Draft a routines.json-style step list before Agent S executes (vs reactive loop)
     autonomous_plan_first: bool = True
     autonomous_plan_max_steps: int = 12
