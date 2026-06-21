@@ -6,12 +6,20 @@ like ``hotkey('ctrl','l')`` / ``press('enter')`` / ``click(760, 300)`` instead o
 the documented ``pyautogui.`` prefixed form. The exec namespace previously only
 bound ``pyautogui``/``time``/``activate_app``/``type_text``, so a bare call raised
 ``NameError: name 'hotkey' is not defined`` and aborted the run mid-step (observed
-live during the AUTONOMOUS e2e). ``_exec_agent_code`` now also exposes the common
-pyautogui verbs as top-level names so both forms execute identically.
+live during the AUTONOMOUS e2e). ``_exec_agent_code`` now binds every public
+pyautogui callable as a top-level name so both forms execute identically.
 """
 
 import engine.engine as eng_mod
 from engine.engine import ShepherdExecutionEngine
+
+# Verbs the fake pyautogui advertises via __dir__ (mirrors the real module's API
+# surface), since the executor discovers bare names through dir(pyautogui).
+_FAKE_VERBS = (
+    "click", "doubleClick", "rightClick", "tripleClick", "moveTo", "moveRel",
+    "dragTo", "dragRel", "press", "hotkey", "keyDown", "keyUp", "typewrite",
+    "write", "scroll", "hscroll", "vscroll", "mouseDown", "mouseUp",
+)
 
 
 class _Recorder:
@@ -19,6 +27,9 @@ class _Recorder:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple, dict]] = []
+
+    def __dir__(self):
+        return list(_FAKE_VERBS)
 
     def __getattr__(self, name):
         def _fn(*args, **kwargs):

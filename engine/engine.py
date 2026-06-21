@@ -1521,8 +1521,9 @@ class ShepherdExecutionEngine:
         calls — ``hotkey('ctrl','l')``, ``press('enter')``, ``click(760, 300)`` —
         dropping the documented ``pyautogui.`` prefix. Without the names in scope
         that raises ``NameError`` and aborts the whole step (e.g. "name 'hotkey' is
-        not defined"). Expose the common pyautogui verbs as top-level names so both
-        the prefixed and bare forms execute identically.
+        not defined"). Bind every public pyautogui callable as a top-level name so
+        both the prefixed and bare forms execute identically — covering any verb the
+        agent might emit (click/hotkey/press/scroll/...) without a list to maintain.
         """
         ns: dict = {
             "__builtins__": __builtins__,
@@ -1532,12 +1533,12 @@ class ShepherdExecutionEngine:
             "activate_app": activate_app,
             "type_text": type_text,
         }
-        for _verb in (
-            "click", "doubleClick", "rightClick", "moveTo", "moveRel", "dragTo",
-            "press", "hotkey", "keyDown", "keyUp", "typewrite", "write", "scroll",
-            "mouseDown", "mouseUp",
-        ):
-            ns[_verb] = getattr(pyautogui, _verb)
+        for _name in dir(pyautogui):
+            if _name.startswith("_") or _name in ns:
+                continue
+            _attr = getattr(pyautogui, _name)
+            if callable(_attr):
+                ns[_name] = _attr
         exec(code, ns)  # noqa: S102
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
