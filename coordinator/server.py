@@ -32,7 +32,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from config import COORDINATOR_PORT, COORDINATOR_TOKEN
+from config import COORDINATOR_PORT, COORDINATOR_TOKEN, PROTOCOL_VERSION
 
 # Reuse the agent's Deepgram transcription surface so the Command Center can turn
 # a spoken command into an intent without a backend of its own.
@@ -42,7 +42,6 @@ except Exception:  # pragma: no cover - optional
     deepgram_router = None
 
 _AGENT_EVENT_HISTORY = 200
-PROTOCOL_VERSION = 1
 
 
 # ── Agent state ───────────────────────────────────────────────────────────────

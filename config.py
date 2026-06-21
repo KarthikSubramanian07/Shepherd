@@ -187,6 +187,7 @@ AGENT_HOST          = settings.agent_host or _HOSTNAME
 RELAY_FPS           = settings.relay_fps
 RELAY_FRAME_WIDTH   = settings.relay_frame_width
 RELAY_FRAME_QUALITY = settings.relay_frame_quality
+PROTOCOL_VERSION    = 1  # bump on breaking wire-protocol changes (see docs/PROTOCOL.md)
 
 AGENT_S_ENGINE_TYPE = settings.agent_s_engine_type
 AGENT_S_MODEL       = settings.agent_s_model
