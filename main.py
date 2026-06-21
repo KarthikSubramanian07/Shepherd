@@ -247,6 +247,23 @@ def main() -> None:
         except Exception as e:
             print(f"[relay] Could not start: {e}")
 
+    # ── Durable run ledger: detect + resume any run orphaned by a crash ───────
+    # Each run is durably checkpointed milestone by milestone (off the click path).
+    # If the process died mid-run, the ledger is left "running"; on this boot we
+    # detect that and re-dispatch the task so a crash never silently abandons work.
+    try:
+        from services import agentspan_durable
+        agentspan_durable.install()
+        for led in agentspan_durable.resume_incomplete():
+            goal = led.get("goal") or ""
+            print(f"[durable] Interrupted run {led.get('run_id')} detected at "
+                  f"milestone {led.get('done', 0)}/{led.get('total', 0)} — "
+                  f"re-dispatching: {goal}")
+            if goal and not listen:
+                remote_intents.put(goal)
+    except Exception as e:
+        print(f"[durable] resume skipped (non-fatal): {e}")
+
     # ── Main loop ─────────────────────────────────────────────────────────────
     # Goals flow into ONE queue from any producer: the command line (stdin thread
     # below, unless --listen), the frontend (POST /api/intent), the coordinator,
