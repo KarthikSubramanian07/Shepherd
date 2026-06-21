@@ -30,6 +30,8 @@ from engine.routines import get_routine
 from engine.agent_s_adapter import AgentSAdapter
 from engine.task_graph import TaskGraphStore, summarize, milestone_key
 from dashboard.events import event_bus
+from telemetry import audit_log
+from services import policy_engine
 
 pyautogui.FAILSAFE = True   # slam mouse to top-left corner to abort
 pyautogui.PAUSE    = 0.3    # deliberate, watchable motion — this is the wow factor
@@ -57,6 +59,8 @@ class ShepherdExecutionEngine:
         self.last_step_records: list[StepRecord] = []
         self._halt_flag = threading.Event()
         self._pending_override: str = ""
+        # Rate-limit tracking (resets each run)
+        self._run_action_times: list[float] = []
 
     def request_halt(self) -> None:
         """Set by monitor_agent or spoken 'stop' command. Checked at each step boundary."""
@@ -245,6 +249,7 @@ class ShepherdExecutionEngine:
     def execute(self, resolved: ResolvedRoutine) -> ExecutionResult:
         self._halt_flag.clear()
         self.last_step_records = []
+        self._run_action_times = []
         # Fresh Agent S trajectory per run — its reflection/trajectory state is
         # per-task and must not leak across runs.
         self._agent_s.reset()
@@ -345,6 +350,8 @@ class ShepherdExecutionEngine:
             for k, v in variables.items():
                 span.set_attribute(f"routine.variable.{k}", v)
 
+            limits = policy_engine.get_limits()
+
             for i, step in enumerate(routine.steps):
                 # ── halt check (boundary, never mid-click) ──────────────────
                 if self._halt_flag.is_set():
@@ -353,6 +360,32 @@ class ShepherdExecutionEngine:
                         "run_id": run_id, "step_index": i, "reason": "halt_requested"
                     })
                     break
+
+                # ── containment: max steps per run ───────────────────────────
+                max_steps = limits.get("max_steps_per_run", 0)
+                if max_steps and i >= max_steps:
+                    status = "aborted"
+                    error = f"Containment: run exceeded max_steps_per_run={max_steps}"
+                    print(f"[containment] {error}")
+                    event_bus.emit("execution.halted", {
+                        "run_id": run_id, "step_index": i, "reason": "containment_step_limit"
+                    })
+                    break
+
+                # ── containment: actions-per-minute rate limit ────────────────
+                max_apm = limits.get("max_actions_per_minute", 0)
+                if max_apm:
+                    now_t = time.time()
+                    self._run_action_times = [t for t in self._run_action_times if now_t - t < 60]
+                    if len(self._run_action_times) >= max_apm:
+                        status = "aborted"
+                        error = f"Containment: rate limit {max_apm} actions/min exceeded"
+                        print(f"[containment] {error}")
+                        event_bus.emit("execution.halted", {
+                            "run_id": run_id, "step_index": i, "reason": "containment_rate_limit"
+                        })
+                        break
+                    self._run_action_times.append(now_t)
 
                 # ── monitor check at high-stakes + dynamically risky boundaries ─
                 if i in monitored:
@@ -467,6 +500,18 @@ class ShepherdExecutionEngine:
                     deviation=deviation_desc,
                 )
                 self.last_step_records.append(record)
+
+                # Tamper-evident audit trail — hash-chained JSONL
+                audit_log.append(
+                    run_id=run_id,
+                    step_index=i,
+                    action=step.action,
+                    status=step_status,
+                    duration_ms=dur_ms,
+                    ts=step_t0,
+                    target=step.target,
+                    extra={"deviation": deviation_desc} if deviation_desc else None,
+                )
 
                 # Update evolution stats (non-blocking, best-effort)
                 if self._evolution:
@@ -635,6 +680,12 @@ class ShepherdExecutionEngine:
         elif a == "open_app":
             app_name = sub(step.target) or ""
             url = sub(step.text) or ""
+            # Containment check — app + URL against policy allowlists
+            blocked = policy_engine.check_containment("open_app", app_name)
+            if not blocked and url:
+                blocked = policy_engine.check_containment("open_app", url)
+            if blocked:
+                raise ValueError(f"[containment] {blocked['reason']}")
             cmd = ["open", "-a", app_name]
             if url:
                 cmd.append(url)   # opens app directly at the URL, avoids Cmd+L issues
@@ -683,6 +734,11 @@ class ShepherdExecutionEngine:
 
         elif a == "browser":
             # Invoked only at routine boundaries, never mid-sequence
+            target_url = (step.browser_step or {}).get("url", "")
+            if target_url:
+                blocked = policy_engine.check_containment("browser", target_url)
+                if blocked:
+                    raise ValueError(f"[containment] {blocked['reason']}")
             if FEATURES["browserbase"] and step.browser_step:
                 from services.browserbase_routine import run_browser_step
                 run_browser_step(step.browser_step)
@@ -812,6 +868,33 @@ class ShepherdExecutionEngine:
 
         if verdict not in ("flag", "halt"):
             return verdict
+
+        # ── Independent verifier (Haiku second opinion) ───────────────────────
+        # Only for "flag" — "halt" from rules is already certain.
+        # If verifier upgrades to "halt", skip the approval gate entirely.
+        if verdict == "flag":
+            try:
+                import io as _io
+                import pyautogui as _pag
+                from services.verifier import verify as _verify
+                _shot = _pag.screenshot()
+                _buf = _io.BytesIO()
+                _shot.save(_buf, format="PNG")
+                vr = _verify(reason=reason, screenshot_png=_buf.getvalue())
+                print(f"[verifier] verdict={vr['verdict']} conf={vr['confidence']:.2f} — {vr['explanation']}")
+                event_bus.emit("verifier.result", {
+                    "run_id": run_id, "step_index": index,
+                    "verdict": vr["verdict"], "confidence": vr["confidence"],
+                    "explanation": vr["explanation"], "model": vr["model"],
+                })
+                if vr["verdict"] == "halt" and vr["confidence"] >= 0.7:
+                    # Both layers agree — halt immediately, no approval gate needed
+                    return "halt"
+                if vr["verdict"] == "ok" and vr["confidence"] >= 0.85:
+                    # Verifier is confident it's a false alarm — let it through
+                    return "ok"
+            except Exception as ve:
+                print(f"[verifier] failed (non-fatal, keeping flag): {ve}")
 
         # Approval gate — separated so exceptions here don't silently return "ok"
         from engine.approvals import suggestions_for, request_approval, get_override_instruction

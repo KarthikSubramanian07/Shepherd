@@ -248,6 +248,38 @@ async def get_run(run_id: str) -> JSONResponse:
     return JSONResponse({"error": "not found"}, status_code=404)
 
 
+@app.get("/api/audit")
+async def get_audit() -> JSONResponse:
+    """Return the most recent audit log entries (hash-chained JSONL)."""
+    try:
+        from telemetry.audit_log import read_all
+        return JSONResponse(read_all(limit=200))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/audit/verify")
+async def verify_audit() -> JSONResponse:
+    """Verify tamper-evidence of the entire audit log hash chain."""
+    try:
+        from telemetry.audit_log import verify_chain
+        return JSONResponse(verify_chain())
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/policy")
+async def get_policy() -> JSONResponse:
+    """Return the current governance policy rules (from data/policy.yaml)."""
+    try:
+        import yaml
+        from pathlib import Path
+        raw = Path("data/policy.yaml").read_text()
+        return JSONResponse(yaml.safe_load(raw))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 def start_dashboard() -> None:
     """Called from main.py as a daemon thread."""
     uvicorn.run(app, host="127.0.0.1", port=DASHBOARD_PORT, log_level="warning")
