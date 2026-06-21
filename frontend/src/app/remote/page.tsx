@@ -9,6 +9,7 @@ import {
   GitBranch,
   Hand,
   KeyRound,
+  Loader2,
   ListTree,
   Monitor,
   Pause,
@@ -58,10 +59,35 @@ export default function RemoteCommandCenterPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false);
   const [pickedNode, setPickedNode] = useState<string | null>(null);
+  const [halting, setHalting] = useState(false);
   const [bakeToggle, setBakeToggle] = useState(true);
   // Track whether we've already fired the promote command for this run.
   // Keyed by "agentId:runId" to avoid re-firing after agent switch-back.
   const promotedRef = useRef<string | null>(null);
+
+  // Clear halting state when the selected agent changes.
+  useEffect(() => {
+    setHalting(false);
+  }, [c.selectedId]);
+
+  // Clear halting state when the halt is confirmed or the agent stops naturally.
+  const selectedStatus = c.selected?.status;
+  const events = c.events;
+  const eventsLen = events.length;
+  useEffect(() => {
+    if (!halting) return;
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].type === "execution.halted") {
+        const stepIdx = events[i].data?.step_index as number | undefined;
+        setToast(`Agent halted at step ${stepIdx ?? "?"}`);
+        setHalting(false);
+        return;
+      }
+    }
+    if (selectedStatus && selectedStatus !== "running") {
+      setHalting(false);
+    }
+  }, [halting, selectedStatus, eventsLen, events]);
 
   // Auto-promote: when the toggle is on and the trace signals promoteReady,
   // fire the promote command exactly once per run (idempotency guard).
@@ -349,8 +375,17 @@ export default function RemoteCommandCenterPage() {
                       <Send size={15} /> Dispatch
                     </Button>
                     <MicCommandButton onTranscript={send} onError={(m) => setToast(m)} />
-                    <Button variant="danger" onClick={() => c.sendCommand(c.selected!.id, "halt")}>
-                      <Hand size={15} /> Halt
+                    <Button
+                      variant="danger"
+                      disabled={halting}
+                      onClick={() => {
+                        setHalting(true);
+                        setToast("Halt requested \u2014 agent will stop at next step boundary");
+                        c.sendCommand(c.selected!.id, "halt");
+                      }}
+                    >
+                      {halting ? <Loader2 size={15} className="animate-spin" /> : <Hand size={15} />}
+                      {halting ? "Halting\u2026" : "Halt"}
                     </Button>
                   </div>
                   <p className="mt-2 text-[11px] text-muted">
