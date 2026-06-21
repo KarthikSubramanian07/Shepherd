@@ -608,6 +608,15 @@ async def redis_stats() -> JSONResponse:
         out["agent_memory"] = _stats_memory_handle().stats()
         out["semantic_cache"] = _stats_semcache_handle().stats()
 
+        # Cross-run semantic recall (the agent-memory vector set).
+        try:
+            from services import run_memory
+            rm = run_memory.stats()
+            if rm.get("available"):
+                out["agent_memory"]["runs_indexed"] = rm.get("runs_indexed", 0)
+        except Exception:
+            pass
+
         # Last routing decision (from the live event history)
         for ev in reversed(event_bus.get_history()):
             if ev.get("type") == "routine.resolved":

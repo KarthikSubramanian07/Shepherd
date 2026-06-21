@@ -267,6 +267,12 @@ def main() -> None:
     # If the process died mid-run, the ledger is left "running"; on this boot we
     # detect that and re-dispatch the task so a crash never silently abandons work.
     try:
+        from services import run_memory
+        run_memory.install()   # cross-run semantic recall: index every completed run
+    except Exception as e:
+        print(f"[run_memory] install skipped (non-fatal): {e}")
+
+    try:
         from services import agentspan_durable
         agentspan_durable.install()
         for led in agentspan_durable.resume_incomplete():
@@ -313,6 +319,24 @@ def main() -> None:
 
             intent = Intent(raw_text=raw, timestamp=time.time())
             event_bus.emit("intent.received", {"raw_text": intent.raw_text, "source": intent.source})
+
+            # Cross-run memory: recall the most similar successful prior run (by
+            # MEANING, across differently-worded goals) so the operator sees the
+            # agent reusing a proven path. Off the click path; best-effort.
+            try:
+                from services import run_memory
+                recalled = run_memory.recall(intent.raw_text)
+                if recalled:
+                    print(f"[memory] Recalled a similar run (sim {recalled['similarity']:.2f}): "
+                          f"{len(recalled['milestones'])} proven milestones from "
+                          f"'{recalled['goal']}'")
+                    event_bus.emit("memory.recall", {
+                        "goal": recalled["goal"],
+                        "similarity": recalled["similarity"],
+                        "milestones": recalled["milestones"],
+                    })
+            except Exception as e:
+                print(f"[memory] recall skipped (non-fatal): {e}")
 
             effective_mode = engine.effective_mode()
 

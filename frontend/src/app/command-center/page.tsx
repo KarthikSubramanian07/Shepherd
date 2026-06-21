@@ -81,6 +81,22 @@ export default function CommandCenterPage() {
           {/* Run a goal · sends the local agent off via POST /api/intent */}
           <RunGoalForm disabled={isRunning} />
 
+          {/* Cross-run memory · the agent recalled a similar past run from Redis */}
+          {state.memoryRecall && (
+            <div className="mt-3 flex items-start gap-2 rounded-xl border border-accent/30 bg-accent/[0.06] p-3 text-xs">
+              <span className="mt-0.5 shrink-0 text-accent-ink">↺</span>
+              <div>
+                <span className="font-semibold text-ink">
+                  Recalled a similar run ({Math.round(state.memoryRecall.similarity * 100)}% match)
+                </span>
+                <span className="ml-1.5 text-muted">
+                  reusing {state.memoryRecall.milestones.length} proven milestones from
+                  &nbsp;&ldquo;{state.memoryRecall.goal}&rdquo; · Redis vector recall, by meaning
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Monitor alert · the signature moment: the lantern catches the danger */}
           {state.monitorAlert && (
             <div className="mt-4 animate-riseIn rounded-xl border border-halt/40 bg-halt/[0.06] p-4 shadow-halt">

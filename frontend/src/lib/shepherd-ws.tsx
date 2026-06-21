@@ -62,6 +62,8 @@ export interface ExecutionState {
   armoriqGate: { authorized: boolean; reason: string } | null;
   /** Live, interactive Browserbase cloud-browser view (set while a web step runs). */
   cloudBrowserUrl: string | null;
+  /** Cross-run memory recall for the active goal (a similar prior run was found). */
+  memoryRecall: { goal: string; similarity: number; milestones: string[] } | null;
   /** Live milestone graph that replays node-by-node as the agent runs. */
   graphNodes: LiveGraphNode[];
   /** Maps a fine step index → graph node key (built from task.graph.loaded). */
@@ -80,6 +82,7 @@ const DEFAULT_STATE: ExecutionState = {
   verifierResult: null,
   armoriqGate: null,
   cloudBrowserUrl: null,
+  memoryRecall: null,
   graphNodes: [],
   stepToNode: {},
   totalSteps: 0,
@@ -220,6 +223,7 @@ function applyEvent(
         monitorAlert: null,
         verifierResult: null,
         cloudBrowserUrl: null,
+        memoryRecall: null,
         graphNodes: prev.graphNodes.map((n) =>
           n.status === "running" || n.status === "pending"
             ? { ...n, status: "done" }
@@ -350,6 +354,16 @@ function applyEvent(
         armoriqGate: {
           authorized: false,
           reason: (d.reason as string) ?? "ArmorIQ denied the plan",
+        },
+      };
+    // ── Cross-run memory recall ─────────────────────────────────────────────
+    case "memory.recall":
+      return {
+        ...prev,
+        memoryRecall: {
+          goal: (d.goal as string) ?? "",
+          similarity: (d.similarity as number) ?? 0,
+          milestones: (d.milestones as string[]) ?? [],
         },
       };
     // ── Browserbase cloud-browser live view ─────────────────────────────────

@@ -132,6 +132,7 @@ export interface RedisStats {
     available: boolean;
     runs_stored?: number;
     learned_variables?: number;
+    runs_indexed?: number;
   };
   semantic_cache: {
     available: boolean;
