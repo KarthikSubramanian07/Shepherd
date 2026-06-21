@@ -49,6 +49,17 @@ def available() -> bool:
     return _ensure_configured()
 
 
+_agent = None
+
+
+def _get_agent():
+    """Build the researcher once and reuse it (the definition never changes)."""
+    global _agent
+    if _agent is None:
+        _agent = _build_agent()
+    return _agent
+
+
 def _build_agent():
     from agentspan.agents import Agent, tool
     from services.browserbase_routine import run_browser_step
@@ -57,6 +68,13 @@ def _build_agent():
     def fetch_page(url: str) -> str:
         """Fetch a web page and return its visible text (title and headings).
         Use this to look up a candidate's public work."""
+        # The agent's hands are governed by the SAME containment policy as the
+        # engine: a tool the LLM controls cannot reach a disallowed host (no SSRF
+        # to localhost / internal / metadata endpoints).
+        from services import policy_engine
+        blocked = policy_engine.check_containment("browser", url)
+        if blocked:
+            return f"[blocked by policy: {blocked['reason']}]"
         res = run_browser_step({"action": "read", "url": url})
         return res.get("value") or ""
 
@@ -82,7 +100,7 @@ def research(url: str) -> Optional[str]:
         return None
     try:
         from agentspan.agents import run
-        agent = _build_agent()
+        agent = _get_agent()
         result = run(
             agent,
             f"Research the developer at {url} and summarize their notable projects.",
