@@ -5,11 +5,13 @@ This file: routing, WebSocket broadcast, replay API, static serving.
 """
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 import config as _cfg
@@ -27,6 +29,17 @@ _state: dict = {
 }
 
 app = FastAPI(title="Shepherd Control Hub", docs_url=None, redoc_url=None)
+
+# CORS — allow the Next.js dashboard (any localhost port in dev) plus any extra
+# origins listed in CORS_ALLOW_ORIGINS (comma-separated, e.g. an ngrok URL).
+_cors_extra = [o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_extra,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(deepgram_router)
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"

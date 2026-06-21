@@ -219,3 +219,49 @@ export interface Intervention {
   note?: string;
   createdAt: string;
 }
+
+// ── Task Graph (crystallized milestone workflow from the real backend) ──────
+// Mirrors engine/task_graph.py `_serialize` (snake_case, as the backend emits).
+
+export type MilestoneKind =
+  | "open"
+  | "navigate"
+  | "search"
+  | "research"
+  | "scan"
+  | "fill"
+  | "submit"
+  | "verify"
+  | "interact";
+
+export interface TaskGraphNode {
+  key: string;
+  kind: MilestoneKind | string;
+  label: string;
+  value: string | null;
+  times_seen: number;
+  last_status: string | null;
+  fine_steps: number;
+  first_run_id: string;
+  last_run_id: string;
+}
+
+export interface TaskGraphEdge {
+  from: string;
+  to: string;
+  times_seen: number;
+  last_run_id: string;
+}
+
+export interface TaskGraph {
+  task_key: string;
+  routine_id: string;
+  run_count: number;
+  intents: string[];
+  variables: Record<string, string>;
+  created_at: number;
+  updated_at: number;
+  last_run_id: string;
+  nodes: TaskGraphNode[];
+  edges: TaskGraphEdge[];
+}

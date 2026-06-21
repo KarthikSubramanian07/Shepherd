@@ -14,9 +14,14 @@ import type {
   RoutineSummary,
   Run,
   RunSummary,
+  TaskGraph,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
+
+// The real FastAPI backend (Control Hub). Used for live endpoints like the
+// crystallized task graph; defaults to the local dashboard server.
+const BACKEND = process.env.NEXT_PUBLIC_BACKEND_BASE ?? "http://localhost:8765";
 
 function apiUrl(path: string): string {
   return `${BASE}/api${path}`;
@@ -54,6 +59,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ resolution, note }),
     }),
+
+  // Task graph (REAL backend) — crystallized milestone workflow for a routine.
+  // Returns null when the backend has no graph yet (404).
+  getTaskGraph: async (routineId: string): Promise<TaskGraph | null> => {
+    const res = await fetch(`${BACKEND}/api/task-graph/${routineId}`, {
+      cache: "no-store",
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      throw new Error(`task-graph ${routineId} failed: ${res.status} ${res.statusText}`);
+    }
+    return res.json() as Promise<TaskGraph>;
+  },
 };
 
 export type Api = typeof api;

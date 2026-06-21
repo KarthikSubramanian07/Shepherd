@@ -17,11 +17,12 @@ import pyautogui
 
 import config as _cfg
 from config import FEATURES, EXECUTION_MODE
-from shepherd_types import ExecutionResult, ResolvedRoutine, RoutineStep, StepRecord
+from shepherd_types import ExecutionResult, ResolvedRoutine, RoutineStep, StepRecord, RunTrace
 from engine.coords import get as get_coord
 from engine.routines import get_routine
 from engine.agent_s_adapter import AgentSAdapter
 from engine.task_graph import TaskGraphStore, summarize, milestone_key
+from engine.coalescer import submit as submit_trace
 from dashboard.events import event_bus
 
 pyautogui.FAILSAFE = True   # slam mouse to top-left corner to abort
@@ -315,36 +316,25 @@ class ShepherdExecutionEngine:
             "duration_ms":     result.duration_ms,
         })
 
-        # ── Merge what actually ran into the graph as milestones, then persist ──
-        # Collapse the executed clicks into coarse milestones; match known ones,
-        # append new ones. (Boundary work — never inside the click sequence.)
-        executed_ms, _ = summarize(executed, variables)
-        # Dedupe within this run so times_seen counts runs, not intra-run repeats
-        # (e.g. two "Scan results" in one run = one milestone seen this run).
-        unique_ms: list[dict] = []
-        by_key: dict[str, dict] = {}
-        for m in executed_ms:
-            key = milestone_key(m["kind"], m["value"], m["label"])
-            if key in by_key:
-                by_key[key]["fine"] += m["fine"]
-            else:
-                by_key[key] = dict(m)
-                unique_ms.append(by_key[key])
-        appended = 0
-        for m in unique_ms:
-            kind, _node = self._graphs.record_milestone(
-                graph, m["kind"], m["label"], m["value"], m["fine"], status, run_id)
-            if kind == "appended" and was_known:
-                appended += 1
-        self._graphs.save(graph, intent_text="", variables=variables, run_id=run_id)
-        event_bus.emit("task.graph.saved", {
-            "run_id":      run_id,
-            "routine_id":  resolved.routine_id,
-            "run_count":   graph.run_count,
-            "node_count":  len(graph.nodes),
-            "appended":    appended,
-            "milestones":  [m["label"] for m in unique_ms],
-        })
+        # ── Hand the trace to the async coalescer (COLD PATH) ───────────────────
+        # Crystallization (LLM milestone segmentation, graph merge, edge reconciliation)
+        # runs OFF this thread so it never slows execution. The run is already finished
+        # here, so we just journal the trace (cheap, durable) + enqueue, then return.
+        deviations = [
+            {"step_index": r.index, "reason": r.deviation}
+            for r in self.last_step_records if r.deviation
+        ]
+        submit_trace(RunTrace(
+            run_id=run_id,
+            routine_id=resolved.routine_id,
+            variables=variables,
+            status=status,
+            started_at=started_at,
+            ended_at=ended_at,
+            executed=executed,
+            interventions=[],   # populated by the teaching-loop phase
+            deviations=deviations,
+        ))
         self._active_graph = None
         self._step_ms = {}
         return result

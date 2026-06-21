@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Mic,
   ShieldAlert,
+  Workflow,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/primitives";
@@ -17,6 +18,7 @@ import { Button } from "@/components/ui/primitives";
 const NAV = [
   { href: "/command-center", label: "Command Center", icon: LayoutDashboard },
   { href: "/routines", label: "Routines", icon: GitBranch },
+  { href: "/task-graph", label: "Task Graph", icon: Workflow },
   { href: "/runs", label: "Runs", icon: Activity },
   { href: "/interventions", label: "Interventions", icon: ShieldAlert },
   { href: "/voice-lab", label: "Voice Lab", icon: AudioLines },

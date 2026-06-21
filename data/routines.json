@@ -79,8 +79,8 @@
             "description": "Expected salary"
           },
           {
-            "tabs": 2,
-            "description": "Skip to password section"
+            "tabs": 4,
+            "description": "Skip past portfolio to password section"
           }
         ]
       },
@@ -191,6 +191,92 @@
           "escape"
         ],
         "description": "Dismiss dialog"
+      }
+    ],
+    "demonstration": null
+  },
+  {
+    "routine_id": "ROUTINE_JOB_APPLICATION",
+    "description": "Apply to a WorkBridge role. On the first run the agent doesn't know the applicant's work, so it opens a new tab and researches their GitHub to fill the Projects field \u2014 which crystallizes into a 'Research GitHub projects' milestone in the task graph.",
+    "variables": [
+      "APPLICANT_NAME",
+      "APPLICANT_LASTNAME",
+      "APPLICANT_EMAIL",
+      "APPLICANT_PHONE",
+      "GITHUB_USER",
+      "PROJECTS_SUMMARY"
+    ],
+    "mode": "LIVE",
+    "high_stakes_steps": [],
+    "step_instructions": {
+      "0": "Open the WorkBridge candidate portal in Google Chrome",
+      "4": "FIRST RUN: you do not yet know the applicant's projects. Open a NEW browser tab to research their GitHub before filling the Projects field.",
+      "5": "Type the applicant's GitHub profile URL (github.com/<user>) into the address bar and open it",
+      "7": "Scan the pinned / most-starred repositories to identify 2-3 notable projects",
+      "8": "Switch back to the application tab now that you know the projects",
+      "9": "Summarize the GitHub projects you just saw into the Projects field"
+    },
+    "steps": [
+      {
+        "action": "open_app",
+        "target": "Google Chrome",
+        "description": "Open application form",
+        "text": "http://localhost:8765/demo-form"
+      },
+      {
+        "action": "wait",
+        "seconds": 2.0,
+        "description": "Wait for browser"
+      },
+      {
+        "action": "wait",
+        "seconds": 1.5,
+        "description": "Wait for form"
+      },
+      {
+        "action": "batch_fill",
+        "description": "Fill applicant details",
+        "fields": [
+          { "tabs": 1, "text": "{APPLICANT_NAME}", "description": "First name" },
+          { "tabs": 1, "text": "{APPLICANT_LASTNAME}", "description": "Last name" },
+          { "tabs": 1, "text": "{APPLICANT_EMAIL}", "description": "Email" },
+          { "tabs": 1, "text": "{APPLICANT_PHONE}", "description": "Phone" }
+        ]
+      },
+      {
+        "action": "hotkey",
+        "keys": ["cmd", "t"],
+        "description": "Open new tab to research GitHub"
+      },
+      {
+        "action": "type",
+        "text": "github.com/{GITHUB_USER}\n",
+        "description": "Navigate to GitHub profile"
+      },
+      {
+        "action": "wait",
+        "seconds": 2.0,
+        "description": "Load GitHub profile"
+      },
+      {
+        "action": "wait",
+        "seconds": 1.0,
+        "description": "Scan pinned repositories"
+      },
+      {
+        "action": "hotkey",
+        "keys": ["cmd", "1"],
+        "description": "Switch back to application tab"
+      },
+      {
+        "action": "type",
+        "text": "{PROJECTS_SUMMARY}",
+        "description": "Fill Projects from GitHub research"
+      },
+      {
+        "action": "hotkey",
+        "keys": ["cmd", "return"],
+        "description": "Submit application"
       }
     ],
     "demonstration": null

@@ -67,13 +67,14 @@
     display: block; font-size: .65rem; color: #8b949e;
     letter-spacing: .08em; text-transform: uppercase; margin-bottom: 5px;
   }
-  input, select {
+  input, select, textarea {
     width: 100%; background: #0d1117; border: 1px solid #30363d;
     border-radius: 4px; padding: .55rem .75rem; color: #e6edf3;
     font-family: inherit; font-size: .82rem; outline: none;
     transition: border-color .15s;
   }
-  input:focus, select:focus { border-color: #388bfd; }
+  input:focus, select:focus, textarea:focus { border-color: #388bfd; }
+  textarea { resize: vertical; min-height: 64px; line-height: 1.55; }
   select option { background: #161b22; }
 
   /* Credential section */
@@ -188,6 +189,18 @@
         <div class="field">
           <label>Expected Salary</label>
           <input type="text" name="salary" autocomplete="off" placeholder="$180,000">
+        </div>
+      </div>
+
+      <div class="section-label">Portfolio</div>
+      <div class="fields-grid">
+        <div class="field full">
+          <label>GitHub Username</label>
+          <input type="text" name="github" autocomplete="off" placeholder="octocat">
+        </div>
+        <div class="field full">
+          <label>Notable Projects</label>
+          <textarea name="projects" rows="3" autocomplete="off" placeholder="Summarize your most relevant public projects (pulled from your GitHub)"></textarea>
         </div>
       </div>
 

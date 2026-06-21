@@ -132,6 +132,20 @@ class TaskGraphNode:
 
 
 @dataclass
+class TaskGraphEdge:
+    """
+    A directed transition between two milestones (from_key -> to_key), accumulated
+    across runs. A milestone with several outgoing edges is a BRANCH POINT — e.g.
+    "Sign in" -> {"Dashboard loaded" | "Sign-in rejected"} across different runs.
+    times_seen weights the common path so the UI can emphasize it.
+    """
+    from_key: str
+    to_key: str
+    times_seen: int = 0
+    last_run_id: str = ""
+
+
+@dataclass
 class TaskGraph:
     """
     Durable per-task memory at MILESTONE granularity. A new run loads this as a
@@ -141,9 +155,47 @@ class TaskGraph:
     task_key: str                     # currently the resolved routine_id
     routine_id: str
     nodes: list[TaskGraphNode] = field(default_factory=list)
+    edges: list[TaskGraphEdge] = field(default_factory=list)
     run_count: int = 0
     intents: list[str] = field(default_factory=list)
     variables: dict[str, str] = field(default_factory=dict)
     created_at: float = 0.0
     updated_at: float = 0.0
     last_run_id: str = ""
+
+
+@dataclass
+class InterventionEvent:
+    """
+    A point where the agent blocked and a human resolved it. Captured cheaply on
+    the hot path; consumed by the coalescer to (optionally) bake a standard
+    procedure into the workflow.
+
+    flag gates persistence:
+      "one_off"      — journal only; do not modify the workflow
+      "save_as_rule" — bake a conditional clause {when: scenario, do: instruction}
+    """
+    step_index: int
+    trigger: str = ""             # scenario signature, e.g. "credential" | "unknown_field"
+    decision: str = ""            # "approve" | "halt" | "override"
+    instruction: str = ""         # human override / taught procedure (NL)
+    flag: str = "one_off"         # "one_off" | "save_as_rule"
+    ts: float = 0.0
+
+
+@dataclass
+class RunTrace:
+    """
+    The cheap, durable record of a single run — actions performed plus the
+    interventions/deviations encountered. Written to the journal at the run
+    boundary and handed to the async coalescer (NEVER segmented on the hot path).
+    """
+    run_id: str
+    routine_id: str
+    variables: dict[str, str] = field(default_factory=dict)
+    status: str = "completed"
+    started_at: float = 0.0
+    ended_at: float = 0.0
+    executed: list[RoutineStep] = field(default_factory=list)
+    interventions: list[InterventionEvent] = field(default_factory=list)
+    deviations: list[dict] = field(default_factory=list)

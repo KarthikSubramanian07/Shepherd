@@ -20,7 +20,7 @@ import os
 import time
 from typing import Optional
 
-from shepherd_types import TaskGraph, TaskGraphNode
+from shepherd_types import TaskGraph, TaskGraphNode, TaskGraphEdge
 
 _PATH = os.path.join(os.path.dirname(__file__), "..", "data", "task_graphs.json")
 
@@ -190,6 +190,20 @@ class TaskGraphStore:
         graph.nodes.append(node)
         return "appended", node
 
+    def record_edge(self, graph: TaskGraph, from_key: str, to_key: str, run_id: str) -> None:
+        """Merge a directed transition from_key -> to_key. Across runs this builds
+        the workflow DAG; a node with multiple outgoing edges is a branch point."""
+        if not from_key or not to_key or from_key == to_key:
+            return
+        for e in graph.edges:
+            if e.from_key == from_key and e.to_key == to_key:
+                e.times_seen += 1
+                e.last_run_id = run_id
+                return
+        graph.edges.append(
+            TaskGraphEdge(from_key=from_key, to_key=to_key, times_seen=1, last_run_id=run_id)
+        )
+
     def save(self, graph: TaskGraph, intent_text: str, variables: dict, run_id: str) -> None:
         graph.run_count += 1
         graph.updated_at = time.time()
@@ -216,6 +230,15 @@ def _serialize(g: TaskGraph) -> dict:
         "created_at":  g.created_at,
         "updated_at":  g.updated_at,
         "last_run_id": g.last_run_id,
+        "edges": [
+            {
+                "from":        e.from_key,
+                "to":          e.to_key,
+                "times_seen":  e.times_seen,
+                "last_run_id": e.last_run_id,
+            }
+            for e in g.edges
+        ],
         "nodes": [
             {
                 "key":          n.key,
@@ -244,4 +267,11 @@ def _deserialize(raw: dict) -> TaskGraph:
         updated_at=raw.get("updated_at", 0.0),
         last_run_id=raw.get("last_run_id", ""),
         nodes=[TaskGraphNode(**n) for n in raw.get("nodes", [])],
+        edges=[
+            TaskGraphEdge(
+                from_key=e["from"], to_key=e["to"],
+                times_seen=e.get("times_seen", 0), last_run_id=e.get("last_run_id", ""),
+            )
+            for e in raw.get("edges", [])
+        ],
     )
