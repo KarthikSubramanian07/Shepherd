@@ -243,11 +243,104 @@ class AgentSAdapter:
 
         return None
 
+    def _plan_chain(self, goal: str, step_index: int) -> Optional[AutonomousStepResult]:
+        """
+        Plan SEVERAL chained UI actions from one screenshot via a direct Claude
+        vision call. Returns an AutonomousStepResult whose `code` is a multi-line
+        pyautogui script (the engine exec()s the whole block in one turn), or None
+        to fall back to single-action Agent S (no API key / unparseable response).
+        """
+        try:
+            import base64
+            import json
+            from anthropic import Anthropic
+            from config import AGENT_S_MODEL, ANTHROPIC_API_KEY, AUTONOMOUS_CHAIN_MAX
+
+            if not ANTHROPIC_API_KEY:
+                return None
+
+            b64 = base64.standard_b64encode(self._capture()).decode()
+            prompt = (
+                "You are an autonomous desktop agent on macOS pursuing this goal:\n"
+                f"  {goal}\n\n"
+                f"The screenshot is {SCREEN_WIDTH}x{SCREEN_HEIGHT}px (use absolute "
+                "pixel coordinates from it). Plan the NEXT BATCH of UI actions that "
+                "make progress toward the goal, chaining as many as you safely can "
+                "in one go.\n\n"
+                "Rules:\n"
+                f"- Emit up to {AUTONOMOUS_CHAIN_MAX} actions. Chain actions that DON'T "
+                "depend on a screen change you can't predict (typing, Tab between "
+                "fields, hotkeys, opening an app, pressing Enter, short waits).\n"
+                "- STOP the batch before any action whose target only appears after a "
+                "previous action (e.g. a button in a window that hasn't opened yet) — "
+                "you'll get a fresh screenshot next turn.\n"
+                "- Prefer the keyboard (hotkeys, Tab, typing, the address bar) over "
+                "clicking; it's far more reliable than pixel coordinates.\n"
+                "- Each action is one line of Python using only `pyautogui` and `time` "
+                "(e.g. pyautogui.hotkey('command','space'); pyautogui.typewrite('Safari', interval=0.02); "
+                "pyautogui.press('enter'); time.sleep(1); pyautogui.click(840, 220)).\n\n"
+                'Return ONLY JSON: {"reasoning": "...", "status": "continue|done|fail", '
+                '"actions": ["<python line>", ...]}\n'
+                'Use status "done" if the goal is already complete (actions may be empty), '
+                '"fail" if it cannot be done.'
+            )
+
+            client = Anthropic(api_key=ANTHROPIC_API_KEY)
+            msg = client.messages.create(
+                model=AGENT_S_MODEL,
+                max_tokens=1024,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {
+                            "type": "base64", "media_type": "image/png", "data": b64,
+                        }},
+                        {"type": "text", "text": prompt},
+                    ],
+                }],
+            )
+
+            raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+            start, end = raw.find("{"), raw.rfind("}")
+            if start == -1 or end == -1 or end < start:
+                return None
+            plan = json.loads(raw[start:end + 1])
+
+            self.last_reasoning = (plan.get("reasoning") or "").strip()
+            status = (plan.get("status") or "continue").lower()
+            actions = [a for a in (plan.get("actions") or []) if isinstance(a, str) and a.strip()]
+
+            if status == "done":
+                return AutonomousStepResult(outcome="done", raw="DONE")
+            if status == "fail":
+                return AutonomousStepResult(outcome="fail", raw=plan.get("reasoning") or "FAIL")
+            if not actions:
+                # continue but nothing to do → treat as a wait so the loop re-observes
+                return AutonomousStepResult(outcome="wait", raw="WAIT")
+
+            code = "\n".join(actions)
+            print(f"[agent_s] autonomous step {step_index}: chained {len(actions)} actions in one request")
+            return AutonomousStepResult(outcome="action", code=code, raw=code)
+
+        except Exception as e:
+            print(f"[agent_s] chained planning step {step_index} failed (falling back): {e}")
+            return None
+
     def predict_autonomous(self, goal: str, step_index: int) -> AutonomousStepResult:
         """
         One turn of free-form planning: screenshot + full goal instruction.
-        Agent S returns pyautogui code, or control tokens DONE / FAIL / WAIT.
+
+        With AUTONOMOUS_CHAIN on, this plans SEVERAL chained UI actions per request
+        (one screenshot → a multi-action pyautogui script) for far fewer round-trips.
+        Falls back to single-action Agent S when chaining is off or unavailable.
         """
+        from config import AUTONOMOUS_CHAIN
+        if AUTONOMOUS_CHAIN:
+            chained = self._plan_chain(goal, step_index)
+            if chained is not None:
+                return chained
+            # else: chained planner unavailable (no key / parse fail) → Agent S below
+
         agent = self._autonomous_agent or self._agent
         if not agent:
             return AutonomousStepResult(outcome="unavailable")

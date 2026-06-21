@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # When LIVE/LOCKED and router finds no match, run autonomous if Agent S is up
     autonomous_on_unmatched: bool = True
     autonomous_max_steps: int = 30
+    # Chain several UI actions per screenshot/request (fewer round-trips, faster)
+    # instead of one action per turn. Falls back to single-action Agent S if off
+    # or if the chained planner is unavailable.
+    autonomous_chain: bool = True
+    autonomous_chain_max: int = 6   # max actions to plan in one request
 
     # ── Dashboard ──────────────────────────────────────────────────────────
     dashboard_port: int = 8765
@@ -131,6 +136,8 @@ ORKES_API_KEY              = settings.orkes_api_key
 EXECUTION_MODE = settings.execution_mode
 AUTONOMOUS_ON_UNMATCHED = settings.autonomous_on_unmatched
 AUTONOMOUS_MAX_STEPS = settings.autonomous_max_steps
+AUTONOMOUS_CHAIN = settings.autonomous_chain
+AUTONOMOUS_CHAIN_MAX = settings.autonomous_chain_max
 
 DASHBOARD_PORT = settings.dashboard_port
 EVENTS_DB_PATH = settings.events_db_path
