@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     execution_mode: str = "AUTONOMOUS"
     # When LIVE/LOCKED and router finds no match, run autonomous if Agent S is up
     autonomous_on_unmatched: bool = True
-    autonomous_max_steps: int = 30
+    autonomous_max_steps: int = 20
     # Feed this goal's prior milestone graph to the planner. Off by default — each
     # run does a fresh Agent S loop without relying on memory. Turn on to recall.
     autonomous_use_memory: bool = False

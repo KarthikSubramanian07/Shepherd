@@ -304,10 +304,17 @@ class AgentSAdapter:
                 f"{plan_block}"
                 f"{memory_hint}\n"
                 f"{history}"
-                f"The screenshot is {SCREEN_WIDTH}x{SCREEN_HEIGHT}px (use absolute "
-                "pixel coordinates from it). Plan the NEXT BATCH of UI actions that "
-                "make progress toward the goal, chaining as many as you safely can "
-                "in one go.\n\n"
+                f"The attached screenshot is the LIVE state of the screen RIGHT NOW "
+                f"({SCREEN_WIDTH}x{SCREEN_HEIGHT}px; use absolute pixel coordinates from "
+                "it). Do NOT trust the history blindly — trust the screenshot.\n\n"
+                "FIRST, observe: look at the screenshot and state what is actually on "
+                "screen, and whether your PREVIOUS turn's actions visibly took effect "
+                "(e.g. did Chrome actually open? is Gmail actually loaded? is the compose "
+                "window actually showing?). If a previous action did NOT take effect "
+                "(app didn't open, page still loading, blank screen), re-do it this turn "
+                "instead of moving on.\n\n"
+                "THEN plan the NEXT BATCH of UI actions that make progress toward the "
+                "goal, chaining as many as you safely can in one go.\n\n"
                 "Rules:\n"
                 f"- Emit up to {AUTONOMOUS_CHAIN_MAX} actions. Chain actions that DON'T "
                 "depend on a screen change you can't predict (typing, Tab between "
@@ -326,7 +333,8 @@ class AgentSAdapter:
                 "- Each action is one line of Python using only `pyautogui` and `time` "
                 "(e.g. pyautogui.hotkey('command','space'); pyautogui.typewrite('Safari', interval=0.02); "
                 "pyautogui.press('enter'); time.sleep(1); pyautogui.click(840, 220)).\n\n"
-                'Return ONLY JSON: {"reasoning": "...", "status": "continue|done|fail", '
+                'Return ONLY JSON: {"observation": "what I actually see on screen now", '
+                '"reasoning": "...", "status": "continue|done|fail", '
                 '"actions": ["<python line>", ...]}\n'
                 'Use status "done" the moment the goal is achieved, "fail" if it cannot be done.'
             )
@@ -352,7 +360,11 @@ class AgentSAdapter:
                 return None
             plan = json.loads(raw[start:end + 1])
 
-            self.last_reasoning = (plan.get("reasoning") or "").strip()
+            observation = (plan.get("observation") or "").strip()
+            reasoning = (plan.get("reasoning") or "").strip()
+            # Surface what the model actually saw so the screenshot grounding is visible
+            # in the logs (not just a forward narrative from history).
+            self.last_reasoning = f"[sees] {observation}\n{reasoning}" if observation else reasoning
             status = (plan.get("status") or "continue").lower()
             actions = [a for a in (plan.get("actions") or []) if isinstance(a, str) and a.strip()]
 
@@ -365,8 +377,10 @@ class AgentSAdapter:
                 return AutonomousStepResult(outcome="wait", raw="WAIT")
 
             code = "\n".join(actions)
-            # Remember what this turn did so the next turn won't repeat it.
-            summary = self.last_reasoning or "; ".join(actions)
+            # Remember what this turn did so the next turn won't repeat it. Use the
+            # action-level reasoning (not the observation) so history stays a record of
+            # what was DONE, while observation each turn comes fresh from the screenshot.
+            summary = reasoning or "; ".join(actions)
             self._chain_history.append(summary[:200])
             print(f"[agent_s] autonomous step {step_index}: chained {len(actions)} actions in one request")
             return AutonomousStepResult(outcome="action", code=code, raw=code)
