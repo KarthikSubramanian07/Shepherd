@@ -26,6 +26,9 @@ _state: dict = {
     "routine_id": None,
     "run_id":     None,
     "step_index": None,
+    "workflow_id": None,
+    "node_key":   None,
+    "awaiting":   False,
 }
 
 app = FastAPI(title="Shepherd Control Hub", docs_url=None, redoc_url=None)
@@ -85,6 +88,16 @@ def _track_state(message: dict) -> None:
     elif t == "monitor.decision":
         if d.get("decision") != "halt":
             _state["status"] = "running"
+    elif t == "workflow.start":
+        _state.update(status="running", workflow_id=d.get("workflow_id"),
+                      node_key=d.get("start"), awaiting=False)
+    elif t == "workflow.node.enter":
+        _state.update(status="running", node_key=d.get("node_key"),
+                      step_index=d.get("step_no"), awaiting=False)
+    elif t == "workflow.awaiting":
+        _state["awaiting"] = True
+    elif t == "workflow.done":
+        _state.update(status="idle", node_key=None, awaiting=False)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -203,6 +216,76 @@ async def control_decision(decision: str, request: Request) -> JSONResponse:
     else:
         return JSONResponse({"error": "invalid decision"}, status_code=400)
     return JSONResponse({"ok": True, "decision": decision})
+
+
+@app.post("/api/workflow/{action}")
+async def workflow_control_action(action: str, request: Request) -> JSONResponse:
+    """Control Hub hook into a live workflow traversal (the milestone executor).
+
+      pause / resume   — block the next milestone awaiting a directive, or release.
+      intervene        — steer a milestone in ONE message. Body:
+        {"instruction": "...",        # NL action to take here (override)
+         "next_key": "<node key>",    # force a branch / next milestone (optional)
+         "scenario": "...",           # the `when` this applies under
+         "remember": true|false,      # true → bake into the workflow (save_as_rule)
+         "target_node": "<node key>", # apply only at this node ("" = next milestone)
+         "decision": "override|halt|approve"}
+
+    Mirrors /api/control but targets engine.workflow_control instead of the
+    step-executor's approvals gate, so a remote operator can monitor (over /ws +
+    /api/screenshot) and steer the traversal of the operated machine.
+    """
+    from engine import workflow_control
+    if action == "pause":
+        workflow_control.request_pause()
+        return JSONResponse({"ok": True, "paused": True})
+    if action == "resume":
+        workflow_control.clear_pause()
+        return JSONResponse({"ok": True, "paused": False})
+    if action == "intervene":
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        workflow_control.submit_intervention(
+            instruction=(body.get("instruction") or "").strip(),
+            next_key=(body.get("next_key") or "").strip(),
+            scenario=(body.get("scenario") or "").strip(),
+            remember=bool(body.get("remember")),
+            decision=(body.get("decision") or "override").strip(),
+            target_node=(body.get("target_node") or "").strip(),
+        )
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "action must be pause|resume|intervene"},
+                        status_code=400)
+
+
+@app.get("/api/workflows")
+async def list_workflows() -> JSONResponse:
+    """Saved dispatchable workflows (id, name, version, intent patterns)."""
+    try:
+        from engine.workflow_store import WorkflowStore
+        return JSONResponse([
+            {"id": w.id, "name": w.name, "version": w.version,
+             "intent_patterns": w.intent_patterns, "params": w.params,
+             "nodes": len(w.nodes), "updated_at": w.updated_at}
+            for w in WorkflowStore().list()
+        ])
+    except Exception:
+        return JSONResponse([])
+
+
+@app.get("/api/workflows/{workflow_id}")
+async def get_workflow(workflow_id: str) -> JSONResponse:
+    """Full workflow (nodes + edges + taught layer) for rendering the graph."""
+    try:
+        from engine.workflow_store import WorkflowStore, _serialize
+        wf = WorkflowStore().get(workflow_id)
+        if wf is None:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return JSONResponse(_serialize(wf))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/api/status")

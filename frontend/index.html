@@ -342,6 +342,76 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
 #trace-scroll { flex:1; overflow:auto; padding:14px 16px; display:none; scrollbar-width:thin; scrollbar-color:var(--b2) transparent; }
 #trace-scroll.on { display:block; }
 #dag-scroll.off { display:none; }
+
+/* ── Workflow traversal view ── */
+#wf-scroll { flex:1; overflow:auto; padding:16px 22px; display:none; scrollbar-width:thin; scrollbar-color:var(--b2) transparent; }
+#wf-scroll.on { display:block; }
+.wf-empty { text-align:center; color:var(--dim); margin-top:70px; line-height:2; }
+.wf-meta { font-size:.64rem; color:var(--dim2); margin-bottom:14px; line-height:1.6; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.wf-meta .wf-name { color:var(--am); font-size:.78rem; letter-spacing:.04em; }
+.wf-meta code { color:var(--bl); }
+.wf-ctl { display:flex; gap:6px; margin-left:auto; }
+.wf-btn {
+  font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; cursor:pointer;
+  padding:4px 10px; border-radius:3px; font-family:var(--fn);
+  border:1px solid var(--b2); background:var(--b); color:var(--t); transition:all .12s;
+}
+.wf-btn:hover { border-color:var(--bl); color:var(--bl); }
+.wf-btn.on { border-color:var(--am); color:var(--am); background:var(--am-bg); }
+
+.wf-nodes { display:flex; flex-direction:column; align-items:center; }
+.wf-edge { width:1px; height:16px; background:var(--b2); }
+.wfn {
+  width:100%; max-width:520px; border:1px solid var(--b); border-radius:4px;
+  padding:10px 14px; position:relative; overflow:hidden; transition:border-color .2s, background .2s;
+}
+.wfn-top { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+.wfn-idx { font-size:.6rem; color:var(--dim); min-width:18px; font-weight:600; }
+.wfn-kind { font-size:.55rem; letter-spacing:.07em; text-transform:uppercase; padding:1px 6px; border-radius:2px; background:var(--b2); color:var(--dim2); }
+.wfn-taught { font-size:.55rem; padding:1px 6px; border-radius:2px; background:rgba(168,85,247,.14); color:#c084fc; border:1px solid rgba(168,85,247,.25); }
+.wfn-status { margin-left:auto; font-size:.62rem; color:var(--dim2); }
+.wfn-label { font-size:.78rem; color:var(--th); }
+.wfn-cond { font-size:.62rem; color:#c084fc; margin-top:5px; line-height:1.5; }
+.wfn-cond code { color:var(--bl); }
+.wfn-did { font-size:.64rem; color:var(--gr); margin-top:5px; line-height:1.45; }
+.wfn-extracted { font-size:.6rem; color:var(--bl); margin-top:3px; }
+.wfn.active { border-color:var(--am); background:var(--am-bg); }
+.wfn.active .wfn-idx { color:var(--am); }
+.wfn.done   { border-color:rgba(31,201,94,.22); background:var(--gr-bg); }
+.wfn.await  { border-color:var(--rd); background:var(--rd-hi); animation:haltglow 1.4s ease-in-out infinite; }
+
+/* preview of next options from the active node */
+.wf-preview { width:100%; max-width:520px; margin:8px 0 2px; }
+.wf-preview-lbl { font-size:.56rem; letter-spacing:.16em; text-transform:uppercase; color:var(--dim); margin-bottom:5px; }
+.wf-opt {
+  display:flex; align-items:center; gap:8px; padding:6px 9px; margin-bottom:4px;
+  border:1px solid var(--b); border-radius:3px; cursor:pointer; transition:all .12s;
+}
+.wf-opt:hover { border-color:var(--am); background:var(--am-bg); }
+.wf-opt-via { font-size:.55rem; text-transform:uppercase; letter-spacing:.06em; padding:1px 6px; border-radius:2px; }
+.wf-opt-via.edge { background:var(--bl-bg); color:var(--bl); border:1px solid rgba(91,164,251,.22); }
+.wf-opt-via.conditional { background:rgba(168,85,247,.14); color:#c084fc; border:1px solid rgba(168,85,247,.25); }
+.wf-opt-label { font-size:.7rem; color:var(--th); flex:1; }
+.wf-opt-when { font-size:.58rem; color:var(--dim2); }
+
+/* steer form */
+.wf-steer { width:100%; max-width:520px; margin-top:12px; border:1px solid var(--b2); border-radius:4px; padding:12px; background:var(--s2); display:none; }
+.wf-steer.show { display:block; }
+.wf-steer-lbl { font-size:.56rem; letter-spacing:.16em; text-transform:uppercase; color:var(--dim); margin-bottom:8px; }
+.wf-steer input[type=text] {
+  width:100%; background:var(--b2); border:1px solid var(--b2); color:var(--th);
+  font-size:.7rem; padding:6px 9px; border-radius:3px; font-family:var(--fn); margin-bottom:7px;
+}
+.wf-steer input[type=text]:focus { outline:none; border-color:var(--bl); }
+.wf-steer-row { display:flex; align-items:center; gap:10px; }
+.wf-remember { display:flex; align-items:center; gap:6px; font-size:.64rem; color:var(--am); cursor:pointer; }
+.wf-send {
+  margin-left:auto; padding:5px 14px; border:1px solid rgba(240,165,0,.4); cursor:pointer;
+  background:var(--am-bg); color:var(--am); font-size:.62rem; border-radius:3px;
+  font-family:var(--fn); text-transform:uppercase; letter-spacing:.1em;
+}
+.wf-send:hover { background:rgba(240,165,0,.18); }
+.wf-baked { font-size:.62rem; color:#c084fc; margin-top:8px; max-width:520px; line-height:1.5; }
 .tg-meta { font-size:.62rem; color:var(--dim2); margin-bottom:12px; line-height:1.6; }
 .tg-meta code { color:var(--bl); font-size:.6rem; }
 .tg-empty { text-align:center; color:var(--dim); margin-top:70px; line-height:2; }
@@ -433,6 +503,7 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
       <span id="center-title">Execution DAG</span>
       <div class="ctabs">
         <button class="ctab on" id="tab-steps" onclick="showCenterTab('steps')">Steps</button>
+        <button class="ctab" id="tab-workflow" onclick="showCenterTab('workflow')">Workflow</button>
         <button class="ctab" id="tab-traces" onclick="showCenterTab('traces')">Traces</button>
       </div>
       <span class="plbl-r" id="dag-count"></span>
@@ -444,6 +515,15 @@ html, body { height:100%; background:var(--g); color:var(--t); font-family:var(-
         <br><span class="dag-empty-sub">Speak an intent or type one to begin</span>
       </div>
       <div id="dag-nodes"></div>
+    </div>
+    <div id="wf-scroll">
+      <div class="wf-empty" id="wf-empty">
+        <span class="dag-empty-sym">⛓</span>
+        No workflow traversal yet
+        <br><span class="dag-empty-sub">Dispatch a workflow to monitor + steer it live</span>
+      </div>
+      <div class="wf-meta" id="wf-meta" style="display:none"></div>
+      <div class="wf-nodes" id="wf-nodes"></div>
     </div>
     <div id="trace-scroll">
       <div class="tg-empty" id="trace-empty">
@@ -558,6 +638,13 @@ function handle({type, data}){
     case 'mode.changed':          onModeChanged(data);     break;
     case 'trace.span.start':      onSpanStart(data);       break;
     case 'trace.span.end':        onSpanEnd(data);         break;
+    case 'workflow.start':        onWfStart(data);         break;
+    case 'workflow.node.enter':   onWfEnter(data);         break;
+    case 'workflow.awaiting':     onWfAwaiting(data);      break;
+    case 'workflow.intervention': onWfIntervention(data);  break;
+    case 'workflow.step':         onWfStep(data);          break;
+    case 'workflow.done':         onWfDone(data);          break;
+    case 'workflow.baked':        onWfBaked(data);         break;
   }
 }
 
@@ -808,11 +895,185 @@ function onModeChanged(d){
 function showCenterTab(tab){
   S.centerTab = tab;
   $('tab-steps').classList.toggle('on', tab === 'steps');
+  $('tab-workflow').classList.toggle('on', tab === 'workflow');
   $('tab-traces').classList.toggle('on', tab === 'traces');
   $('dag-scroll').classList.toggle('off', tab !== 'steps');
+  $('wf-scroll').classList.toggle('on', tab === 'workflow');
   $('trace-scroll').classList.toggle('on', tab === 'traces');
-  $t('center-title', tab === 'steps' ? 'Execution DAG' : 'Phoenix Trace Graph');
+  const titles = {steps:'Execution DAG', workflow:'Workflow Control', traces:'Phoenix Trace Graph'};
+  $t('center-title', titles[tab] || 'Execution DAG');
 }
+
+// ── Workflow traversal: live monitor + steer (Control Hub) ───────────────────
+const WF = {
+  id: null, name: null, version: null,
+  order: [],          // node_key[] in the order milestones were entered
+  nodes: {},          // node_key → {label, kind, taught, status, did, extracted, conditionals, options}
+  active: null,       // current node_key
+  awaiting: false,
+  steerNode: null,    // node_key the steer form targets
+};
+
+function resetWf(meta){
+  WF.id = meta.workflow_id; WF.name = meta.name || meta.workflow_id;
+  WF.version = meta.version || null;
+  WF.order = []; WF.nodes = {}; WF.active = null; WF.awaiting = false; WF.steerNode = null;
+  $('wf-empty').style.display = 'none';
+  $('wf-meta').style.display = '';
+  $('wf-baked') && $('wf-baked').remove();
+}
+
+function wfTouch(key, patch){
+  if(!WF.nodes[key]){ WF.nodes[key] = {label:key, kind:'', status:'pending'}; WF.order.push(key); }
+  Object.assign(WF.nodes[key], patch);
+}
+
+function onWfStart(d){
+  resetWf(d);
+  pushWfActivity('start', `▸ ${WF.name}`);
+  renderWf();
+  if(S.status === 'idle') setStatus('live', 'Workflow');
+}
+
+function onWfEnter(d){
+  if(d.workflow_id && d.workflow_id !== WF.id) resetWf(d);
+  WF.active = d.node_key; WF.awaiting = false;
+  wfTouch(d.node_key, {
+    label: d.label, kind: d.kind, status: 'active',
+    instruction: d.instruction, missing: d.missing || [],
+    conditionals: d.conditionals || [], options: d.options || [],
+    taught: (d.conditionals || []).length > 0,
+  });
+  renderWf();
+}
+
+function onWfAwaiting(d){
+  WF.awaiting = true;
+  if(d.node_key) wfTouch(d.node_key, {status:'active', options:d.options||[]});
+  renderWf();
+}
+
+function onWfIntervention(d){
+  wfTouch(d.node_key, {intervention: d});
+  pushWfActivity('intervene', `⛔ ${d.decision} @ ${WF.nodes[d.node_key]?.label||d.node_key}` +
+    (d.flag === 'save_as_rule' ? ' [remember]' : ''));
+  renderWf();
+}
+
+function onWfStep(d){
+  wfTouch(d.node_key, {
+    status:'done', did:d.did, branch:d.branch,
+    chose_next:d.next, extracted:d.extracted||[], options:d.options||[],
+  });
+  renderWf();
+}
+
+function onWfDone(d){
+  WF.active = null; WF.awaiting = false;
+  $t('wf-meta-status', ` · ${d.status} (${d.steps} steps, taught ${d.taught})`);
+  renderWf();
+  if(S.status === 'live') setStatus('done', 'Workflow complete');
+}
+
+function onWfBaked(d){
+  let el = $('wf-baked');
+  if(!el){ el = mk('div','wf-baked'); el.id='wf-baked'; $('wf-scroll').appendChild(el); }
+  const ops = (d.ops||[]).map(o => o.op === 'add_conditional'
+    ? `+ if <b>${esc(o.when)}</b> → <code>${esc(o.goto||o.do)}</code>`
+    : `+ ${esc(o.op)}`).join('<br>');
+  el.innerHTML = `✎ baked into workflow → v${d.version}<br>${ops}`;
+}
+
+function renderWf(){
+  const meta = $('wf-meta');
+  meta.innerHTML =
+    `<span class="wf-name">${esc(WF.name||'')}</span>` +
+    (WF.version ? ` <code>v${WF.version}</code>` : '') +
+    `<span id="wf-meta-status"></span>` +
+    `<div class="wf-ctl">` +
+      `<button class="wf-btn ${WF.awaiting?'on':''}" onclick="wfPause()">${WF.awaiting?'Paused':'Pause'}</button>` +
+      `<button class="wf-btn" onclick="wfResume()">Resume</button>` +
+    `</div>`;
+
+  const box = $('wf-nodes');
+  box.innerHTML = '';
+  WF.order.forEach((key, i) => {
+    const n = WF.nodes[key];
+    if(i) box.appendChild(mk('div','wf-edge'));
+    const cls = key === WF.active ? (WF.awaiting ? 'await' : 'active') : n.status;
+    const card = mk('div', 'wfn ' + cls);
+    let html =
+      `<div class="wfn-top">` +
+        `<span class="wfn-idx">${i}</span>` +
+        `<span class="wfn-kind">${esc(n.kind||'')}</span>` +
+        (n.taught ? `<span class="wfn-taught">taught</span>` : '') +
+        `<span class="wfn-status">${key===WF.active ? (WF.awaiting?'awaiting':'active…') : n.status}</span>` +
+      `</div>` +
+      `<div class="wfn-label">${esc(n.label||key)}</div>`;
+    (n.conditionals||[]).forEach(c => {
+      html += `<div class="wfn-cond">if ${esc(c.when)} → <code>${esc(c.goto||c.do)}</code></div>`;
+    });
+    if(n.did)  html += `<div class="wfn-did">${esc(n.did)}</div>`;
+    if(n.extracted && n.extracted.length)
+      html += `<div class="wfn-extracted">learned: ${n.extracted.map(esc).join(', ')}</div>`;
+    card.innerHTML = html;
+    box.appendChild(card);
+
+    // forward preview + steer controls under the ACTIVE node
+    if(key === WF.active) box.appendChild(wfPreviewEl(key, n.options||[]));
+  });
+}
+
+function wfPreviewEl(nodeKey, options){
+  const wrap = mk('div','wf-preview');
+  let h = `<div class="wf-preview-lbl">Next milestones — click to force a branch</div>`;
+  options.forEach(o => {
+    h += `<div class="wf-opt" onclick="wfForce('${esc(nodeKey)}','${esc(o.key)}','${esc(o.when||'')}')">` +
+      `<span class="wf-opt-via ${o.via==='conditional'?'conditional':'edge'}">${o.via||'edge'}</span>` +
+      `<span class="wf-opt-label">${esc(o.label||o.key)}</span>` +
+      (o.when ? `<span class="wf-opt-when">${esc(o.when)}</span>` : '') +
+    `</div>`;
+  });
+  h +=
+    `<div class="wf-steer show">` +
+      `<div class="wf-steer-lbl">Intervene at this milestone</div>` +
+      `<input type="text" id="wf-instr" placeholder="Instruction (e.g. open the projects page and summarize it)…">` +
+      `<div class="wf-steer-row">` +
+        `<label class="wf-remember"><input type="checkbox" id="wf-remember"> remember this in future workflows</label>` +
+        `<button class="wf-send" onclick="wfSteer('${esc(nodeKey)}')">Send</button>` +
+      `</div>` +
+    `</div>`;
+  wrap.innerHTML = h;
+  return wrap;
+}
+
+function wfPause(){ fetch('/api/workflow/pause',  {method:'POST'}).catch(()=>{}); WF.awaiting = true; renderWf(); }
+function wfResume(){ fetch('/api/workflow/resume', {method:'POST'}).catch(()=>{}); WF.awaiting = false; renderWf(); }
+
+function wfForce(nodeKey, nextKey, when){
+  postIntervene({next_key: nextKey, scenario: when, target_node: nodeKey,
+                 remember: false, decision: 'override'});
+}
+
+function wfSteer(nodeKey){
+  const instr = ($('wf-instr')||{}).value || '';
+  const remember = !!($('wf-remember')||{}).checked;
+  postIntervene({instruction: instr.trim(), target_node: nodeKey,
+                 remember: remember, decision: 'override'});
+}
+
+function postIntervene(body){
+  fetch('/api/workflow/intervene', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  }).catch(()=>{});
+  fetch('/api/workflow/resume', {method:'POST'}).catch(()=>{});
+  WF.awaiting = false; renderWf();
+}
+
+function pushWfActivity(kind, text){ log('WF', '', text, kind === 'intervene' ? 'flag' : 'act', ''); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function resetTraceGraph(){
   S.spans = {};
