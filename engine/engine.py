@@ -18,6 +18,7 @@ import threading
 import time
 import uuid
 import json
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Optional
 
@@ -46,6 +47,7 @@ from engine.agent_s_adapter import AgentSAdapter
 from engine.routine_planner import RoutinePlanner, normalize_open_app_step
 from engine.task_graph import TaskGraphStore, summarize, milestone_key
 from engine.coalescer import submit as submit_trace
+from engine.generalize import generalize_goal
 from dashboard.events import event_bus
 from telemetry import audit_log
 from telemetry import request_log as rlog
@@ -133,11 +135,23 @@ class ShepherdExecutionEngine:
         agent_s=None,
         evolution=None,
         planner=None,
+        actuation_guard=None,
+        agent_id: Optional[str] = None,
+        surface: Optional[str] = None,
     ) -> None:
         self._coords    = coords
         self._telemetry = telemetry
         self._mode      = mode
         self._agent_s   = agent_s if agent_s is not None else AgentSAdapter()
+        # Multi-agent serialization. When the orchestrator runs this engine, it
+        # injects an arbiter `actuation_guard` — a zero-arg factory returning a
+        # context manager that holds this agent's surface lease. Every actuation
+        # (focus + clicks/typing) runs inside it, so two agents can never drive
+        # the physical desktop at once. Solo runs pass None → a no-op guard, so
+        # behavior is byte-for-byte unchanged when the orchestrator is off.
+        self._actuation_guard = actuation_guard
+        self._agent_id  = agent_id
+        self._surface   = surface
         self._planner   = planner if planner is not None else RoutinePlanner()
         self._evolution = evolution  # RoutineEvolution | None — injected by main.py
         self._graphs    = TaskGraphStore()
@@ -248,6 +262,22 @@ class ShepherdExecutionEngine:
                 ],
             })
 
+            # Arize: LLM-judge the freshly drafted plan and annotate the Phoenix
+            # plan span (plan_quality). Fire-and-forget so the judge never blocks
+            # planning; the score shows up next to the trace in Phoenix.
+            try:
+                from services import phoenix_evals
+                if phoenix_evals.available():
+                    from telemetry.telemetry import _current_span_id
+                    _sid = _current_span_id()
+                    _steps = list(routine.steps)
+                    threading.Thread(
+                        target=lambda: phoenix_evals.score_plan(goal, _steps, span_id=_sid),
+                        daemon=True,
+                    ).start()
+            except Exception as _pe:
+                print(f"[phoenix-eval] plan dispatch non-fatal: {_pe}")
+
             # Hand the drafted plan to the reactive Agent S loop as guidance, then
             # execute it with screenshots at sensible intervals (chained), adapting
             # to the real screen — rather than blindly running a keyboard-only script.
@@ -337,6 +367,7 @@ class ShepherdExecutionEngine:
 
         event_bus.emit("execution.start", {
             "run_id":      run_id,
+            "agent_id":    self._agent_id,
             "routine_id":  AUTONOMOUS_ROUTINE_ID,
             "mode":        "AUTONOMOUS",
             "total_steps": max_steps,
@@ -580,6 +611,28 @@ class ShepherdExecutionEngine:
                             self._exec_agent_code(result.code)
                             steps_done += 1
                         except Exception as exc:
+                            # A halt (orchestrator) cancels this agent's queued
+                            # surface lease, which surfaces here while we were
+                            # waiting to actuate. That is a clean abort, not a
+                            # failure — don't mark it failed or page Sentry.
+                            if self._halt_flag.is_set():
+                                status = "aborted"
+                                dur_ms = int((time.time() - step_t0) * 1000)
+                                self.last_step_records.append(StepRecord(
+                                    index=i, action="agent_s", target=None,
+                                    status="aborted", started_at=step_t0,
+                                    duration_ms=dur_ms,
+                                ))
+                                event_bus.emit("execution.halted", {
+                                    "run_id": run_id, "step_index": i,
+                                    "reason": "halt_requested",
+                                })
+                                apply_tool_act_span(
+                                    s, goal=goal, code=result.code,
+                                    apps=apps or None, tools=tools or None,
+                                    status="aborted",
+                                )
+                                break
                             act_status = "error"
                             step_status = "failed"
                             step_error = str(exc)
@@ -697,7 +750,17 @@ class ShepherdExecutionEngine:
 
     @staticmethod
     def _autonomous_task_key(goal: str) -> str:
-        slug = "".join(c if c.isalnum() else "_" for c in (goal or "").lower()).strip("_")
+        # Key the graph by the GENERAL workflow, not the specific goal: "write a
+        # gmail message about meteorology" -> "write a gmail message". Every run
+        # of that kind of task then reinforces/branches ONE graph instead of
+        # spawning a fresh one per topic. The topic stays per-run payload (node
+        # values + the graph's intents provenance). Never raises.
+        try:
+            general = generalize_goal(goal)
+        except Exception as e:
+            print(f"[autonomous] goal generalization failed ({e}); using raw goal")
+            general = goal
+        slug = "".join(c if c.isalnum() else "_" for c in (general or "").lower()).strip("_")
         return "AUTONOMOUS::" + (slug[:48] or "goal")
 
     def execute(
@@ -761,6 +824,7 @@ class ShepherdExecutionEngine:
 
         event_bus.emit("execution.start", {
             "run_id":      run_id,
+            "agent_id":    self._agent_id,
             "routine_id":  resolved.routine_id,
             "mode":        self._mode,
             "total_steps": len(routine.steps),
@@ -833,7 +897,9 @@ class ShepherdExecutionEngine:
         error: Optional[str] = None
         status = "completed"
 
-        # Dynamically extend monitored steps with evolution-flagged risky ones
+        # Dynamically extend monitored steps with evolution-flagged risky ones,
+        # plus steps Phoenix evals have promoted (the judge repeatedly called them
+        # genuine risks) — Arize data deciding which steps get human oversight.
         dynamic_risky: set[int] = set()
         if self._evolution:
             try:
@@ -842,7 +908,13 @@ class ShepherdExecutionEngine:
                 )
             except Exception:
                 pass
-        monitored = set(routine.high_stakes_steps) | dynamic_risky
+        eval_promoted: set[int] = set()
+        try:
+            from services import phoenix_evals
+            eval_promoted = phoenix_evals.promoted_steps(resolved.routine_id)
+        except Exception:
+            pass
+        monitored = set(routine.high_stakes_steps) | dynamic_risky | eval_promoted
 
         try:
             with self._telemetry.span("routine.execute", oi_kind="CHAIN") as span:
@@ -1064,6 +1136,7 @@ class ShepherdExecutionEngine:
                         ts=step_t0,
                         target=step.target,
                         extra={"deviation": deviation_desc} if deviation_desc else None,
+                        agent_id=self._agent_id,
                     )
 
                     # Update evolution stats (non-blocking, best-effort)
@@ -1669,6 +1742,15 @@ class ShepherdExecutionEngine:
             )
         return code, instruction
 
+    def _actuation_lease(self):
+        """The surface lease held across one actuation batch (orchestrator), or a
+        no-op when running solo. Crucially this wraps the WHOLE exec'd batch —
+        which starts with `activate_app(...)` to grab focus — so a second agent
+        cannot steal window focus between this agent's focus call and its typing."""
+        if self._actuation_guard is None:
+            return nullcontext()
+        return self._actuation_guard()
+
     def _exec_agent_code(self, code: str) -> None:
         """
         Execute Agent S-generated Python/pyautogui code in a restricted namespace.
@@ -1678,18 +1760,23 @@ class ShepherdExecutionEngine:
         app to the foreground (instead of gambling that a Spotlight launch took
         focus); without guaranteed focus, keystrokes land in the wrong window.
         """
-        exec(  # noqa: S102
-            code,
-            {
-                "__builtins__": __builtins__,
-                "pyautogui": pyautogui,
-                "time": time,
-                "activate_app": activate_app,
-                "type_text": type_text,
-            },
-        )
+        with self._actuation_lease():
+            exec(  # noqa: S102
+                code,
+                {
+                    "__builtins__": __builtins__,
+                    "pyautogui": pyautogui,
+                    "time": time,
+                    "activate_app": activate_app,
+                    "type_text": type_text,
+                },
+            )
 
     def _dispatch(self, step: RoutineStep, variables: dict) -> None:
+        with self._actuation_lease():
+            self._dispatch_locked(step, variables)
+
+    def _dispatch_locked(self, step: RoutineStep, variables: dict) -> None:
         def sub(t: Optional[str]) -> Optional[str]:
             if t is None:
                 return None
@@ -1822,10 +1909,27 @@ class ShepherdExecutionEngine:
                 except Exception as e:
                     print(f"[agentspan] research dispatch failed (non-fatal): {e}")
 
+            # Stagehand (Browserbase): natural-language extraction on a real cloud
+            # browser — the preferred web read when available, raw-CDP below as the
+            # deterministic fallback. Containment-gated inside stagehand_web.
+            live_view_url = None
+            if value is None and bstep.get("action") in ("read", "research"):
+                try:
+                    from services import stagehand_web
+                    if stagehand_web.available():
+                        instr = (bstep.get("extract") or bstep.get("instruction")
+                                 or "the key information or answer on this page")
+                        sv = stagehand_web.web_extract(target_url, instr)
+                        if sv:
+                            value, via = sv, "stagehand"
+                except Exception as e:
+                    print(f"[stagehand] read dispatch non-fatal: {e}")
+
             if value is None:
                 result = run_browser_step(bstep)
                 value = result.get("value")
                 via = result.get("status", "ok")
+                live_view_url = result.get("live_view_url")
 
             # A "read" feeds the next step: store its value into a variable so a
             # later {VAR} fill uses what the agent just read. If empty, fall back to
@@ -1839,6 +1943,7 @@ class ShepherdExecutionEngine:
                 "status":   via,
                 "value":    (value or "")[:160],
                 "store_as": store_as,
+                "live_view_url": live_view_url,
             })
 
         else:
@@ -2002,6 +2107,9 @@ class ShepherdExecutionEngine:
                     "run_id": run_id, "step_index": index,
                     "verdict": vr["verdict"], "confidence": vr["confidence"],
                     "explanation": vr["explanation"], "model": vr["model"],
+                    # Per-agent breakdown when the second opinion came from the
+                    # Band oversight council (absent for the in-process verifier).
+                    "votes": vr.get("votes") or [],
                 })
                 if vr["verdict"] == "halt" and vr["confidence"] >= 0.7:
                     # Both layers agree — halt immediately, no approval gate needed
@@ -2043,12 +2151,73 @@ class ShepherdExecutionEngine:
             "history_note":       history_note,
         })
 
+        # Voice oversight (additive): the agent speaks the flagged action and takes
+        # a spoken approve/stop, racing alongside the on-screen gate. It never
+        # overrides the gate — whichever channel answers first wins via set_decision.
+        if FEATURES["deepgram"] and getattr(_cfg, "VOICE_OVERSIGHT", False):
+            def _voice_gate(_reason=reason):
+                try:
+                    from services.deepgram_input import voice_gate as _vg
+                    from engine.approvals import set_decision
+                    d = _vg(_reason)
+                    if d in ("approve", "halt"):
+                        set_decision(d)
+                except Exception as e:
+                    print(f"[voice] gate non-fatal: {e}")
+            threading.Thread(target=_voice_gate, daemon=True).start()
+
         default   = "approve" if verdict == "flag" else "halt"
         decision  = request_approval(index, reason, timeout=30.0, default=default)
+
+        # Speak the outcome so a hands-free operator hears the result (best-effort).
+        if FEATURES["deepgram"] and getattr(_cfg, "VOICE_OVERSIGHT", False):
+            _spoken = "Halted. The action was not taken." if decision == "halt" else "Approved. Continuing."
+            threading.Thread(
+                target=lambda: __import__("services.deepgram_input", fromlist=["speak_and_play"]).speak_and_play(_spoken),
+                daemon=True,
+            ).start()
 
         event_bus.emit("monitor.decision", {
             "run_id": run_id, "step_index": index, "decision": decision,
         })
+
+        # Arize close-the-loop: an LLM-judge scores whether this oversight call was
+        # correct, writes it back to the Phoenix span, and nudges adaptive risk so
+        # genuinely-risky steps get promoted into the monitored set next run.
+        # Fire-and-forget so the judge LLM call never blocks the gate.
+        try:
+            from services import phoenix_evals
+            if phoenix_evals.available():
+                from telemetry.telemetry import _current_span_id
+                _span_id = _current_span_id()
+                threading.Thread(
+                    target=lambda: phoenix_evals.score_verdict(
+                        reason, decision, routine_id=routine_id,
+                        step_index=index, span_id=_span_id,
+                    ),
+                    daemon=True,
+                ).start()
+        except Exception as _ee:
+            print(f"[phoenix-eval] dispatch non-fatal: {_ee}")
+
+        # Reliability backbone: record the intervention as a structured Sentry issue
+        # (decision/trigger/verdict tags, the screenshot, and a Phoenix trace link),
+        # so halt-rate and slow steps are queryable in Sentry. Best-effort.
+        if FEATURES["sentry"]:
+            try:
+                import io as _io2
+                import pyautogui as _pag2
+                from telemetry.sentry_init import capture_intervention
+                _b = _io2.BytesIO()
+                _pag2.screenshot().save(_b, format="PNG")
+                capture_intervention(
+                    decision=decision, reason=reason, run_id=run_id, step_index=index,
+                    trigger=step.monitor_trigger, verdict=verdict,
+                    milestone=self._step_ms.get(index, {}).get("label"),
+                    screenshot_png=_b.getvalue(),
+                )
+            except Exception as _se:
+                print(f"[sentry] intervention capture non-fatal: {_se}")
 
         if decision == "halt":
             self._interventions.append(InterventionEvent(

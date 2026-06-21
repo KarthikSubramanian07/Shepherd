@@ -6,7 +6,37 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  backend:
+    name: Backend (lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync dependencies (incl. dev pytest + ruff)
+        run: uv sync
+      - name: Lint (ruff)
+        run: uv run ruff check .
+      - name: Import smoke test
+        run: uv run python -c "import main, dashboard.server, engine.engine, router.router; print('imports OK')"
+      - name: Tests (pytest)
+        # The suite is designed to pass with no API keys and no Redis (every
+        # integration degrades gracefully), so CI needs no secrets.
+        env:
+          BAND_ENABLED: "false"
+          ARMORIQ_ENABLED: "false"
+          REDIS_URL: "redis://localhost:6399"   # intentionally unreachable
+        run: uv run pytest -q
+
   frontend:
     name: Frontend (typecheck + build)
     runs-on: ubuntu-latest
@@ -21,34 +51,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      # `next lint` was removed in Next 16; tsc (strict) is the type+lint gate here.
       - run: npm run typecheck
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-
-  backend:
-    name: Backend (import smoke test)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-      - name: Set up Python
-        run: uv python install 3.12
-      - name: Sync dependencies
-        run: uv sync --no-dev
-      - name: Import smoke test
-        run: |
-          uv run python -c "
-          import shepherd_types
-          import config
-          from engine.engine import ShepherdExecutionEngine
-          from engine.coalescer import submit
-          from engine.trace_journal import write, read
-          from engine.task_graph import TaskGraphStore
-          from engine.routines import load_routines, _build_step
-          from shepherd_types import RunTrace, InterventionEvent, TaskGraph, TaskGraphEdge
-          print('backend import smoke test OK')
-          "

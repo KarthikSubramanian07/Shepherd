@@ -42,6 +42,11 @@ def run_browser_step(step: dict) -> dict:
         bb = Browserbase(api_key=BROWSERBASE_API_KEY, project_id=BROWSERBASE_PROJECT_ID)
         session = bb.create_session()
         connect_url = bb.get_connect_url(session.id)
+        # The embeddable, interactive live-view URL — the Control Hub renders this
+        # in an iframe so you watch (and on a halt, take over) the cloud browser.
+        live_view_url = _live_view_url(bb, session.id)
+        if live_view_url:
+            _emit_live_view(session.id, live_view_url, step.get("url", ""))
         try:
             with sync_playwright() as p:
                 browser = p.chromium.connect_over_cdp(connect_url)
@@ -50,7 +55,7 @@ def run_browser_step(step: dict) -> dict:
                 page.goto(url, wait_until="domcontentloaded", timeout=15000)
 
                 action = step.get("action", "navigate")
-                result = {"status": "ok", "url": url, "action": action}
+                result = {"status": "ok", "url": url, "action": action, "live_view_url": live_view_url}
 
                 if action == "click" and step.get("selector"):
                     page.click(step["selector"])
@@ -106,3 +111,26 @@ def _local_fallback(step: dict) -> dict:
     webbrowser.open(url)
     time.sleep(2.0)
     return {"status": "local_fallback", "url": url, "action": action}
+
+
+def _live_view_url(bb, session_id: str):
+    """The interactive, embeddable live-view URL for a Browserbase session
+    (debuggerFullscreenUrl). Lets the Control Hub render the cloud browser in an
+    iframe and a human take control on a halt. Best-effort; None on failure."""
+    try:
+        urls = bb.get_debug_connection_urls(session_id)
+        return getattr(urls, "debuggerFullscreenUrl", None) or getattr(urls, "debuggerUrl", None)
+    except Exception as e:
+        print(f"[browserbase] live-view url non-fatal: {e}")
+        return None
+
+
+def _emit_live_view(session_id: str, url: str, target: str) -> None:
+    """Tell the Control Hub a cloud-browser session is live so it can embed it."""
+    try:
+        from dashboard.events import event_bus
+        event_bus.emit("browser.live_view", {
+            "session_id": session_id, "live_view_url": url, "target": target,
+        })
+    except Exception:
+        pass

@@ -23,30 +23,39 @@ Format (one JSON object per line):
 import hashlib
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Optional
 
 _LOG_PATH = Path(os.getenv("AUDIT_LOG_PATH", "data/audit.jsonl"))
 
+# Multi-agent safety: many agent workers append concurrently. The hash chain is
+# a single global ledger (one tamper-evidence proof for the whole fleet), so
+# appends MUST be serialized — otherwise two agents read the same prev_hash/seq
+# and fork the chain. One process-wide lock guards the in-memory chain head
+# (cached seq + prev_hash) so we never re-read the file per append. The lock is
+# off the click path (appends happen at step boundaries), so it costs nothing.
+_lock = threading.Lock()
+_head_seq: Optional[int] = None      # next seq to assign; None until primed
+_head_hash: str = "0" * 64           # hash of the last entry (genesis sentinel)
 
-def _prev_hash() -> str:
+
+def _prime_head_locked() -> None:
+    """Initialize the in-memory chain head from the file once (caller holds lock)."""
+    global _head_seq, _head_hash
+    if _head_seq is not None:
+        return
     try:
         lines = _LOG_PATH.read_text().strip().splitlines()
         if lines:
-            return json.loads(lines[-1])["hash"]
+            last = json.loads(lines[-1])
+            _head_seq = last.get("seq", -1) + 1
+            _head_hash = last["hash"]
+            return
     except Exception:
         pass
-    return "0" * 64  # genesis sentinel
-
-
-def _seq() -> int:
-    try:
-        lines = _LOG_PATH.read_text().strip().splitlines()
-        if lines:
-            return json.loads(lines[-1]).get("seq", -1) + 1
-    except Exception:
-        pass
-    return 0
+    _head_seq = 0
+    _head_hash = "0" * 64
 
 
 def _entry_hash(entry: dict) -> str:
@@ -66,29 +75,44 @@ def append(
     ts: float,
     target: Optional[str] = None,
     extra: Optional[dict] = None,
+    agent_id: Optional[str] = None,
 ) -> str:
-    """Append one entry to the audit log. Returns its hash."""
-    entry: dict = {
-        "seq":        _seq(),
-        "run_id":     run_id,
-        "step_index": step_index,
-        "action":     action,
-        "target":     target,
-        "status":     status,
-        "duration_ms": duration_ms,
-        "ts":         round(ts, 4),
-        "prev_hash":  _prev_hash(),
-    }
-    if extra:
-        entry.update(extra)
-    entry["hash"] = _entry_hash(entry)
-    try:
-        _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(_LOG_PATH, "a") as f:
-            f.write(json.dumps(entry) + "\n")
-    except Exception as e:
-        print(f"[audit] write failed (non-fatal): {e}")
-    return entry["hash"]
+    """Append one entry to the audit log. Returns its hash.
+
+    Thread-safe: the whole read-head → build → write → advance-head sequence runs
+    under one lock so concurrent agents produce a single, totally-ordered chain.
+    Each entry is tagged with ``agent_id`` so a multi-agent ledger stays
+    attributable while remaining one verifiable chain.
+    """
+    global _head_seq, _head_hash
+    with _lock:
+        _prime_head_locked()
+        entry: dict = {
+            "seq":        _head_seq,
+            "run_id":     run_id,
+            "agent_id":   agent_id,
+            "step_index": step_index,
+            "action":     action,
+            "target":     target,
+            "status":     status,
+            "duration_ms": duration_ms,
+            "ts":         round(ts, 4),
+            "prev_hash":  _head_hash,
+        }
+        if extra:
+            entry.update(extra)
+        entry["hash"] = _entry_hash(entry)
+        try:
+            _LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(_LOG_PATH, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+            # Advance the head only after a successful write so a failed append
+            # never leaves a phantom link the next entry would chain onto.
+            _head_seq += 1
+            _head_hash = entry["hash"]
+        except Exception as e:
+            print(f"[audit] write failed (non-fatal): {e}")
+        return entry["hash"]
 
 
 def read_all(limit: int = 500) -> list:

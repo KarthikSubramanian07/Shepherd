@@ -132,6 +132,7 @@ export interface RedisStats {
     available: boolean;
     runs_stored?: number;
     learned_variables?: number;
+    runs_indexed?: number;
   };
   semantic_cache: {
     available: boolean;
@@ -143,11 +144,20 @@ export interface RedisStats {
   last_match: { routine_id: string | null; similarity: number | null } | null;
 }
 
+export interface Integration {
+  name: string;
+  category: string;
+  status: "active" | "ready" | "off";
+  detail: string;
+}
+
 export const api = {
   // Routines (the recorded "tools")
   listRoutines: () => http<RoutineSummary[]>("/routines"),
   // Redis — vector routing, agent memory, semantic cache
   getRedisStats: () => http<RedisStats>("/redis/stats"),
+  // Live status of every integration (active / ready / off)
+  getIntegrations: () => http<{ integrations: Integration[] }>("/integrations"),
   getRoutine: (id: string) => http<Routine>(`/routines/${id}`),
 
   // Agents (live instances)
@@ -236,6 +246,60 @@ export const api = {
     });
     return res.json().catch(() => ({ error: `HTTP ${res.status}` }));
   },
+
+  // ── Fleet (multi-agent orchestration) ──────────────────────────────────────
+  getFleet: async (): Promise<FleetSnapshot> => {
+    const res = await fetch(`${BACKEND}/api/fleet`, { cache: "no-store" });
+    return res.json();
+  },
+  dispatchAgent: async (
+    goal: string,
+    surfaceKind: "local" | "browserbase",
+    name?: string,
+  ): Promise<{ ok?: boolean; agent_id?: string; error?: string }> => {
+    const res = await fetch(`${BACKEND}/api/fleet/dispatch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, surface_kind: surfaceKind, name }),
+    });
+    return res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  },
+  haltAgent: async (agentId: string): Promise<{ ok?: boolean }> => {
+    const res = await fetch(`${BACKEND}/api/fleet/halt/${agentId}`, { method: "POST" });
+    return res.json().catch(() => ({ ok: false }));
+  },
+  haltAllAgents: async (): Promise<{ ok?: boolean; halted?: number }> => {
+    const res = await fetch(`${BACKEND}/api/fleet/halt_all`, { method: "POST" });
+    return res.json().catch(() => ({ ok: false }));
+  },
 };
+
+export interface FleetAgent {
+  agent_id: string;
+  name: string;
+  goal: string;
+  surface_kind: string;
+  surface: string | null;
+  status: string;
+  error: string | null;
+  started_at: number;
+  duration_ms: number;
+}
+
+export interface QueueSurface {
+  surface: string;
+  holder: string | null;
+  held_ms: number;
+  waiters: { agent_id: string; priority: number }[];
+}
+
+export interface FleetSnapshot {
+  enabled: boolean;
+  agents: FleetAgent[];
+  backlog: { agent_id: string; goal: string; surface_kind: string }[];
+  queue: QueueSurface[];
+  max_agents?: number;
+  active?: number;
+}
 
 export type Api = typeof api;

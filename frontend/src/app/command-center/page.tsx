@@ -13,6 +13,7 @@ import { MicCommandButton } from "@/components/remote/MicCommandButton";
 import { Badge, Button, Card, Stat, StatusDot } from "@/components/ui/primitives";
 import { LiveExecutionGraph } from "@/components/LiveExecutionGraph";
 import { RedisPanel } from "@/components/RedisPanel";
+import { IntegrationsPanel } from "@/components/IntegrationsPanel";
 import { formatDuration, timeAgo } from "@/lib/utils";
 
 export default function CommandCenterPage() {
@@ -81,6 +82,22 @@ export default function CommandCenterPage() {
           {/* Run a goal · sends the local agent off via POST /api/intent */}
           <RunGoalForm disabled={isRunning} />
 
+          {/* Cross-run memory · the agent recalled a similar past run from Redis */}
+          {state.memoryRecall && (
+            <div className="mt-3 flex items-start gap-2 rounded-xl border border-accent/30 bg-accent/[0.06] p-3 text-xs">
+              <span className="mt-0.5 shrink-0 text-accent-ink">↺</span>
+              <div>
+                <span className="font-semibold text-ink">
+                  Recalled a similar run ({Math.round(state.memoryRecall.similarity * 100)}% match)
+                </span>
+                <span className="ml-1.5 text-muted">
+                  reusing {state.memoryRecall.milestones.length} proven milestones from
+                  &nbsp;&ldquo;{state.memoryRecall.goal}&rdquo; · Redis vector recall, by meaning
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Monitor alert · the signature moment: the lantern catches the danger */}
           {state.monitorAlert && (
             <div className="mt-4 animate-riseIn rounded-xl border border-halt/40 bg-halt/[0.06] p-4 shadow-halt">
@@ -112,15 +129,38 @@ export default function CommandCenterPage() {
                     <span
                       className="mr-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-accent-ink"
                       style={{ background: "var(--accent-soft, #cf6a4322)" }}
-                      title="Second opinion came from an independent shepherd-verifier agent over Band's mesh"
+                      title="Second opinion came from independent agent(s) deliberating over Band's mesh"
                     >
-                      via Band peer
+                      {state.verifierResult.model === "band:council"
+                        ? "via Band council"
+                        : "via Band peer"}
                     </span>
                   )}
                   <span className="text-muted">
                     {Math.round(state.verifierResult.confidence * 100)}% conf ·{" "}
                     {state.verifierResult.explanation}
                   </span>
+
+                  {/* Live council tally · each specialist's vote over Band */}
+                  {state.verifierResult.votes.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5 border-t border-edge pt-2">
+                      {state.verifierResult.votes.map((v, i) => (
+                        <span
+                          key={i}
+                          title={v.reason}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            v.verdict === "halt"
+                              ? "bg-halt/15 text-halt"
+                              : v.verdict === "ok"
+                                ? "bg-ok/15 text-ok"
+                                : "bg-accent/15 text-accent-ink"
+                          }`}
+                        >
+                          {v.handle.replace(/^shepherd-/, "")}: {v.verdict}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -172,6 +212,28 @@ export default function CommandCenterPage() {
             </div>
           )}
 
+          {/* Live cloud browser · the Browserbase session the agent is driving on
+              the open web, embedded and interactive — take over on a halt. */}
+          {state.cloudBrowserUrl && (
+            <div className="mt-4 rounded-xl border border-edge bg-canvas/50 p-4">
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                <span className="h-1.5 w-1.5 animate-pulseRing rounded-full bg-accent" />
+                Live cloud browser · Browserbase + Stagehand (interactive)
+              </div>
+              <iframe
+                src={state.cloudBrowserUrl}
+                title="Browserbase live view"
+                className="h-[420px] w-full rounded-lg border border-edge bg-white"
+                sandbox="allow-same-origin allow-scripts allow-forms"
+                allow="clipboard-read; clipboard-write"
+              />
+              <p className="mt-1.5 text-[11px] text-muted">
+                The agent is driving this real cloud browser. On a halt you can click
+                in and take control, then approve to hand it back.
+              </p>
+            </div>
+          )}
+
           {/* Live execution path · replays milestone-by-milestone as the run streams */}
           {state.graphNodes.length > 0 && (
             <div className="mt-4 rounded-xl border border-edge bg-canvas/50 p-4">
@@ -215,6 +277,8 @@ export default function CommandCenterPage() {
         </div>
 
         {/* Redis as the substrate · vector routing, agent memory, semantic cache */}
+        <IntegrationsPanel />
+
         <RedisPanel />
 
         {/* Past runs */}

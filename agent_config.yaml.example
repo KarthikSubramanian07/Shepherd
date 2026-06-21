@@ -20,3 +20,20 @@ shepherd-verifier:
 shepherd-monitor:
   agent_id: "uuid-for-shepherd-monitor"
   api_key:  "band-api-key-for-shepherd-monitor"
+
+# OPTIONAL — the oversight COUNCIL. Register these three specialists too, add them
+# to the room, and list them in BAND_COUNCIL (.env). Each runs as its own process:
+#   python -m services.band_council_agent security
+#   python -m services.band_council_agent privacy
+#   python -m services.band_council_agent destructive
+shepherd-security:
+  agent_id: "uuid-for-shepherd-security"
+  api_key:  "band-api-key-for-shepherd-security"
+
+shepherd-privacy:
+  agent_id: "uuid-for-shepherd-privacy"
+  api_key:  "band-api-key-for-shepherd-privacy"
+
+shepherd-destructive:
+  agent_id: "uuid-for-shepherd-destructive"
+  api_key:  "band-api-key-for-shepherd-destructive"

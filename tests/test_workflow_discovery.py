@@ -179,11 +179,15 @@ def test_slug_based_patterns_fail_substring_match(tmp_path):
 
 # ── Test 4: promotion does NOT block when description is async ──────────────
 
-def test_promote_does_not_block_on_description(tmp_path):
+def test_promote_does_not_block_on_description(tmp_path, monkeypatch):
     """Promotion must complete instantly; the LLM describe is async.
     Verify that promote_graph returns immediately (under 1s) even though
     generate_description was fired."""
     from engine.workflow_promote import promote_graph
+    import engine.generalize as _gen
+    # Network-free: in production the goal is already generalized at run-start
+    # (memo hit), so promote stays instant; stub it here to keep the test offline.
+    monkeypatch.setattr(_gen, "generalize_goal", lambda g: (g or "").strip())
 
     # Set up a graph on disk
     gs_path = str(tmp_path / "task_graphs.json")

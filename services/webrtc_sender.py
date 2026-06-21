@@ -33,7 +33,7 @@ try:
         RTCPeerConnection,
         RTCSessionDescription,
     )
-    from aiortc.mediastreams import MediaStreamTrack, VideoStreamTrack
+    from aiortc.mediastreams import MediaStreamTrack
     from av import VideoFrame
 
     AIORTC_AVAILABLE = True

@@ -109,7 +109,9 @@ def test_live_routine_match(tmp_path):
     from router.router import ShepherdIntentRouter
     from engine.workflow_store import WorkflowStore
 
-    router = ShepherdIntentRouter()
+    # Enable routines explicitly — this validates MODE gating independent of the
+    # deployment default (config ships with routines off).
+    router = ShepherdIntentRouter(match_routines=True)
     router._workflows = WorkflowStore(str(tmp_path / "empty.json"))
 
     # Mock vector router: only routine candidate
@@ -259,7 +261,9 @@ def test_mode_none_defaults_to_live_behavior(tmp_path):
     store = WorkflowStore(str(tmp_path / "workflows.json"))
     store.save(_build_wiki_workflow())
 
-    router = ShepherdIntentRouter()
+    # Enable routines explicitly so "both sources consulted" reflects mode, not
+    # the deployment default (config ships with routines off).
+    router = ShepherdIntentRouter(match_routines=True)
     router._workflows = store
 
     # Mock vector router: both sources

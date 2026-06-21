@@ -115,6 +115,12 @@ def _coalesce(trace: RunTrace) -> None:
         applied_ops = workflow_edit.apply_patch(_store, graph, patch, trace.run_id)
 
     _store.save(graph, intent_text=trace.intent_text, variables=trace.variables, run_id=trace.run_id)
+
+    # Auto-promote into a dispatchable workflow so the crystallized graph shows
+    # up in the Workflows page (and is router-matchable) without a manual bake-out.
+    # Skipped when unchanged so repeat runs don't churn the workflow version.
+    _maybe_auto_promote(trace.routine_id, graph)
+
     event_bus.emit("task.graph.saved", {
         "run_id":     trace.run_id,
         "routine_id": trace.routine_id,
@@ -127,6 +133,20 @@ def _coalesce(trace: RunTrace) -> None:
         "mode":       "edit" if (was_known and trace.interventions) else "create",
         "baked_ops":  applied_ops,
     })
+
+
+def _maybe_auto_promote(task_key: str, graph) -> None:
+    """Promote the freshly-saved graph into a workflow (config-gated, best-effort)."""
+    from config import AUTO_PROMOTE_WORKFLOWS, AUTO_PROMOTE_MIN_NODES
+    if not AUTO_PROMOTE_WORKFLOWS or len(graph.nodes) < AUTO_PROMOTE_MIN_NODES:
+        return
+    try:
+        from engine.workflow_promote import promote_graph
+        wf = promote_graph(task_key, skip_if_unchanged=True)
+        if wf is not None:
+            print(f"[coalescer] auto-promoted {task_key} -> workflow {wf.id} (v{wf.version})")
+    except Exception as e:
+        print(f"[coalescer] auto-promote skipped for {task_key} (non-fatal): {e}")
 
 
 def _fill_intervention_node_keys(trace: RunTrace, executed_ms: list[dict]) -> None:

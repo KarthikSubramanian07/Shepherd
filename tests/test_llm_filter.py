@@ -100,7 +100,7 @@ def test_resolve_plan_false_positive_goes_generic(tmp_path):
     from router.router import ShepherdIntentRouter
     from engine.workflow_store import WorkflowStore
 
-    router = ShepherdIntentRouter()
+    router = ShepherdIntentRouter(match_workflows=True, match_routines=True)
     router._workflows = WorkflowStore(str(tmp_path / "empty.json"))
 
     # Mock vector router to return job-app as a candidate at 0.79
@@ -125,7 +125,7 @@ def test_resolve_plan_false_negative_routes_workflow(tmp_path):
     store = WorkflowStore(str(tmp_path / "workflows.json"))
     store.save(_build_wiki_workflow())
 
-    router = ShepherdIntentRouter()
+    router = ShepherdIntentRouter(match_workflows=True, match_routines=True)
     router._workflows = store
 
     # Mock vector router to return the workflow candidate at 0.85 (below high-confidence)
@@ -150,7 +150,7 @@ def test_resolve_plan_high_score_still_goes_through_llm_accepted(tmp_path):
     store = WorkflowStore(str(tmp_path / "workflows.json"))
     store.save(_build_wiki_workflow())
 
-    router = ShepherdIntentRouter()
+    router = ShepherdIntentRouter(match_workflows=True, match_routines=True)
     router._workflows = store
 
     # Mock vector router: workflow candidate at 0.92
@@ -176,7 +176,7 @@ def test_resolve_plan_high_score_still_goes_through_llm_rejected(tmp_path):
     store = WorkflowStore(str(tmp_path / "workflows.json"))
     store.save(_build_wiki_workflow())
 
-    router = ShepherdIntentRouter()
+    router = ShepherdIntentRouter(match_workflows=True, match_routines=True)
     router._workflows = store
 
     # Mock vector router: workflow candidate at 0.92
@@ -198,7 +198,7 @@ def test_resolve_plan_llm_unavailable_degrades_to_threshold(tmp_path):
     from router.router import ShepherdIntentRouter
     from engine.workflow_store import WorkflowStore
 
-    router = ShepherdIntentRouter()
+    router = ShepherdIntentRouter(match_workflows=True, match_routines=True)
     router._workflows = WorkflowStore(str(tmp_path / "empty.json"))
 
     # Mock vector router: routine candidate at 0.79 (above 0.40 threshold)
@@ -220,7 +220,7 @@ def test_resolve_plan_transient_llm_failure_degrades_to_threshold(tmp_path):
     from router.router import ShepherdIntentRouter
     from engine.workflow_store import WorkflowStore
 
-    router = ShepherdIntentRouter()
+    router = ShepherdIntentRouter(match_workflows=True, match_routines=True)
     router._workflows = WorkflowStore(str(tmp_path / "empty.json"))
 
     # Mock vector router: routine candidate at 0.79
@@ -246,7 +246,7 @@ def test_resolve_plan_offline_fallback_still_works(tmp_path):
     store = WorkflowStore(str(tmp_path / "workflows.json"))
     store.save(_build_wiki_workflow())
 
-    router = ShepherdIntentRouter()
+    router = ShepherdIntentRouter(match_workflows=True, match_routines=True)
     router._workflows = store
 
     # Mock vector router: completely unavailable (returns empty)

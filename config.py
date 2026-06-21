@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     band_verifier_agent_id: str = ""    # the shepherd-verifier agent's UUID (for @mention)
     band_verifier_handle: str = "shepherd-verifier"
     band_api_base: str = "https://app.band.ai/api/v1/agent"
+    # Oversight council: extra specialist verifier agents that deliberate + vote in
+    # the room alongside (or instead of) the single verifier. Comma-separated
+    # `handle:agent_uuid` pairs, e.g.
+    #   "shepherd-security:uuid1,shepherd-privacy:uuid2,shepherd-destructive:uuid3"
+    # Empty = fall back to the single shepherd-verifier (a council of one).
+    band_council: str = ""
 
     # ── ArmorIQ — intent-intelligence authorization for the oversight stack ──
     # Before a run executes, the resolved plan is captured and ArmorIQ issues a
@@ -71,6 +77,10 @@ class Settings(BaseSettings):
     # ── Deepgram STT tuning ────────────────────────────────────────────────
     deepgram_model: str = "nova-2"
     deepgram_language: str = "en-US"
+    # Voice oversight: the agent speaks the high-stakes gate question via Aura TTS
+    # and takes a spoken approve/stop answer. Additive to the on-screen gate.
+    deepgram_tts_voice: str = "aura-asteria-en"
+    voice_oversight: bool = True
 
     # ── Engine ─────────────────────────────────────────────────────────────
     # The front door for every intent. The old three-mode EXECUTION_MODE enum
@@ -89,8 +99,25 @@ class Settings(BaseSettings):
     # autonomous execution runs (use_router off, OR on with no match). The legacy
     # LIVE/LOCKED/AUTONOMOUS string (EXECUTION_MODE) is DERIVED from these at module
     # level, so the engine, dashboard, and /api/mode override keep working unchanged.
-    use_router: bool = False
+    use_router: bool = True
     routine_replay: str = "vision"   # "vision" (LIVE) | "deterministic" (LOCKED)
+    # When use_router is on, the router matches against TWO independent sources.
+    # These toggle each one separately, so you can route to crystallized
+    # workflows without recorded routines (or vice versa):
+    #   match_workflows — consider saved/crystallized WORKFLOWs (the task graphs).
+    #   match_routines  — consider hand-recorded ROUTINEs (the registry).
+    # Current config: workflows ON, routines OFF — route to crystallized
+    # workflows only, then fall back to autonomous on no match.
+    match_workflows: bool = True
+    match_routines: bool = False
+    # Auto-promote: when a run's task graph crystallizes (the coalescer's cold
+    # path), promote it into a dispatchable WORKFLOW so it appears in the
+    # frontend's Workflows page and the router can match it — no manual "Bake out"
+    # needed. Only graphs with >= auto_promote_min_nodes are promoted (skips empty
+    # / degenerate single-step graphs), and re-promotion is skipped when the graph
+    # hasn't grown (no version churn on repeat runs).
+    auto_promote_workflows: bool = True
+    auto_promote_min_nodes: int = 2
     # Legacy override: when set in .env, this LIVE/LOCKED/AUTONOMOUS string wins over
     # the use_router/routine_replay knobs. Empty = derive from them (preferred).
     execution_mode: str = ""
@@ -221,12 +248,15 @@ BROWSERBASE_PROJECT_ID     = settings.browserbase_project_id
 DEEPGRAM_API_KEY           = settings.deepgram_api_key
 DEEPGRAM_MODEL             = settings.deepgram_model
 DEEPGRAM_LANGUAGE          = settings.deepgram_language
+DEEPGRAM_TTS_VOICE         = settings.deepgram_tts_voice
+VOICE_OVERSIGHT            = settings.voice_oversight
 BAND_ENABLED               = settings.band_enabled
 BAND_ROOM_ID               = settings.band_room_id
 BAND_ENGINE_API_KEY        = settings.band_engine_api_key
 BAND_VERIFIER_AGENT_ID     = settings.band_verifier_agent_id
 BAND_VERIFIER_HANDLE       = settings.band_verifier_handle
 BAND_API_BASE              = settings.band_api_base
+BAND_COUNCIL               = settings.band_council
 ARMORIQ_ENABLED            = settings.armoriq_enabled
 ARMORIQ_API_KEY            = settings.armoriq_api_key
 ARMORIQ_STRICT             = settings.armoriq_strict
@@ -237,6 +267,10 @@ AGENTSPAN_MODEL            = settings.agentspan_model
 
 USE_ROUTER     = settings.use_router
 ROUTINE_REPLAY = settings.routine_replay
+MATCH_WORKFLOWS = settings.match_workflows
+MATCH_ROUTINES  = settings.match_routines
+AUTO_PROMOTE_WORKFLOWS = settings.auto_promote_workflows
+AUTO_PROMOTE_MIN_NODES = settings.auto_promote_min_nodes
 
 
 def _derive_mode(use_router: bool, replay: str) -> str:

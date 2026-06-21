@@ -7,6 +7,7 @@ Front door is controlled by USE_ROUTER (config / .env):
   USE_ROUTER=false (default)  free-form autonomous Agent S goals (no routing)
   USE_ROUTER=true             match a saved workflow/routine first, autonomous on no match
   ROUTINE_REPLAY=vision|deterministic  how a matched routine is driven (LIVE|LOCKED)
+  MATCH_WORKFLOWS / MATCH_ROUTINES  enable each routing source separately (both on by default)
 
 Usage:
   python main.py
@@ -22,6 +23,7 @@ import threading
 from config import (
     FEATURES, EXECUTION_MODE, DASHBOARD_PORT, USE_ROUTER, ROUTINE_REPLAY,
     AUTONOMOUS_ON_UNMATCHED, EXIT_WHEN_DONE, BACKEND_URL, CONSOLE_LOG,
+    MATCH_WORKFLOWS, MATCH_ROUTINES,
 )
 from shepherd_types import Intent, ResolvedRoutine
 from router.router import ShepherdIntentRouter
@@ -175,7 +177,10 @@ def main() -> None:
     if "--mode" in sys.argv:
         front_door = f"--mode override: {mode}"
     elif USE_ROUTER:
-        front_door = f"router ON (replay={ROUTINE_REPLAY}, autonomous fallback) -> {mode}"
+        sources = "+".join(
+            s for s, on in (("workflows", MATCH_WORKFLOWS), ("routines", MATCH_ROUTINES)) if on
+        ) or "none"
+        front_door = f"router ON (match={sources}, replay={ROUTINE_REPLAY}, autonomous fallback) -> {mode}"
     else:
         front_door = f"router OFF (free-form autonomous) -> {mode}"
     print("\n=== THE SHEPHERD ===")
@@ -195,6 +200,16 @@ def main() -> None:
     memory    = ExecutionMemory()
     load_routines()          # pre-warm cache
     coords    = load_coords()
+    # Backfill: promote previously-crystallized task graphs into dispatchable
+    # workflows BEFORE the router indexes them, so they appear in the Workflows
+    # page and are matchable immediately (no manual bake-out). Idempotent.
+    from config import AUTO_PROMOTE_WORKFLOWS, AUTO_PROMOTE_MIN_NODES
+    if AUTO_PROMOTE_WORKFLOWS:
+        try:
+            from engine.workflow_promote import backfill_workflows
+            backfill_workflows(AUTO_PROMOTE_MIN_NODES)
+        except Exception as e:
+            print(f"[promote] backfill skipped (non-fatal): {e}")
     router    = ShepherdIntentRouter()
     evolution = RoutineEvolution()
     engine    = ShepherdExecutionEngine(coords=coords, telemetry=telemetry, mode=mode, evolution=evolution)
@@ -247,6 +262,39 @@ def main() -> None:
             print("[relay] └──────────────────────────────────────────────┘\n")
         except Exception as e:
             print(f"[relay] Could not start: {e}")
+
+    # ── Durable run ledger: detect + resume any run orphaned by a crash ───────
+    # Each run is durably checkpointed milestone by milestone (off the click path).
+    # If the process died mid-run, the ledger is left "running"; on this boot we
+    # detect that and re-dispatch the task so a crash never silently abandons work.
+    try:
+        from services import run_memory
+        run_memory.install()   # cross-run semantic recall: index every completed run
+    except Exception as e:
+        print(f"[run_memory] install skipped (non-fatal): {e}")
+
+    try:
+        from services import agentspan_durable
+        agentspan_durable.install()
+        for led in agentspan_durable.resume_incomplete():
+            goal = led.get("goal") or ""
+            print(f"[durable] Interrupted run {led.get('run_id')} detected at "
+                  f"milestone {led.get('done', 0)}/{led.get('total', 0)} — "
+                  f"re-dispatching: {goal}")
+            if goal and not listen:
+                remote_intents.put(goal)
+    except Exception as e:
+        print(f"[durable] resume skipped (non-fatal): {e}")
+
+    # ── Orchestrated mode: many agents at once (ENABLE_ORCHESTRATOR) ──────────
+    # Instead of the serial single-agent loop below, hand every goal to the
+    # Orchestrator, which spawns an agent worker per task and serializes their
+    # actions through the ActionArbiter (the action queue). Local Agent S agents
+    # share the one desktop; Browserbase agents run in parallel cloud windows.
+    from orchestrator.config import ENABLE_ORCHESTRATOR, DEFAULT_SURFACE_KIND
+    if ENABLE_ORCHESTRATOR:
+        _run_orchestrated(coords, telemetry, remote_intents, listen, DEFAULT_SURFACE_KIND)
+        return
 
     # ── Main loop ─────────────────────────────────────────────────────────────
     # Goals flow into ONE queue from any producer: the command line (stdin thread
@@ -301,6 +349,24 @@ def main() -> None:
 
             intent = Intent(raw_text=raw, timestamp=time.time())
             event_bus.emit("intent.received", {"raw_text": intent.raw_text, "source": intent.source})
+
+            # Cross-run memory: recall the most similar successful prior run (by
+            # MEANING, across differently-worded goals) so the operator sees the
+            # agent reusing a proven path. Off the click path; best-effort.
+            try:
+                from services import run_memory
+                recalled = run_memory.recall(intent.raw_text)
+                if recalled:
+                    print(f"[memory] Recalled a similar run (sim {recalled['similarity']:.2f}): "
+                          f"{len(recalled['milestones'])} proven milestones from "
+                          f"'{recalled['goal']}'")
+                    event_bus.emit("memory.recall", {
+                        "goal": recalled["goal"],
+                        "similarity": recalled["similarity"],
+                        "milestones": recalled["milestones"],
+                    })
+            except Exception as e:
+                print(f"[memory] recall skipped (non-fatal): {e}")
 
             effective_mode = engine.effective_mode()
 
@@ -437,6 +503,71 @@ def main() -> None:
 
 
 _listen_mode = False  # set True by --listen; keeps the agent serving across goals
+
+
+def _run_orchestrated(coords, telemetry, remote_intents, listen, default_kind) -> None:
+    """Multi-agent loop: every goal becomes its own agent worker, all serialized
+    through the ActionArbiter. Goals can carry a surface prefix to pick the lane:
+        'browser: find the cheapest flight to NYC'   → a Browserbase agent
+        'local:  take my selfie in Photo Booth'       → a local Agent S agent
+    No prefix → DEFAULT_SURFACE_KIND."""
+    from orchestrator import Orchestrator, surfaces
+
+    orch = Orchestrator(
+        on_event=lambda t, d: event_bus.emit(t, d),
+        telemetry=telemetry, coords=coords,
+    )
+    # Let the dashboard's fleet endpoints reach this orchestrator.
+    try:
+        from dashboard.server import register_orchestrator
+        register_orchestrator(orch)
+    except Exception as e:
+        print(f"[orchestrator] dashboard not wired ({e}); REST fleet control off")
+
+    print("\n=== ORCHESTRATED (multi-agent) ===")
+    print("Each goal spawns its own agent. Prefix 'browser:' or 'local:' to pick "
+          "a lane; otherwise default is "
+          f"'{default_kind}'.  Ctrl-C to quit.\n")
+
+    def _dispatch(raw: str) -> None:
+        kind = default_kind
+        text = raw.strip()
+        for prefix, k in (("browser:", surfaces.KIND_BROWSERBASE),
+                          ("local:", surfaces.KIND_LOCAL)):
+            if text.lower().startswith(prefix):
+                kind, text = k, text[len(prefix):].strip()
+                break
+        if text:
+            agent_id = orch.dispatch(text, surface_kind=kind)
+            print(f"[orchestrator] dispatched {agent_id} ({kind}): {text}")
+
+    # Drain the shared intent queue (frontend / coordinator / poller) in the
+    # background so those producers spawn agents too.
+    def _drain() -> None:
+        while True:
+            raw = remote_intents.get()
+            if raw:
+                try:
+                    _dispatch(raw)
+                except Exception as e:
+                    print(f"[orchestrator] dispatch failed: {e}")
+    threading.Thread(target=_drain, daemon=True).start()
+
+    if listen:
+        print("[shepherd] --listen: goals come from the frontend/coordinator only.\n")
+        while True:
+            try:
+                time.sleep(3600)
+            except KeyboardInterrupt:
+                print("\n[shepherd] Bye."); return
+
+    while True:
+        try:
+            line = input("Goal → ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[shepherd] Bye."); return
+        if line:
+            _dispatch(line)
 
 
 def _port_in_use(port: int, host: str = "127.0.0.1") -> bool:

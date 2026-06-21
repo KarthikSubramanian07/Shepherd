@@ -32,6 +32,7 @@ from config import (
     BAND_ENGINE_API_KEY,
     BAND_VERIFIER_AGENT_ID,
     BAND_VERIFIER_HANDLE,
+    BAND_COUNCIL,
 )
 
 # How long to wait for the verifier peer to answer before falling back (seconds).
@@ -62,27 +63,38 @@ def available() -> bool:
 
 
 def request_verdict(reason: str, context: str = "") -> Optional[dict]:
-    """Ask the verifier peer over Band whether a flagged screen is a real risk.
+    """Ask the oversight council over Band whether a flagged screen is a real risk.
 
-    Returns a verdict dict matching services.verifier.verify():
-      {"verdict": "halt"|"flag"|"ok", "confidence": float, "explanation": str, "model": str}
-    or None on any failure/timeout so the caller can fall back.
+    Posts the flagged action into the room @mentioning every council member, then
+    tallies their votes. With no council configured this is a council of one (the
+    shepherd-verifier) — identical to the original single-verifier handoff.
+
+    Returns a verdict dict matching services.verifier.verify(), plus a `votes`
+    breakdown, or None on any failure/timeout so the caller can fall back.
     """
     if not FEATURES["band"]:
         return None
+    members = _council_members()
     try:
         import httpx
 
         with httpx.Client(headers=_headers(), timeout=8.0) as client:
-            # Snapshot existing message ids so we only accept a NEW verifier reply
+            # Snapshot existing message ids so we only accept NEW replies
             # (order-independent and pagination-tolerant, unlike a "since" cursor).
             before = _message_ids(client)
+            mentions = " ".join(f"@{h}" for h, _ in members)
+            single = len(members) == 1
             body = (
-                f"@{BAND_VERIFIER_HANDLE} The rule-based monitor flagged a "
-                f"high-stakes desktop action and is uncertain.\n\n"
+                f"{mentions} The rule-based monitor flagged a high-stakes desktop "
+                f"action and is uncertain.\n\n"
                 f"Reason: {reason}\n"
                 + (f"Context: {context}\n" if context else "")
-                + "\nReply with one line: VERDICT: halt|flag|ok — <one-sentence reason>."
+                + (
+                    "\nReply with one line: VERDICT: halt|flag|ok — <one-sentence reason>."
+                    if single
+                    else "\nEach specialist: reply with one line: VOTE: halt|flag|ok — "
+                    "<one-sentence reason from your specialty>."
+                )
             )
             client.post(
                 f"{BAND_API_BASE}/chats/{BAND_ROOM_ID}/messages",
@@ -90,28 +102,34 @@ def request_verdict(reason: str, context: str = "") -> Optional[dict]:
                     "message": {
                         "content": body,
                         "mentions": [
-                            {
-                                "id": BAND_VERIFIER_AGENT_ID,
-                                "handle": BAND_VERIFIER_HANDLE,
-                                "kind": "mention",
-                            }
+                            {"id": aid, "handle": h, "kind": "mention"}
+                            for h, aid in members
                         ],
                     }
                 },
             ).raise_for_status()
 
+            by_id = {aid: h for h, aid in members}
             deadline = time.monotonic() + _VERDICT_TIMEOUT_S
             while time.monotonic() < deadline:
                 time.sleep(_POLL_INTERVAL_S)
-                reply = _new_verifier_reply(client, before)
-                if reply:
-                    parsed = _parse_verdict(reply)
-                    if parsed:
-                        return parsed
-            print("[band] verifier peer did not answer in time, falling back")
+                votes = _collect_votes(client, before, by_id)
+                # Resolve as soon as everyone has voted; otherwise wait out the
+                # window and tally whoever answered (graceful with a slow member).
+                if len(votes) >= len(members):
+                    return _tally(votes)
+            votes = _collect_votes(client, before, by_id)
+            if votes:
+                return _tally(votes)
+            print("[band] council did not answer in time, falling back")
     except Exception as e:
         print(f"[band] request_verdict non-fatal: {e}")
     return None
+
+
+# `request_council_verdict` is the descriptive name; keep `request_verdict` as the
+# stable entry point that services.verifier already calls.
+request_council_verdict = request_verdict
 
 
 def publish_event(kind: str, text: str) -> None:
@@ -171,42 +189,89 @@ def _sender_id(m: dict) -> Optional[str]:
     return m.get("sender_id") or m.get("agent_id") or (m.get("sender") or {}).get("id")
 
 
-def _new_verifier_reply(client, before_ids: set) -> Optional[str]:
-    """Text of a NEW message (id not in the pre-post snapshot) authored by the
-    verifier agent that actually parses to a verdict. Order-independent, so it
-    does not depend on how the API paginates or sorts the message list."""
-    best = None
+def _council_members() -> list[tuple[str, str]]:
+    """The roster as [(handle, agent_id), ...]. BAND_COUNCIL is a comma-separated
+    list of `handle:agent_id`; empty falls back to the single shepherd-verifier
+    (a council of one), so an unconfigured deployment behaves exactly as before."""
+    roster: list[tuple[str, str]] = []
+    for entry in (BAND_COUNCIL or "").split(","):
+        entry = entry.strip()
+        if not entry or ":" not in entry:
+            continue
+        handle, aid = entry.split(":", 1)
+        handle, aid = handle.strip().lstrip("@"), aid.strip()
+        if handle and aid:
+            roster.append((handle, aid))
+    if not roster and BAND_VERIFIER_AGENT_ID:
+        roster.append((BAND_VERIFIER_HANDLE, BAND_VERIFIER_AGENT_ID))
+    return roster
+
+
+def _collect_votes(client, before_ids: set, by_id: dict) -> dict:
+    """{agent_id: (verdict, reason)} for council members who have posted a NEW
+    vote since the snapshot. Latest parseable vote per member wins. Order- and
+    pagination-independent."""
+    votes: dict = {}
     for m in _list_messages(client):
         if m.get("id") in before_ids:
             continue
-        if _sender_id(m) != BAND_VERIFIER_AGENT_ID:
+        aid = _sender_id(m)
+        if aid not in by_id:
             continue
-        content = m.get("content") or m.get("text") or ""
-        if _parse_verdict(content):  # prefer a message that carries a verdict
-            best = content
-    return best
+        parsed = _parse_vote(m.get("content") or m.get("text") or "")
+        if parsed:
+            votes[aid] = parsed
+    return votes
 
 
-_VERDICT_RE = re.compile(r"verdict\s*[:\-]*\s*(halt|flag|ok)\b", re.IGNORECASE)
+_VOTE_RE = re.compile(r"(?:verdict|vote)\s*[:\-]*\s*(halt|flag|ok)\b", re.IGNORECASE)
 
 
-def _parse_verdict(text: str) -> Optional[dict]:
-    """Pull the verdict token that immediately follows 'VERDICT:' out of the
-    reply. Anchored (not a substring-anywhere scan) so 'VERDICT: ok, no halt
-    needed' reads as ok, and so on-screen text cannot smuggle a verdict in."""
+def _parse_vote(text: str) -> Optional[tuple[str, str]]:
+    """Pull the (verdict, reason) that immediately follows 'VOTE:'/'VERDICT:'.
+    Anchored (not a substring-anywhere scan) so 'VOTE: ok, no halt needed' reads
+    as ok, and on-screen text cannot smuggle a verdict in."""
     if not text:
         return None
-    m = _VERDICT_RE.search(text)
+    m = _VOTE_RE.search(text)
     if not m:
         return None
-    verdict = m.group(1).lower()
     after = text[m.end() :].lstrip(" -:—").strip()
-    explanation = (
-        after.splitlines()[0] if after else ""
-    ).strip() or "Band verifier peer verdict"
+    reason = (after.splitlines()[0] if after else "").strip()[:240]
+    return (m.group(1).lower(), reason)
+
+
+def _tally(votes: dict) -> dict:
+    """Combine per-member votes into a single conservative verdict + a breakdown.
+    Any halt -> halt; otherwise any flag -> flag; only all-ok -> ok."""
+    by_id = {aid: h for h, aid in _council_members()}
+    breakdown = [
+        {"handle": by_id.get(aid, aid), "verdict": v, "reason": r}
+        for aid, (v, r) in votes.items()
+    ]
+    verdicts = [v for v, _ in votes.values()]
+    n = {x: verdicts.count(x) for x in _VALID}
+    if n["halt"]:
+        verdict = "halt"
+    elif n["flag"]:
+        verdict = "flag"
+    else:
+        verdict = "ok"
+
+    # Pick a representative reason: the strongest dissent if any, else any reason.
+    lead = next((b for b in breakdown if b["verdict"] == verdict and b["reason"]), None)
+    council = len(breakdown) > 1
+    summary = (
+        f"Council: {n['halt']} halt / {n['flag']} flag / {n['ok']} ok"
+        if council
+        else (lead["reason"] if lead else "Band verifier peer verdict")
+    )
+    if council and lead and lead["reason"]:
+        summary += f" — {lead['reason']}"
     return {
         "verdict": verdict,
         "confidence": 0.85,
-        "explanation": explanation[:240],
-        "model": "band:shepherd-verifier",
+        "explanation": summary[:240],
+        "model": "band:council" if council else "band:shepherd-verifier",
+        "votes": breakdown,
     }
