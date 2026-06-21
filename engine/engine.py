@@ -1374,15 +1374,44 @@ class ShepherdExecutionEngine:
             print(f"[execute_workflow] bake failed (non-fatal): {exc}")
 
         ended_at = time.time()
-        status = {"completed": "completed", "blocked": "aborted"}.get(wf_run.status, "aborted")
+
+        # Detect agent-initiated help in workflow runs: the inner loop marks
+        # blocked_on with a "__HELP__:" prefix so we can suspend instead of abort.
+        is_help = (wf_run.blocked_on or "").startswith("__HELP__:")
+        if is_help:
+            help_msg = wf_run.blocked_on[len("__HELP__:"):]
+            self._suspended_task = SuspendedTask(
+                run_id=run_id, task_key=workflow.id, goal=goal or workflow.name,
+                plan_hint="", memory_hint="",
+                step_index=len(wf_run.path),
+                variables=params or {},
+                executed=[], chain_history=list(self._agent_s._chain_history),
+                interventions=list(self._interventions),
+                graph=self._active_graph, halted_at=time.time(),
+                steps_done=len(wf_run.path),
+            )
+            event_bus.emit("execution.suspended", {
+                "run_id": run_id, "step_index": len(wf_run.path),
+                "goal": goal or workflow.name,
+                "reason": "agent_requested_help",
+                "help_message": help_msg,
+            })
+
+        status_map = {"completed": "completed", "blocked": "aborted"}
+        if is_help:
+            status = "suspended"
+        else:
+            status = status_map.get(wf_run.status, "aborted")
+
+        display_error = help_msg if is_help else (wf_run.blocked_on or "")
         response = summarize_run(
             goal or workflow.name, status, [r.label for r in wf_run.path],
-            error=(wf_run.blocked_on or "") if status != "completed" else "")
+            error=display_error if status != "completed" else "")
         result = ExecutionResult(
             routine_id=workflow.id,
             status=status,
             steps_completed=len(wf_run.path),
-            error=wf_run.blocked_on if status != "completed" else None,
+            error=display_error if status != "completed" else None,
             duration_ms=int((ended_at - started_at) * 1000),
             variables=params or {},
             started_at=started_at,
@@ -1620,11 +1649,12 @@ class ShepherdExecutionEngine:
                             blocked_on = plan.raw or "agent reported failure"
                             break
                         if plan.outcome == "help":
+                            help_msg = plan.raw or "agent needs human assistance"
                             result_status, result_next = "blocked", "SAME"
-                            blocked_on = plan.raw or "agent needs human assistance"
+                            blocked_on = f"__HELP__:{help_msg}"
                             event_bus.emit("step.help_requested", {
                                 "node_key": cur.key,
-                                "help_message": plan.raw or "agent needs help",
+                                "help_message": help_msg,
                             })
                             break
                         if plan.outcome == "wait":

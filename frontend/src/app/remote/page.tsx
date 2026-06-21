@@ -105,20 +105,23 @@ export default function RemoteCommandCenterPage() {
   }, [halting, selectedStatus, eventsLen, events]);
 
   // Show toast when agent proactively requests help.
+  // Reset the base index on agent switch to avoid replaying stale history.
   const helpEvtBase = useRef(0);
+  const helpAgentRef = useRef(c.selectedId);
   useEffect(() => {
+    if (helpAgentRef.current !== c.selectedId) {
+      helpAgentRef.current = c.selectedId;
+      helpEvtBase.current = events.length;
+      return;
+    }
     for (let i = helpEvtBase.current; i < events.length; i++) {
-      if (events[i].type === "step.help_requested") {
-        const msg = (events[i].data?.help_message as string) || "Agent needs assistance";
-        setToast(`\u26A0\uFE0F ${msg}`);
-      }
       if (events[i].type === "execution.suspended" && events[i].data?.reason === "agent_requested_help") {
         const msg = (events[i].data?.help_message as string) || "Agent needs assistance";
         setToast(`\u26A0\uFE0F ${msg}`);
       }
     }
     helpEvtBase.current = events.length;
-  }, [eventsLen, events]);
+  }, [eventsLen, events, c.selectedId]);
 
   // Auto-promote: when the toggle is on and the trace signals promoteReady,
   // fire the promote command exactly once per run (idempotency guard).
