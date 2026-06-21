@@ -43,40 +43,47 @@ path against a durable journal (see §3).
 ## 0. Architectural principles — workflow execution (non-negotiable)
 
 These govern how a *dispatched workflow* runs. They exist because a workflow run
-must be **as cheap as a routine run**. The standalone milestone-graph executor
-(`engine/workflow_executor.py`, §5) violated them — it ran as a separate layer and
-re-grounded **every** milestone with Agent S vision, so a workflow run was much
-slower than the same task as a plain routine (a routine fills a whole form with one
-no-LLM `batch_fill`; the executor grounded Fill-name / Fill-email / Fill-projects as
-three separate vision round-trips). These principles supersede that design.
+must be **as cheap as a plain agent run** — running a saved workflow must cost no
+more LLM calls than letting Agent S pursue the same goal with no workflow at all.
+The standalone milestone-graph executor (`engine/workflow_executor.py`, §5) violated
+them: it ran as a **separate** loop that called single-action grounding
+(`AgentSWorker.act` → `plan_action` → `_render_turn`) **once per milestone**, so a
+workflow run was much slower than the same task run without a workflow — N heavy
+per-milestone vision round-trips instead of the agent's normal *batched* turns.
+These principles supersede that design.
 
-1. **One execution loop — workflows piggyback on the routine hot path.**
-   There is no separate execution engine for workflows. A dispatched workflow runs
-   through the **same** synchronous step loop the routine path uses
-   (`engine.engine._live_execute` / `_dispatch`), reusing every deterministic fast
-   path: `batch_fill` (one JS injection for a whole form, no LLM), deterministic
-   `type` with resolved text, `wait`, `hotkey`, `open_app`. Agent S vision grounding
-   is used **only** for milestones that genuinely need to ground against the live
-   screen — never unconditionally per node. If reusing the routine code directly
-   risks tainting it, **clone** the routine step flow and inject the workflow's
-   milestone context into it — but it must remain the routine-style loop, not a
-   second executor layer that re-grounds and re-plans every node.
+1. **One execution loop — workflows piggyback on the pre-existing Agent S agentic
+   loop.** There is no separate execution engine for workflows. A dispatched workflow
+   runs through the **same** loop a plain free-form goal already uses:
+   `engine.execute_autonomous` → `_execute_autonomous_reactive` →
+   `agent_s_adapter.predict_autonomous` / `_plan_chain`. That loop plans a **batch of
+   chained UI actions from one screenshot in a single call** (type / `Tab` / hotkey /
+   `press` / click, chained), filling a whole form in one turn — *not* one grounding
+   per field, and **never** one heavy `plan_action` per milestone. The workflow only
+   supplies **background intent** (the milestone instructions) into that loop, exactly
+   as `memory_hint` already injects a prior run's milestone trail. (Routines remain a
+   separate authored fast path — `batch_fill` via JS injection in `_dispatch` — but a
+   *workflow* is not a routine; it dispatches through the agentic loop above. If
+   reusing that loop directly risks tainting it, **clone** it and inject the milestone
+   context — but it must remain the batched agent loop, not a second per-node
+   grounding layer.)
 
-2. **Single-message advance — the node carries its own forward context; no reprompt
-   to route.** At each high-level milestone the agent is handed, **in the same
-   planning call it already makes for that node**, everything it needs to both act
-   and decide where to go next:
-     - the current node's instruction + resolved inputs,
-     - the **next** node's instruction (so it knows what it is heading toward),
+2. **Single-message advance — milestone progress is one extra field the agent emits
+   alongside its actions; no reprompt to route.** The `_plan_chain` prompt is handed,
+   **in the same planning call it already makes**, everything it needs to act and to
+   self-advance the graph:
+     - the current milestone's instruction,
+     - the **next** milestone's instruction (so it knows what it is heading toward),
      - the outgoing edges and conditional branches as NL clauses
        (`if <when> → do <do> → goto <node>`).
-   The agent does the node's action **and piggybacks its chosen next node / branch in
-   the one returned message**. The executor applies that choice directly. There is
-   **never** a second round-trip — no "finish the node, then go back to the graph and
-   re-prompt for where to go next". Routing costs zero extra calls.
+   The agent returns its **action batch** and, in the *same* returned JSON, the
+   milestone(s) it just completed / the node to advance to — "an additional thing it
+   emits outside its normal tool calls". The engine applies that choice directly.
+   There is **never** a second round-trip to the graph to ask "where next". Advancing
+   the workflow costs **zero** extra calls.
 
 3. **Conditions are NL clauses read in-context** (see §6). A branch's `when` is
-   evaluated against the live screen as part of the same node planning call — no
+   evaluated against the live screen as part of the same batched planning call — no
    predicate engine, no extra hot-path cost.
 
 4. **Tracing and crystallization are strictly side-channel.** Neither the live
@@ -304,12 +311,15 @@ so the segmenter/coalescer don't care which model runs:
    workflow node-by-node with a single-message advance and pluggable workers (AgentS
    / LLM / Scripted) (`engine/workflow_executor.py`); Control Hub steer/teach gate
    (`engine/workflow_control.py`); wired into `engine/engine.py` on a WORKFLOW
-   dispatch. **Note:** the standalone `AgentSWorker` re-grounds every milestone with
-   vision and bypasses the routine fast paths (`batch_fill` etc.), making workflow
-   runs much slower than routine runs. Per §0 this layer is being folded into the
-   routine hot path — the milestone instruction + next node + conditionals are
-   injected into the regular `_live_execute`/`_dispatch` loop (single-message
-   advance, no separate executor). The Control Hub gate and teaching loop stay.
+   dispatch. **Note:** the standalone `AgentSWorker` calls single-action grounding
+   (`plan_action` → `_render_turn`) **once per milestone**, bypassing the agent's
+   normal batched loop, making workflow runs much slower than running the same task
+   without a workflow. Per §0 this layer is being folded into the pre-existing
+   **agentic loop** (`execute_autonomous` → `_execute_autonomous_reactive` →
+   `predict_autonomous`/`_plan_chain`): the milestone instruction + next node +
+   conditionals are injected as background intent, and the agent emits its action
+   batch plus a milestone-advance field in one call (no separate executor). The
+   Control Hub gate and teaching loop stay.
 
 ---
 
@@ -338,10 +348,12 @@ so the segmenter/coalescer don't care which model runs:
 
 ## Decisions settled (log)
 
-- **Workflow execution piggybacks on the routine hot path** (§0): one loop, not a
-  separate executor; reuse the routine fast paths (`batch_fill`, deterministic
-  type/wait/hotkey/open_app) and ground with vision only when a milestone needs it.
-  Clone the routine flow rather than re-grounding every node.
+- **Workflow execution piggybacks on the pre-existing Agent S agentic loop** (§0):
+  one loop, not a separate executor. A dispatched workflow runs through the same
+  batched loop a plain goal uses (`execute_autonomous` → `_plan_chain`), which chains
+  many UI actions per screenshot in one call; the workflow only supplies background
+  intent. Clone that loop rather than re-grounding every milestone. (Routines keep
+  their own authored `batch_fill` fast path — a workflow is not a routine.)
 - **Single-message advance** (§0): a node is handed its instruction + the next
   node + conditional branches in the one planning call it already makes, and returns
   its action *and* its chosen next node together — never a second round-trip to route.
