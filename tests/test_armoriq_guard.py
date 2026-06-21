@@ -14,8 +14,11 @@ class _Step:
         self.target = target
 
 
-def test_disabled_by_default_is_a_noop():
-    # No ARMORIQ_* env in the test environment → inert, never raises.
+def test_disabled_is_a_noop(monkeypatch):
+    # Force the feature off regardless of the ambient .env so this never hits the
+    # live API: inert, returns None (caller falls back to no enforcement).
+    monkeypatch.setitem(armoriq_guard.FEATURES, "armoriq", False)
+    monkeypatch.setattr(armoriq_guard, "_client", None)
     assert armoriq_guard.available() is False
     assert armoriq_guard.authorize_run("ROUTINE_X", [_Step("open")], {}) is None
 

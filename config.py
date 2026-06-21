@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # from containment. A denial halts the run before the first action.
     armoriq_enabled: bool = False
     armoriq_api_key: str = ""           # ak_live_... / ak_test_... / ak_claw_...
+    # Strict mode: a tool your ArmorIQ tenant policy denies HALTS the run. Off by
+    # default so an unconfigured tenant doesn't block runs — the signed intent
+    # token still gates every run and denials are surfaced as advisory.
+    armoriq_strict: bool = False
 
     # ── Deepgram STT tuning ────────────────────────────────────────────────
     deepgram_model: str = "nova-2"
@@ -222,6 +226,7 @@ BAND_VERIFIER_HANDLE       = settings.band_verifier_handle
 BAND_API_BASE              = settings.band_api_base
 ARMORIQ_ENABLED            = settings.armoriq_enabled
 ARMORIQ_API_KEY            = settings.armoriq_api_key
+ARMORIQ_STRICT             = settings.armoriq_strict
 ORKES_SERVER_URL           = settings.orkes_server_url
 ORKES_API_KEY              = settings.orkes_api_key
 AGENTSPAN_SERVER_URL       = settings.agentspan_server_url

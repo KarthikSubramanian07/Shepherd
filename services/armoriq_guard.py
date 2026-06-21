@@ -15,7 +15,7 @@ an explicit authentication/authorization failure blocks.
 """
 from typing import Optional
 
-from config import FEATURES, ARMORIQ_API_KEY
+from config import FEATURES, ARMORIQ_API_KEY, ARMORIQ_STRICT
 
 _client = None
 _PLAN_LLM = "claude-haiku-4-5"
@@ -62,12 +62,35 @@ def authorize_run(goal: str, steps, variables: Optional[dict] = None,
             policy=resolved_policy,
             validity_seconds=1800,
         )
-        token = _field(resp, "token")
+        # The signed JWT intent token is the authorization artifact. ArmorIQ also
+        # enforces the tenant's own control-plane policy (decision_source "native")
+        # and reports it in policy_validation. We block when the token is missing or
+        # expired; a tenant-policy denial only halts the run in strict mode, so an
+        # un-configured tenant never bricks a run (the in-house policy engine still
+        # gates). Denials are always surfaced for the audit trail.
+        token   = _field(resp, "jwt_token") or _field(resp, "raw_token") or _field(resp, "token")
+        expired = bool(_field(resp, "is_expired"))
+        pv      = _field(resp, "policy_validation") or {}
+        denied  = list(pv.get("denied_tools") or []) if isinstance(pv, dict) else []
+        authorized = bool(token) and not expired and (not ARMORIQ_STRICT or not denied)
+        if denied:
+            print(f"[armoriq] tenant policy flagged tools {denied} (strict={ARMORIQ_STRICT})")
+        if not token:
+            reason = "ArmorIQ returned no signed token"
+        elif expired:
+            reason = "ArmorIQ token already expired"
+        elif denied and ARMORIQ_STRICT:
+            reason = f"ArmorIQ tenant policy denied tools: {denied}"
+        elif denied:
+            reason = f"ArmorIQ intent token issued (advisory: tenant policy flagged {denied})"
+        else:
+            reason = "ArmorIQ intent token issued"
         return {
-            "authorized": bool(token),
-            "token":      token,
-            "reason":     "ArmorIQ intent token issued" if token else "ArmorIQ returned no token",
-            "plan_hash":  _field(resp, "plan_hash"),
+            "authorized":   authorized,
+            "token":        token,
+            "reason":       reason,
+            "plan_hash":    _field(resp, "plan_hash"),
+            "denied_tools": denied,
         }
     except Exception as e:
         name = type(e).__name__
