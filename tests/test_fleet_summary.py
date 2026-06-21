@@ -133,16 +133,35 @@ def test_generate_title_async_sets_conn_title():
     from coordinator.title_gen import generate_title_async
 
     conn = _conn()
+    conn.run_id = "R1"
 
     with patch("coordinator.title_gen._generate_title_sync", return_value="Applying to Acme"):
-        loop = asyncio.new_event_loop()
-        generate_title_async.__wrapped__ = None  # ensure it uses current loop
-        # Run in an event loop context
         async def _run():
             generate_title_async(conn, "apply to acme")
-            # Let the fire-and-forget task complete
-            await asyncio.sleep(0.1)
-        loop.run_until_complete(_run())
-        loop.close()
+            # Yield control so the created task can complete.
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+        asyncio.run(_run())
 
     assert conn.title == "Applying to Acme"
+
+
+def test_generate_title_async_skips_stale_write():
+    """If a new run starts before title gen finishes, the write is skipped."""
+    from coordinator.title_gen import generate_title_async
+
+    conn = _conn()
+    conn.run_id = "R1"
+
+    with patch("coordinator.title_gen._generate_title_sync", return_value="Old title"):
+        async def _run():
+            generate_title_async(conn, "old goal")
+            # Simulate a new run starting before the task completes.
+            conn.run_id = "R2"
+            conn.title = None
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+        asyncio.run(_run())
+
+    # The stale title should NOT have been written.
+    assert conn.title is None

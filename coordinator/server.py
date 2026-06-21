@@ -253,6 +253,7 @@ class Hub:
             conn.title = None
             conn._title_requested = False
             conn.recent_steps = []
+            conn._goal_text = None
             if d.get("goal"):
                 conn._goal_text = d.get("goal")
             # Attempt title generation on execution start if we have goal text.

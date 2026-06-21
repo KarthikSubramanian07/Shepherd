@@ -62,13 +62,18 @@ def _generate_title_sync(goal: str) -> str:
 
 def generate_title_async(conn: "AgentConn", goal: str) -> None:
     """Fire-and-forget title generation. Writes result to conn.title."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
+    # Capture the current run_id so a late-finishing task from a prior run
+    # doesn't overwrite a newer run's (reset) title.
+    snapshot_run_id = conn.run_id
 
     async def _run() -> None:
         try:
             title = await loop.run_in_executor(None, _generate_title_sync, goal)
-            conn.title = title
+            if conn.run_id == snapshot_run_id:
+                conn.title = title
         except Exception:
-            conn.title = _truncate_goal(goal)
+            if conn.run_id == snapshot_run_id:
+                conn.title = _truncate_goal(goal)
 
-    asyncio.ensure_future(_run())
+    loop.create_task(_run())
