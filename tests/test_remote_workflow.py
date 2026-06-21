@@ -114,6 +114,17 @@ def test_step_events_never_shadow_an_active_workflow():
     assert conn.snapshot()["workflow"]["id"] == "WF"
 
 
+def test_task_graph_loaded_never_shadows_an_active_workflow():
+    """task.graph.loaded must not spawn a trace alongside an active workflow
+    (mirrors the step.* guard, keeping workflow/trace mutually exclusive)."""
+    hub = Hub()
+    conn = _conn()
+    hub.apply_event(conn, _ev("workflow.start", workflow_id="WF", name="Job App", start="open"))
+    hub.apply_event(conn, _ev("task.graph.loaded", run_id="r1", known=False))
+    assert conn.snapshot()["trace"] is None
+    assert conn.snapshot()["workflow"]["id"] == "WF"
+
+
 def test_workflow_run_clears_any_stale_trace():
     """Following a saved workflow drops the granular step trace."""
     hub = Hub()

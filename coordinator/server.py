@@ -434,6 +434,9 @@ class Hub:
     # ── execution trace: build the live granular step graph from step.* events ──
     def _apply_trace_meta(self, conn: AgentConn, d: dict) -> None:
         """task.graph.loaded carries whether a crystallized graph already existed."""
+        # Mirror _apply_trace_event: never spawn a trace alongside an active workflow.
+        if conn.workflow is not None:
+            return
         if conn.trace is None:
             conn.trace = _new_trace(d.get("run_id"), d.get("routine_id"), None)
         tr = conn.trace
@@ -458,6 +461,12 @@ class Hub:
         if idx is None:
             return
         if len(tr["by_index"]) >= _MAX_TRACE_NODES and idx not in tr["by_index"]:
+            if not tr.get("truncated"):
+                tr["truncated"] = True
+                print(
+                    f"[coordinator] warning: trace node cap ({_MAX_TRACE_NODES}) "
+                    f"reached for run '{tr.get('run_id')}'; further steps dropped"
+                )
             return
         by = tr["by_index"]
         node = by.get(idx)
