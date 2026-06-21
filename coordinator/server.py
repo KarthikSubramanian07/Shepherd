@@ -114,10 +114,13 @@ class Hub:
     def register_agent(self, conn: AgentConn) -> None:
         self.agents[conn.agent_id] = conn
 
-    def drop_agent(self, agent_id: str) -> None:
-        conn = self.agents.get(agent_id)
-        if conn:
-            conn.online = False
+    def drop_agent(self, conn: AgentConn) -> None:
+        # Only retire the connection if it is still the registered one. A
+        # reconnect with the same agent_id replaces it in `self.agents`, so the
+        # old socket's cleanup must not mark the new, live connection offline.
+        current = self.agents.get(conn.agent_id)
+        if current is conn:
+            current.online = False
 
     # ── UI fan-out (scoped by session code) ──────────────────────────────────
     def _can_see(self, ws: WebSocket, agent: AgentConn) -> bool:
@@ -316,7 +319,7 @@ async def agent_ws(ws: WebSocket) -> None:
     except Exception:
         pass
     finally:
-        hub.drop_agent(agent_id)
+        hub.drop_agent(conn)
         await hub.push_roster()
 
 
@@ -385,7 +388,7 @@ async def _relay_command(ws: WebSocket, msg: dict) -> None:
     try:
         await conn.ws.send_text(json.dumps(out))
     except Exception:
-        hub.drop_agent(agent_id)
+        hub.drop_agent(conn)
         await hub.push_roster()
 
 
