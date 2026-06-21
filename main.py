@@ -302,6 +302,9 @@ def main() -> None:
                         )
                         telemetry.record(result, engine.last_step_records)
                         print(f"[shepherd] {result.status.upper()} — {result.steps_completed} milestones in {result.duration_ms}ms\n")
+                        if _should_end_session():
+                            print("[shepherd] Task complete — ending session.\n")
+                            break
                         continue
 
                 # No workflow matched — fall through to free-form autonomous
