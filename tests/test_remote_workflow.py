@@ -147,6 +147,11 @@ def test_coordinator_tracks_dispatch_routing():
     hub.apply_event(conn, _ev("intent.autonomous_fallback", raw_text="do something new"))
     assert conn.snapshot()["routing"]["state"] == "autonomous"
 
+    # the routing banner is per-run: it clears when the run finishes so it
+    # doesn't linger as stale until the next dispatch re-sets it.
+    hub.apply_event(conn, _ev("workflow.done", status="completed", steps=3))
+    assert conn.snapshot()["routing"] is None
+
 
 def test_relay_finalize_command_resolves_gate():
     """The Command Center's workflow.finalize command unblocks await_finalize."""

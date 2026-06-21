@@ -248,9 +248,11 @@ class Hub:
             st = d.get("status", "completed")
             conn.status = {"completed": "completed", "failed": "failed"}.get(st, "idle")
             conn.block = None
+            conn.routing = None
         elif t == "execution.halted":
             conn.status = "idle"
             conn.block = None
+            conn.routing = None
         elif t == "mode.changed":
             conn.mode = d.get("mode", conn.mode)
         elif t.startswith("workflow."):
@@ -376,6 +378,9 @@ class Hub:
             wf["awaiting"] = False
             wf["status"] = st
             conn.block = None
+            # The dispatch routing decision is per-run; drop it so the banner
+            # doesn't linger as stale after the run ends (re-set on next dispatch).
+            conn.routing = None
 
 
 hub = Hub()
