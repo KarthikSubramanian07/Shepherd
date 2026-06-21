@@ -75,13 +75,17 @@ def select(intent_text: str, candidates: list[CandidateInfo]) -> Optional[str]:
         return LLM_ERROR
 
     answer = raw.strip().strip('"').strip("'")
-    if not answer or "NONE" in answer.upper():
+    if not answer:
         return None
 
-    # Validate the answer is one of the candidate ids
+    # Check for exact ID match FIRST (handles IDs that contain "NONE" substring)
     valid_ids = {c["id"] for c in candidates}
     if answer in valid_ids:
         return answer
+
+    # Now check for NONE (after ruling out exact ID matches)
+    if "NONE" in answer.upper():
+        return None
 
     # Try to find the id in the answer (model may wrap it in quotes or extra text)
     for cid in sorted(valid_ids, key=len, reverse=True):
