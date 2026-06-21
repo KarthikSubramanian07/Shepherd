@@ -7,10 +7,10 @@ const BACKEND = process.env.SHEPHERD_API_BASE ?? "http://localhost:8765";
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const res = await fetch(`${BACKEND}/api/runs/${encodeURIComponent(params.id)}`, { cache: "no-store" });
+    const res = await fetch(`${BACKEND}/api/runs/${encodeURIComponent((await params).id)}`, { cache: "no-store" });
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });
   } catch {

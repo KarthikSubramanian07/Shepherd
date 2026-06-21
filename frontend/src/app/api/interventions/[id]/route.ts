@@ -7,11 +7,11 @@ const BACKEND = process.env.SHEPHERD_API_BASE ?? "http://localhost:8765";
 
 export async function POST(
   req: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const body = await req.json();
-    const res = await fetch(`${BACKEND}/api/interventions/${encodeURIComponent(params.id)}`, {
+    const res = await fetch(`${BACKEND}/api/interventions/${encodeURIComponent((await params).id)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

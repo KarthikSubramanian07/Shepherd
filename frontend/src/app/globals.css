@@ -1,8 +1,10 @@
+/* Third-party CSS must precede @tailwind (which expands to many rules), so the
+   @import stays first in the generated output — required by Next 16's CSS parser. */
+@import "@xyflow/react/dist/style.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import "@xyflow/react/dist/style.css";
 
 :root {
   color-scheme: light;
