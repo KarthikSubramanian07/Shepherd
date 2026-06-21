@@ -20,6 +20,7 @@ only mediates the conversation.
 The SDK import is deferred into main() so the rest of Shepherd imports cleanly on
 machines that never install band-sdk.
 """
+
 import asyncio
 
 # The system prompt that turns a plain Claude agent into Shepherd's verifier.
@@ -47,6 +48,7 @@ MODEL = "claude-haiku-4-5"
 async def main() -> None:
     import logging
     from dotenv import load_dotenv
+
     # band-sdk 1.0.0 exposes the module as `band` (newer docs say `thenvoi`).
     from band import Agent
     from band.adapters import AnthropicAdapter
@@ -60,7 +62,7 @@ async def main() -> None:
 
     adapter = AnthropicAdapter(
         model=MODEL,
-        prompt=VERIFIER_PROMPT,   # band-sdk 1.0.0: `prompt` (custom_section is deprecated)
+        prompt=VERIFIER_PROMPT,  # band-sdk 1.0.0: `prompt` (custom_section is deprecated)
     )
 
     agent_id, api_key = load_agent_config("shepherd-verifier")

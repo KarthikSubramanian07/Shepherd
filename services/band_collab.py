@@ -20,6 +20,7 @@ Uses the free Agent API (REST) directly over httpx, so the engine side needs no
 SDK install — only the verifier agent process does. Endpoints and auth follow
 docs.band.ai/api (Agent API: /api/v1/agent).
 """
+
 import re
 import time
 from typing import Optional
@@ -52,6 +53,7 @@ def available() -> bool:
         return False
     try:
         import httpx
+
         r = httpx.get(f"{BAND_API_BASE}/me", headers=_headers(), timeout=5.0)
         return r.status_code == 200
     except Exception as e:
@@ -70,6 +72,7 @@ def request_verdict(reason: str, context: str = "") -> Optional[dict]:
         return None
     try:
         import httpx
+
         with httpx.Client(headers=_headers(), timeout=8.0) as client:
             # Snapshot existing message ids so we only accept a NEW verifier reply
             # (order-independent and pagination-tolerant, unlike a "since" cursor).
@@ -83,14 +86,18 @@ def request_verdict(reason: str, context: str = "") -> Optional[dict]:
             )
             client.post(
                 f"{BAND_API_BASE}/chats/{BAND_ROOM_ID}/messages",
-                json={"message": {
-                    "content": body,
-                    "mentions": [{
-                        "id":     BAND_VERIFIER_AGENT_ID,
-                        "handle": BAND_VERIFIER_HANDLE,
-                        "kind":   "mention",
-                    }],
-                }},
+                json={
+                    "message": {
+                        "content": body,
+                        "mentions": [
+                            {
+                                "id": BAND_VERIFIER_AGENT_ID,
+                                "handle": BAND_VERIFIER_HANDLE,
+                                "kind": "mention",
+                            }
+                        ],
+                    }
+                },
             ).raise_for_status()
 
             deadline = time.monotonic() + _VERDICT_TIMEOUT_S
@@ -118,6 +125,7 @@ def publish_event(kind: str, text: str) -> None:
         return
     try:
         import httpx
+
         # Events carry a fixed set of message_type values; run lifecycle maps to
         # an informational "thought". The human-readable kind is prefixed in text.
         httpx.post(
@@ -131,6 +139,7 @@ def publish_event(kind: str, text: str) -> None:
 
 
 # ── internals ──────────────────────────────────────────────────────────────
+
 
 def _headers() -> dict:
     # Band's Agent API authenticates with the X-API-Key header (verified against
@@ -173,7 +182,7 @@ def _new_verifier_reply(client, before_ids: set) -> Optional[str]:
         if _sender_id(m) != BAND_VERIFIER_AGENT_ID:
             continue
         content = m.get("content") or m.get("text") or ""
-        if _parse_verdict(content):       # prefer a message that carries a verdict
+        if _parse_verdict(content):  # prefer a message that carries a verdict
             best = content
     return best
 
@@ -191,11 +200,13 @@ def _parse_verdict(text: str) -> Optional[dict]:
     if not m:
         return None
     verdict = m.group(1).lower()
-    after = text[m.end():].lstrip(" -:—").strip()
-    explanation = (after.splitlines()[0] if after else "").strip() or "Band verifier peer verdict"
+    after = text[m.end() :].lstrip(" -:—").strip()
+    explanation = (
+        after.splitlines()[0] if after else ""
+    ).strip() or "Band verifier peer verdict"
     return {
-        "verdict":     verdict,
-        "confidence":  0.85,
+        "verdict": verdict,
+        "confidence": 0.85,
         "explanation": explanation[:240],
-        "model":       "band:shepherd-verifier",
+        "model": "band:shepherd-verifier",
     }

@@ -154,8 +154,6 @@ def _build_prompt(name: str, intent_patterns: list[str], node_labels: list[str])
 def _reindex_vector_store(wf) -> None:
     """Re-index a single workflow in the vector store after enrichment."""
     try:
-        from router.vector_router import VectorRouter
-        from engine.workflow_store import WorkflowStore
 
         # Use the module-level singleton if the router has been initialized.
         # Otherwise, build a lightweight indexer just for this workflow.

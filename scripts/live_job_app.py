@@ -32,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import compat  # noqa: F401  (pyautogui/mouseinfo shim — must precede pyautogui)
 import pyautogui
 
-from shepherd_types import Workflow, TaskGraphNode, TaskGraphEdge, Conditional
+from shepherd_types import Workflow, TaskGraphNode, TaskGraphEdge
 from engine import workflow_control
 from engine import llm
 from engine.agent_s_adapter import AgentSAdapter

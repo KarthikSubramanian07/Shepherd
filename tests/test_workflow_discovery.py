@@ -11,8 +11,6 @@ Covers:
 """
 import os
 import sys
-import tempfile
-import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -186,7 +184,6 @@ def test_promote_does_not_block_on_description(tmp_path):
     Verify that promote_graph returns immediately (under 1s) even though
     generate_description was fired."""
     from engine.workflow_promote import promote_graph
-    from engine.task_graph import _PATH as default_graph_path
 
     # Set up a graph on disk
     gs_path = str(tmp_path / "task_graphs.json")

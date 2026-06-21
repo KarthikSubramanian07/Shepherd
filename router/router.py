@@ -6,8 +6,8 @@ Primary:  VectorRouter embeds the intent and finds the nearest routine via
 Fallback: Keyword matching when Redis / fastembed are unavailable.
 Execution mode (LIVE vs LOCKED) is set separately in the engine.
 """
+
 import re
-from typing import Optional
 
 from shepherd_types import Intent, ResolvedRoutine, Plan
 from router.registry import REGISTRY, CONFIDENCE_THRESHOLD
@@ -58,7 +58,9 @@ class ShepherdIntentRouter:
             off = self._match_workflow_offline(text)
             if off is not None:
                 wf_off = off[0]
-                wf_candidates = [(cid, s) for (cid, s) in wf_candidates if cid != wf_off.id]
+                wf_candidates = [
+                    (cid, s) for (cid, s) in wf_candidates if cid != wf_off.id
+                ]
                 wf_candidates.insert(0, (wf_off.id, 0.99))
             return self._route_with_candidates(text, wf_candidates, rt_candidates)
 
@@ -67,24 +69,33 @@ class ShepherdIntentRouter:
         if wf is not None:
             workflow, confidence, source, matched = wf
             return Plan(
-                kind="WORKFLOW", target=workflow.id,
+                kind="WORKFLOW",
+                target=workflow.id,
                 params=self._extract_workflow_params(workflow, text),
-                confidence=confidence, matched=matched, source=source,
+                confidence=confidence,
+                matched=matched,
+                source=source,
             )
 
         # ── Keyword fallback for routines ───────────────────────────────────
         resolved = self._resolve_keyword(intent)
         if resolved is not None:
             return Plan(
-                kind="ROUTINE", target=resolved.routine_id,
-                params=resolved.variables, confidence=resolved.confidence,
-                matched=resolved.matched_keywords, source="keyword",
+                kind="ROUTINE",
+                target=resolved.routine_id,
+                params=resolved.variables,
+                confidence=resolved.confidence,
+                matched=resolved.matched_keywords,
+                source="keyword",
             )
 
-        return Plan(kind="GENERIC", target="", params={}, confidence=0.0, source="fallback")
+        return Plan(
+            kind="GENERIC", target="", params={}, confidence=0.0, source="fallback"
+        )
 
     def _route_with_candidates(
-        self, text: str,
+        self,
+        text: str,
         wf_candidates: list[tuple[str, float]],
         rt_candidates: list[tuple[str, float]],
     ) -> Plan:
@@ -102,7 +113,9 @@ class ShepherdIntentRouter:
                 all_candidates.append((cid, score, "ROUTINE"))
 
         if not all_candidates:
-            return Plan(kind="GENERIC", target="", params={}, confidence=0.0, source="fallback")
+            return Plan(
+                kind="GENERIC", target="", params={}, confidence=0.0, source="fallback"
+            )
 
         # Sort descending by score; workflows win ties
         all_candidates.sort(key=lambda x: (x[1], x[2] == "WORKFLOW"), reverse=True)
@@ -116,13 +129,25 @@ class ShepherdIntentRouter:
         if chosen_id == llm_filter.LLM_ERROR:
             # LLM was unavailable or call failed — degrade to conservative threshold
             if top_score >= SIMILARITY_THRESHOLD:
-                print(f"[router] LLM unavailable, degraded top-1: {top_id} (score={top_score:.3f})")
-                return self._plan_for(top_id, top_kind, top_score, text, source="vector")
-            return Plan(kind="GENERIC", target="", params={}, confidence=0.0, source="fallback")
+                print(
+                    f"[router] LLM unavailable, degraded top-1: {top_id} (score={top_score:.3f})"
+                )
+                return self._plan_for(
+                    top_id, top_kind, top_score, text, source="vector"
+                )
+            return Plan(
+                kind="GENERIC", target="", params={}, confidence=0.0, source="fallback"
+            )
 
         if chosen_id is None:
             # LLM explicitly said NONE — no candidate matches the intent
-            return Plan(kind="GENERIC", target="", params={}, confidence=0.0, source="llm_filter")
+            return Plan(
+                kind="GENERIC",
+                target="",
+                params={},
+                confidence=0.0,
+                source="llm_filter",
+            )
 
         # Find the chosen candidate's kind
         for cid, score, kind in all_candidates:
@@ -130,7 +155,9 @@ class ShepherdIntentRouter:
                 print(f"[router] LLM filter chose: {chosen_id} (score={score:.3f})")
                 return self._plan_for(chosen_id, kind, score, text, source="llm_filter")
 
-        return Plan(kind="GENERIC", target="", params={}, confidence=0.0, source="llm_filter")
+        return Plan(
+            kind="GENERIC", target="", params={}, confidence=0.0, source="llm_filter"
+        )
 
     def _build_candidate_infos(
         self,
@@ -142,13 +169,27 @@ class ShepherdIntentRouter:
         for cid, _score, kind in all_candidates:
             if kind == "WORKFLOW":
                 wf = wf_by_id[cid]
-                infos.append({"id": cid, "name": wf.name, "description": wf.description or wf.name})
+                infos.append(
+                    {
+                        "id": cid,
+                        "name": wf.name,
+                        "description": wf.description or wf.name,
+                    }
+                )
             else:
                 spec = self._registry[cid]
-                infos.append({"id": cid, "name": cid, "description": spec.get("description", cid)})
+                infos.append(
+                    {
+                        "id": cid,
+                        "name": cid,
+                        "description": spec.get("description", cid),
+                    }
+                )
         return infos
 
-    def _plan_for(self, target_id: str, kind: str, confidence: float, text: str, source: str) -> Plan:
+    def _plan_for(
+        self, target_id: str, kind: str, confidence: float, text: str, source: str
+    ) -> Plan:
         """Build a Plan for the given target."""
         if kind == "WORKFLOW":
             workflows = self._workflows.list()
@@ -157,19 +198,24 @@ class ShepherdIntentRouter:
             low = text.lower()
             matched = [p for p in wf.intent_patterns if p.lower() in low]
             return Plan(
-                kind="WORKFLOW", target=wf.id,
+                kind="WORKFLOW",
+                target=wf.id,
                 params=self._extract_workflow_params(wf, text),
-                confidence=confidence, matched=matched, source=source,
+                confidence=confidence,
+                matched=matched,
+                source=source,
             )
         else:
             spec = self._registry[target_id]
             variables = self._extract_variables(spec, text)
             return Plan(
-                kind="ROUTINE", target=target_id,
-                params=variables, confidence=confidence,
-                matched=[], source=source,
+                kind="ROUTINE",
+                target=target_id,
+                params=variables,
+                confidence=confidence,
+                matched=[],
+                source=source,
             )
-
 
     def _match_workflow_offline(self, text: str):
         """Offline fallback: substring match on each workflow's intent_patterns.

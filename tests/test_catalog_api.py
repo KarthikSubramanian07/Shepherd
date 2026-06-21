@@ -9,7 +9,6 @@ Validates:
 - Persistence (catalog_store save/load)
 """
 import asyncio
-import json
 import os
 import tempfile
 from unittest.mock import patch

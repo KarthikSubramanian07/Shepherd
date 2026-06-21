@@ -20,7 +20,6 @@ import base64
 import io
 import queue
 import threading
-import time
 from typing import Optional
 from urllib.parse import urlencode
 
