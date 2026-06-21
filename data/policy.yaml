@@ -78,6 +78,7 @@ containment:
     - "Google Chrome"
     - "Safari"
     - "Firefox"
+    - "Mail"
     - "TextEdit"
     - "Notes"
     - "Photos"
