@@ -36,6 +36,7 @@ from config import (
     RELAY_FPS,
     RELAY_FRAME_QUALITY,
     RELAY_FRAME_WIDTH,
+    WEBRTC_ENABLED,
 )
 from dashboard.events import event_bus
 
@@ -111,6 +112,23 @@ class RelayClient:
             await ws.send(_json({"type": "hello", "name": AGENT_NAME,
                                  "host": AGENT_HOST, "mode": self._engine._mode,
                                  "protocol_version": PROTOCOL_VERSION}))
+
+            # Start WebRTC P2P screen streaming if enabled.
+            self._webrtc = None
+            if WEBRTC_ENABLED:
+                try:
+                    from services.webrtc_sender import WebRTCSender
+                    sender = WebRTCSender(
+                        ws, fps=RELAY_FPS, width=RELAY_FRAME_WIDTH, quality=RELAY_FRAME_QUALITY
+                    )
+                    if sender.available:
+                        ok = await sender.start()
+                        if ok:
+                            self._webrtc = sender
+                            print("[relay] WebRTC P2P mode active (JPEG relay continues as fallback)")
+                except Exception as e:
+                    print(f"[relay] WebRTC init failed (non-fatal): {e}")
+
             await asyncio.gather(
                 self._pump_events(ws),
                 self._pump_frames(ws),
@@ -137,8 +155,13 @@ class RelayClient:
                 msg = _loads(raw)
             except Exception:
                 continue
-            if msg.get("type") == "command":
+            mtype = msg.get("type")
+            if mtype == "command":
                 self._apply_command(msg.get("command"), msg.get("payload", {}) or {})
+            elif mtype == "webrtc.answer" and self._webrtc:
+                await self._webrtc.handle_answer(msg.get("data", {}))
+            elif mtype == "webrtc.ice" and self._webrtc:
+                await self._webrtc.handle_ice(msg.get("data", {}))
 
     # ── command dispatch (boundary-only primitives) ───────────────────────────
     def _apply_command(self, command: Optional[str], payload: dict) -> None:

@@ -123,6 +123,7 @@ class Settings(BaseSettings):
     relay_fps: float = 3.0             # screen frames/sec pushed to the coordinator
     relay_frame_width: int = 1024      # downscale width for pushed frames (px)
     relay_frame_quality: int = 55      # JPEG quality for pushed frames (1-95)
+    webrtc_enabled: bool = False       # enable P2P WebRTC screen streaming (requires aiortc)
 
     # ── Agent S (gui-agents package) ───────────────────────────────────────
     agent_s_engine_type: str = "anthropic"   # "anthropic" | "openai" | "gemini"
@@ -223,6 +224,7 @@ AGENT_HOST          = settings.agent_host or _HOSTNAME
 RELAY_FPS           = settings.relay_fps
 RELAY_FRAME_WIDTH   = settings.relay_frame_width
 RELAY_FRAME_QUALITY = settings.relay_frame_quality
+WEBRTC_ENABLED      = settings.webrtc_enabled
 PROTOCOL_VERSION    = 1  # bump on breaking wire-protocol changes (see docs/PROTOCOL.md)
 
 AGENT_S_ENGINE_TYPE = settings.agent_s_engine_type
