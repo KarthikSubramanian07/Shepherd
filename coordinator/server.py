@@ -186,9 +186,9 @@ class Hub:
         # Restore persisted catalog if the agent hasn't pushed a fresh one yet.
         if conn.catalog is None:
             cached = load_catalog(conn.agent_id)
-            if cached:
+            if cached is not None:
                 conn.catalog = cached
-                conn.catalog_version = load_catalog_version(conn.agent_id)
+            conn.catalog_version = load_catalog_version(conn.agent_id)
         self.agents[conn.agent_id] = conn
 
     def drop_agent(self, conn: AgentConn) -> None:
@@ -767,9 +767,15 @@ async def agent_ws(ws: WebSocket) -> None:
                           f"protocol v{client_version}, we only support v{PROTOCOL_VERSION}")
                 await hub.push_roster()
             elif mtype == "catalog":
-                conn.catalog = msg.get("catalog")
+                payload = msg.get("catalog")
+                if not isinstance(payload, dict):
+                    continue
+                conn.catalog = payload
                 conn.catalog_version += 1
-                save_catalog(agent_id, conn.catalog, conn.catalog_version)
+                try:
+                    save_catalog(agent_id, conn.catalog, conn.catalog_version)
+                except Exception as exc:
+                    print(f"[coordinator] catalog persist failed for '{agent_id}': {exc}")
             elif mtype in ("webrtc.offer", "webrtc.answer", "webrtc.ice"):
                 # WebRTC signaling: relay to the watching UI(s) for this agent.
                 await hub.broadcast_session(
