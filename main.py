@@ -33,20 +33,26 @@ from dashboard.events import event_bus
 def _stdin_producer(
     engine: ShepherdExecutionEngine,
     remote_intents: "queue.Queue[str]",
+    idle: "threading.Event",
 ) -> None:
     """
     Read typed (or spoken) goals from the command line and feed them into the
     SHARED intent queue — the same queue the frontend / coordinator / poller feed.
     Runs in a background thread so the CLI and the frontend can both drive the agent
     at the same time. Exits quietly if there's no interactive stdin (headless).
+
+    Only prompts while the agent is idle (`idle` is set), so the "Intent ->" prompt
+    never interleaves with a run's log output.
     """
     while True:
+        idle.wait()   # hold the prompt until the current run finishes
         if FEATURES["deepgram"]:
             try:
                 from services.deepgram_input import listen_and_transcribe, listen_for_stop_command
                 listen_for_stop_command(halt_callback=engine.request_halt)
                 transcript = listen_and_transcribe()
                 if transcript:
+                    idle.clear()
                     remote_intents.put(transcript)
                     continue
             except Exception as e:
@@ -57,6 +63,7 @@ def _stdin_producer(
             print("[shepherd] No interactive stdin — taking goals from the frontend only.")
             return
         if line:
+            idle.clear()   # a run is about to start; don't reprompt until it's done
             remote_intents.put(line)
 
 
@@ -234,10 +241,14 @@ def main() -> None:
     if listen:
         print("[shepherd] --listen: goals come from the frontend/coordinator only "
               "(no command-line prompt). Ctrl-C to quit.\n")
-    else:
+    # Set while the agent is idle; cleared during a run so the CLI prompt holds.
+    idle = threading.Event()
+    idle.set()
+
+    if not listen:
         print("Type a goal at the prompt, or send one from the frontend. Ctrl-C to quit.")
         threading.Thread(
-            target=_stdin_producer, args=(engine, remote_intents), daemon=True
+            target=_stdin_producer, args=(engine, remote_intents, idle), daemon=True
         ).start()
 
     while True:
@@ -245,6 +256,7 @@ def main() -> None:
             raw = remote_intents.get()   # fed by CLI + frontend + coordinator + poller
             if not raw:
                 continue
+            idle.clear()   # a run is starting → pause the CLI prompt
 
             intent = Intent(raw_text=raw, timestamp=time.time())
             event_bus.emit("intent.received", {"raw_text": intent.raw_text, "source": intent.source})
@@ -358,6 +370,8 @@ def main() -> None:
             if FEATURES["sentry"]:
                 import sentry_sdk
                 sentry_sdk.capture_exception(e)
+        finally:
+            idle.set()   # run finished (or errored) → let the CLI prompt return
 
 
 _listen_mode = False  # set True by --listen; keeps the agent serving across goals
