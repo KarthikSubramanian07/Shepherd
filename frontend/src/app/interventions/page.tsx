@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Check, ShieldAlert, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAsync } from "@/lib/hooks";
+import { useShepherd } from "@/lib/shepherd-ws";
 import type { Intervention } from "@/lib/types";
 import { verdictStyle } from "@/lib/status";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -16,7 +17,16 @@ export default function InterventionsPage() {
     () => api.listInterventions(),
     [],
   );
+  const { state } = useShepherd();
   const [busy, setBusy] = useState<string | null>(null);
+
+  // Re-fetch when a new monitor alert comes in
+  useEffect(() => {
+    if (state.monitorAlert) {
+      api.listInterventions().then(setData).catch(() => null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.monitorAlert]);
 
   const list = data ?? [];
   const pending = list.filter((i) => i.status === "pending");
