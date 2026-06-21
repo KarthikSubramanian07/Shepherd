@@ -717,7 +717,7 @@ async def integrations() -> JSONResponse:
         sl = False
     out.append(_ok("SimuLang", "engine", "ready" if sl else "off",
                    "Deterministic zero-token replay of taught workflows" if sl
-                   else "CLI not installed (Agent S replay fallback)"))
+                   else "Replay runtime not installed (Agent S fallback)"))
 
     return JSONResponse({"integrations": out})
 

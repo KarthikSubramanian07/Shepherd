@@ -1,6 +1,7 @@
 """
 SimuLang compile-and-replay — the compiler turns a taught workflow into a
-deterministic `.ts` script, and replay degrades gracefully when the CLI is absent.
+deterministic `.ts` script, and replay degrades gracefully when the runtime is
+absent.
 """
 import os
 
@@ -25,6 +26,7 @@ def test_compile_workflow_emits_simulang_script(tmp_path, monkeypatch):
     assert "AccessibilityTree.fromPid" in script
     assert "tree.setValue" in script and "Ada Lovelace" in script   # the fill
     assert "tree.activate" in script                                # open + submit
+    assert "npx tsx" in script                                      # real run command
 
 
 def test_compile_handles_missing_fields(tmp_path, monkeypatch):
@@ -32,7 +34,7 @@ def test_compile_handles_missing_fields(tmp_path, monkeypatch):
     assert simulang_runner.compile_workflow({"id": None, "nodes": []}) is None
 
 
-def test_replay_noop_without_cli(monkeypatch):
-    # No simulang CLI on PATH -> replay returns None (caller uses Agent S replay).
+def test_replay_noop_without_runtime(monkeypatch):
+    # Runtime unavailable -> replay returns None (caller uses Agent S vision replay).
     monkeypatch.setattr(simulang_runner, "available", lambda: False)
     assert simulang_runner.replay("WF_APPLY") is None

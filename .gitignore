@@ -19,3 +19,7 @@ data/requests.log
 
 # Band (band.ai) agent credentials — live API keys, never commit
 agent_config.yaml
+
+# SimuLang replay runtime (npx tsx resolves @simular-ai/simulang-js here)
+/node_modules/
+/package-lock.json

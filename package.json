@@ -1,0 +1,11 @@
+{
+  "name": "shepherd-simulang-runtime",
+  "private": true,
+  "description": "Runtime for replaying Shepherd-compiled SimuLang workflows (data/simulang/*.ts). The Python engine shells out to `npx tsx <script>`; these deps make that resolve.",
+  "dependencies": {
+    "@simular-ai/simulang-js": "^8.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}
