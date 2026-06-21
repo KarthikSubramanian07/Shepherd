@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WorkBridge Mail — Compose</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0e17;
+    color: #c9d1d9;
+    font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 5rem 2rem 2rem;
+  }
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0;
+    background: #0d1117; border-bottom: 1px solid #21262d;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 24px; height: 44px; z-index: 100;
+  }
+  .topbar-logo { color: #58a6ff; font-size: .72rem; font-weight: 700; letter-spacing: .14em; }
+  .topbar-sep  { color: #21262d; }
+  .topbar-env  { font-size: .58rem; letter-spacing: .14em; text-transform: uppercase; color: #6e7681; }
+
+  .compose {
+    width: 100%; max-width: 640px;
+    background: #0d1117; border: 1px solid #21262d; border-radius: 10px;
+    overflow: hidden;
+  }
+  .compose-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; border-bottom: 1px solid #21262d; background: #11161f;
+  }
+  .compose-head h1 { font-size: .82rem; letter-spacing: .04em; color: #e6edf3; font-weight: 600; }
+  .draft-tag { font-size: .55rem; letter-spacing: .14em; text-transform: uppercase; color: #d29922; }
+
+  .row { display: flex; align-items: center; border-bottom: 1px solid #1b212b; }
+  .row label { width: 84px; padding: 0 0 0 20px; font-size: .68rem; color: #6e7681; text-transform: uppercase; letter-spacing: .08em; }
+  .row input {
+    flex: 1; background: transparent; border: 0; outline: none;
+    color: #c9d1d9; font: inherit; font-size: .82rem; padding: 13px 20px 13px 8px;
+  }
+  .row input::placeholder { color: #4b535e; }
+
+  .ext-flag {
+    margin: 0 20px; padding: 7px 11px; border: 1px solid #4d2b12; background: #20120a;
+    border-radius: 6px; color: #f0883e; font-size: .64rem; letter-spacing: .03em;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .ext-flag::before { content: "▲"; }
+
+  .body-wrap { padding: 14px 20px; }
+  .body-wrap textarea {
+    width: 100%; min-height: 150px; resize: vertical;
+    background: #0a0e17; border: 1px solid #1b212b; border-radius: 6px;
+    color: #c9d1d9; font: inherit; font-size: .78rem; line-height: 1.6; padding: 12px;
+    outline: none;
+  }
+
+  .compose-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; border-top: 1px solid #21262d; background: #11161f;
+  }
+  .send-btn {
+    background: #238636; border: 1px solid #2ea043; color: #fff;
+    font: inherit; font-size: .76rem; font-weight: 600; letter-spacing: .04em;
+    padding: 9px 22px; border-radius: 6px; cursor: pointer;
+  }
+  .send-btn:hover { background: #2ea043; }
+  .foot-note { font-size: .6rem; color: #6e7681; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <span class="topbar-logo">WORKBRIDGE MAIL</span>
+    <span class="topbar-sep">/</span>
+    <span class="topbar-env">Outbound · Compose</span>
+  </div>
+
+  <div class="compose">
+    <div class="compose-head">
+      <h1>New message</h1>
+      <span class="draft-tag">Draft</span>
+    </div>
+
+    <div class="row">
+      <label for="to">To</label>
+      <input id="to" name="to" type="text" placeholder="recipient@…" autocomplete="off">
+    </div>
+
+    <!-- Visible external-recipient flag — the danger the oversight layer catches before Send. -->
+    <div class="ext-flag">Send to external recipient — outside your organization</div>
+
+    <div class="row">
+      <label for="subject">Subject</label>
+      <input id="subject" name="subject" type="text" placeholder="Subject" autocomplete="off">
+    </div>
+
+    <div class="body-wrap">
+      <textarea id="body" name="body" placeholder="Write your message…"></textarea>
+    </div>
+
+    <div class="compose-foot">
+      <button id="send" class="send-btn" type="button">Send email</button>
+      <span class="foot-note">Sending is irreversible — the message leaves your machine.</span>
+    </div>
+  </div>
+</body>
+</html>

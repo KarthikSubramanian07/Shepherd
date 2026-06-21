@@ -77,19 +77,50 @@ export function Sidebar() {
     }
   }
 
+  const running = state.status === "running";
+  const halted = state.status === "halted";
+  const watchHex = halted ? "#cf3b34" : running ? "#dd6a1f" : "#1f8a5b";
+  const watchLabel = halted
+    ? "Halted — needs you"
+    : running
+      ? "Watching a run"
+      : "On watch";
+
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-edge bg-panel/60">
-      <div className="flex items-center gap-2 px-4 py-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/15 text-accent">
-          <GitBranch size={18} />
-        </div>
+    <aside className="flex w-60 shrink-0 flex-col border-r border-edge bg-panel/70">
+      {/* Brand lockup — shepherd's crook + lantern */}
+      <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
+        <ShepherdMark />
         <div>
-          <div className="text-sm font-semibold leading-tight">Shepherd</div>
-          <div className="text-[11px] text-muted">Agent Command Center</div>
+          <div className="text-[15px] font-semibold leading-none tracking-tight text-ink">
+            Shepherd
+          </div>
+          <div className="mt-1 text-[10px] font-medium uppercase tracking-eyebrow text-muted">
+            Oversight Console
+          </div>
         </div>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 px-2 py-2">
+      {/* Live watch — the agent heartbeat */}
+      <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-edge bg-panel2/70 px-3 py-2">
+        <span className="relative flex h-2 w-2">
+          {(running || halted) && (
+            <span
+              className="absolute inline-flex h-full w-full animate-watch rounded-full"
+              style={{ backgroundColor: watchHex }}
+            />
+          )}
+          <span
+            className="relative inline-flex h-2 w-2 rounded-full"
+            style={{ backgroundColor: watchHex }}
+          />
+        </span>
+        <span className="truncate text-[11px] text-muted">
+          {watchLabel} · <span className="font-mono text-ink/70">{state.mode}</span>
+        </span>
+      </div>
+
+      <nav className="flex flex-1 flex-col gap-0.5 px-2 py-1">
         {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
@@ -97,13 +128,26 @@ export function Sidebar() {
               key={href}
               href={href}
               className={cn(
-                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+                "group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-200 ease-out",
                 active
-                  ? "bg-accent/10 text-accent"
-                  : "text-muted hover:bg-panel2 hover:text-ink",
+                  ? "bg-accent/[0.08] font-medium text-ink"
+                  : "text-muted hover:translate-x-0.5 hover:bg-panel2 hover:text-ink",
               )}
             >
-              <Icon size={16} />
+              {/* Lantern indicator — slides in on the active route */}
+              <span
+                className={cn(
+                  "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-accent transition-all duration-300 ease-out",
+                  active ? "h-5 opacity-100" : "h-0 opacity-0",
+                )}
+              />
+              <Icon
+                size={16}
+                className={cn(
+                  "shrink-0 transition-transform duration-200",
+                  active ? "scale-110 text-accent" : "group-hover:scale-105",
+                )}
+              />
               {label}
             </Link>
           );
@@ -135,14 +179,35 @@ export function Sidebar() {
       </div>
 
       <div className="border-t border-edge p-3">
-        <Button className="w-full" variant="primary">
-          <Mic size={15} />
+        <Button className="group w-full shadow-card transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0">
+          <span className="relative flex h-[15px] w-[15px] items-center justify-center">
+            <span className="absolute inline-flex h-full w-full animate-watch rounded-full bg-white/40" />
+            <Mic size={15} className="relative" />
+          </span>
           Record new tool
         </Button>
         <p className="mt-2 text-center text-[10px] text-muted">
-          Demonstrate a task once — agent runs it after.
+          Demonstrate a task once — the agent runs it after.
         </p>
       </div>
     </aside>
+  );
+}
+
+/** Shepherd's-crook + lantern brand mark — bark crook, an orange lantern that
+ *  flickers like a light kept on through the night watch. No literal sheep. */
+function ShepherdMark() {
+  return (
+    <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-bark/[0.12] text-bark">
+      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true">
+        <path
+          d="M8.5 21V10.25a5 5 0 0 1 10 0v.75"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      </svg>
+      <span className="absolute right-1.5 top-1.5 h-2 w-2 animate-watch rounded-full bg-accent shadow-lantern" />
+    </div>
   );
 }

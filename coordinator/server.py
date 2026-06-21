@@ -32,7 +32,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from config import COORDINATOR_PORT, COORDINATOR_TOKEN
+from config import COORDINATOR_PORT, COORDINATOR_TOKEN, PROTOCOL_VERSION
 
 # Reuse the agent's Deepgram transcription surface so the Command Center can turn
 # a spoken command into an intent without a backend of its own.
@@ -369,7 +369,11 @@ async def root() -> HTMLResponse:
 
 @app.get("/api/health")
 async def health() -> JSONResponse:
-    return JSONResponse({"ok": True, "agents": len(hub.agents)})
+    return JSONResponse({
+        "ok": True,
+        "agents": len(hub.agents),
+        "protocol_version": PROTOCOL_VERSION,
+    })
 
 
 @app.get("/api/agents")
@@ -445,6 +449,10 @@ async def agent_ws(ws: WebSocket) -> None:
                 conn.name = msg.get("name", conn.name)
                 conn.host = msg.get("host", conn.host)
                 conn.mode = msg.get("mode", conn.mode)
+                client_version = msg.get("protocol_version")
+                if client_version and client_version > PROTOCOL_VERSION:
+                    print(f"[coordinator] warning: agent '{agent_id}' speaks "
+                          f"protocol v{client_version}, we only support v{PROTOCOL_VERSION}")
                 await hub.push_roster()
     except WebSocketDisconnect:
         pass

@@ -39,30 +39,32 @@ const KIND_ICON: Record<string, LucideIcon> = {
   interact: MousePointerClick,
 };
 
+// Earthy, deepened hues — legible on the wool off-white ground and cohesive with
+// the Daybreak palette (no pale dashboard rainbow).
 const KIND_COLOR: Record<string, string> = {
-  open: "#3b82f6",
-  navigate: "#06b6d4",
-  search: "#8b5cf6",
-  research: "#f59e0b",
-  scan: "#64748b",
-  fill: "#22c55e",
-  submit: "#ec4899",
-  verify: "#eab308",
-  interact: "#94a3b8",
+  open: "#2f6f9e",      // deep sky
+  navigate: "#2a8f8a",  // teal
+  search: "#6d5bb8",    // muted violet
+  research: "#9a6a2f",  // ochre
+  scan: "#7c7064",      // taupe
+  fill: "#1f8a5b",      // meadow green
+  submit: "#b23a6b",    // deep rose
+  verify: "#9a7d1a",    // deep gold
+  interact: "#7a5c44",  // bark
 };
 
 function statusRing(status: LiveNodeStatus, kind: string): string {
   switch (status) {
     case "running":
-      return KIND_COLOR[kind] ?? "#3b82f6";
+      return KIND_COLOR[kind] ?? "#dd6a1f";
     case "done":
-      return "#22c55e";
+      return "#1f8a5b"; // ok
     case "flagged":
-      return "#f59e0b";
+      return "#dd6a1f"; // lantern
     case "halted":
-      return "#ef4444";
+      return "#cf3b34"; // halt
     default:
-      return "#2b3445"; // pending
+      return "#cdbfaa"; // pending — warm gray
   }
 }
 

@@ -45,21 +45,21 @@ export default function CommandCenterPage() {
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <StatusDot
-                hex={isHalted ? "#ef4444" : isRunning ? "#3b82f6" : "#64748b"}
+                hex={isHalted ? "#cf3b34" : isRunning ? "#dd6a1f" : "#9a8f81"}
                 pulse={isRunning || isHalted}
               />
               <div>
                 <div className="font-semibold text-ink">
                   {isHalted
-                    ? "Halted — human required"
+                    ? "Halted — the agent is waiting on you"
                     : isRunning
-                      ? "Agent running"
-                      : "Idle"}
+                      ? "Agent at work — watching every step"
+                      : "On watch"}
                 </div>
                 <div className="mt-0.5 text-xs text-muted">
                   {state.routineId
                     ? `Routine: ${state.routineId}${state.stepIndex !== null ? ` · step ${state.stepIndex}` : ""}`
-                    : "No active routine"}
+                    : "Nothing running. Speak or type an intent to send the agent off."}
                   {state.runId && (
                     <span className="ml-2 font-mono text-[10px] text-muted/70">
                       {state.runId}
@@ -75,12 +75,12 @@ export default function CommandCenterPage() {
             </Badge>
           </div>
 
-          {/* Monitor alert */}
+          {/* Monitor alert — the signature moment: the lantern catches the danger */}
           {state.monitorAlert && (
-            <div className="mt-4 rounded-xl border border-halt/40 bg-halt/10 p-4">
+            <div className="mt-4 animate-riseIn rounded-xl border border-halt/40 bg-halt/[0.06] p-4 shadow-halt">
               <div className="flex items-center gap-2 text-sm font-semibold text-halt">
-                <ShieldAlert size={16} />
-                Monitor flagged a dangerous step
+                <ShieldAlert size={16} className="animate-pulseRing" />
+                Caught it — a step needs you before the agent goes on
               </div>
               <p className="mt-1 text-sm text-muted">
                 {state.monitorAlert.reason}
@@ -185,8 +185,12 @@ export default function CommandCenterPage() {
               ))}
             </div>
           ) : !runs || runs.length === 0 ? (
-            <div className="rounded-xl border border-edge bg-panel/40 px-6 py-8 text-center text-sm text-muted">
-              No runs yet — start an agent from the terminal to see replays here.
+            <div className="rounded-xl border border-dashed border-edge bg-panel/40 px-6 py-10 text-center">
+              <div className="text-sm font-medium text-ink">No runs to replay yet</div>
+              <p className="mx-auto mt-1 max-w-xs text-xs text-muted">
+                Once the agent runs a task, every step it took shows up here — fully
+                scrubbable, so you can see exactly what happened while you were away.
+              </p>
             </div>
           ) : (
             <div className="space-y-2">

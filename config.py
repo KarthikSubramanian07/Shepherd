@@ -84,11 +84,14 @@ class Settings(BaseSettings):
     # "gemini" (Google Generative Language — Gemma/Gemini) | "anthropic".
     llm_provider: str = "gemini"
     gemini_api_key: str = ""
-    gemini_model: str = "gemma-4-26b-a4b-it"   # MoE, ~4B active — cheap/fast dev default
+    # gemini-2.5-flash-lite: lightest Flash tier, multimodal (image input), and the
+    # highest free-tier headroom (15 RPM / 1,000 RPD) of the stable models — fast
+    # (~2.5s) and NOT a preview model (preview limits are throttled). Gemma-4
+    # (gemma-4-26b-a4b-it) is a heavier local alternative but reasons before
+    # answering (~90s/call); set GEMINI_MODEL to it if you want Gemma specifically.
+    gemini_model: str = "gemini-2.5-flash-lite"
     llm_anthropic_model: str = "claude-haiku-4-5"
-    # Gemma-4 always reasons before answering (~90s/call, "thought" tokens count
-    # against the budget). Generous defaults; this is the COLD path. Tune down for
-    # a faster non-reasoning model.
+    # Cold-path ceilings — generous so a slow/reasoning model (e.g. Gemma-4) still fits.
     llm_timeout_s: float = 180.0
     llm_max_tokens: int = 8192
 
@@ -197,6 +200,7 @@ AGENT_HOST          = settings.agent_host or _HOSTNAME
 RELAY_FPS           = settings.relay_fps
 RELAY_FRAME_WIDTH   = settings.relay_frame_width
 RELAY_FRAME_QUALITY = settings.relay_frame_quality
+PROTOCOL_VERSION    = 1  # bump on breaking wire-protocol changes (see docs/PROTOCOL.md)
 
 AGENT_S_ENGINE_TYPE = settings.agent_s_engine_type
 AGENT_S_MODEL       = settings.agent_s_model

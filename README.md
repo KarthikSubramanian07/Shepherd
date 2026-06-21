@@ -390,6 +390,45 @@ BACKEND_URL=http://localhost:8765 uv run python main.py
 
 ---
 
+## Run Agents From the Frontend (Remote Command Center)
+
+The plain dashboard only **observes** (it has no "submit goal" endpoint). To **start
+and steer** agents from the browser, use the coordinator relay: the frontend sends an
+`intent` (and `approve` / `halt` / `override` / `mode`) to a running agent through a
+central coordinator.
+
+```
+Command Center (browser) ──ws──▶ coordinator ──ws──▶ agent (relay_client → remote_intents → run)
+```
+
+```bash
+# 1. Coordinator — the one relay (default :8770). Only this needs a public URL
+#    (one ngrok/tunnel) when driving a remote machine.
+uv run python -m coordinator
+
+# 2. Agent — dial OUT to the coordinator. Setting COORDINATOR_URL turns ON remote
+#    mode: the agent streams its screen + events up and takes intents from the UI
+#    (it no longer reads the terminal).
+COORDINATOR_URL=ws://localhost:8770 uv run python main.py
+#    → prints a "Command Center session code" (the pairing code)
+
+# 3. Frontend — point it at the coordinator, open the Command Center, enter the code
+cd frontend
+printf 'NEXT_PUBLIC_COORDINATOR_URL=http://localhost:8770\n' >> .env.local
+npm run dev        # open /command-center → join with the session code → type a goal
+```
+
+- **Enabled by `COORDINATOR_URL`** (`FEATURES["remote"]`). Without it, the agent reads
+  only stdin/voice and the frontend can't start runs.
+- A **pairing/session code** scopes a Command Center to its agent(s); set
+  `COORDINATOR_TOKEN` / `NEXT_PUBLIC_COORDINATOR_TOKEN` to require a shared secret.
+- From the Command Center you can **send a goal, watch the live screen + steps, and
+  approve/halt/override or switch mode** mid-run.
+- This is the *drive* path; the persistent-backend `BACKEND_URL` above is the *observe*
+  path — they're independent and can be used together.
+
+---
+
 ## Setup for LIVE Mode (Agent S + Ollama, fully offline)
 
 ```bash

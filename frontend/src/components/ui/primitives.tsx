@@ -5,7 +5,7 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={cn(
-        "rounded-xl border border-edge bg-panel/80 backdrop-blur-sm",
+        "rounded-xl border border-edge bg-panel shadow-card",
         className,
       )}
       {...props}
@@ -71,7 +71,7 @@ export function Button({
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-all duration-150 ease-out-quart active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-1 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
         variants[variant],
         sizes[size],
         className,
@@ -138,7 +138,7 @@ export function Spinner({ size = 16, className }: { size?: number; className?: s
 
 export function Progress({
   value,
-  tone = "#3b82f6",
+  tone = "#dd6a1f",
   className,
 }: {
   value: number;
@@ -158,7 +158,7 @@ export function Progress({
 
 export function Avatar({
   name,
-  hex = "#3b82f6",
+  hex = "#dd6a1f",
   size = 28,
 }: {
   name: string;
@@ -311,7 +311,7 @@ export const Input = React.forwardRef<
     <input
       ref={ref}
       className={cn(
-        "h-9 w-full rounded-lg border border-edge bg-panel2 px-3 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none",
+        "h-9 w-full rounded-lg border border-edge bg-panel2 px-3 text-sm text-ink placeholder:text-muted transition-shadow focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25",
         className,
       )}
       {...props}
@@ -327,7 +327,7 @@ export const Textarea = React.forwardRef<
     <textarea
       ref={ref}
       className={cn(
-        "w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none",
+        "w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-ink placeholder:text-muted transition-shadow focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25",
         className,
       )}
       {...props}

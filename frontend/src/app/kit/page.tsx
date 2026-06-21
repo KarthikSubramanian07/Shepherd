@@ -106,7 +106,7 @@ export default function KitPage() {
               nodesDraggable
               proOptions={{ hideAttribution: true }}
             >
-              <Background gap={22} size={1} color="#1b2230" />
+              <Background gap={22} size={1} color="#ddd5c8" />
             </ReactFlow>
           </div>
         </Section>
