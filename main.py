@@ -9,6 +9,7 @@ Usage:
   python main.py --mode AUTONOMOUS  # free-form Agent S goals (no routine required)
 """
 import os
+import queue
 import sys
 import time
 import threading
@@ -26,11 +27,37 @@ from telemetry.evolution import RoutineEvolution
 from dashboard.events import event_bus
 
 
-def _get_intent_text(engine: ShepherdExecutionEngine) -> str:
+def _get_intent_text(
+    engine: ShepherdExecutionEngine,
+    remote_intents: "queue.Queue[str]",
+) -> str:
     """
-    Returns the raw intent text from Deepgram (voice) or typed input.
-    Arms the stop-command listener before recording so 'stop' halts during execution.
+    Returns the raw intent text from a remote Command Center, Deepgram (voice),
+    or typed input. Arms the stop-command listener before recording so 'stop'
+    halts during execution.
     """
+    # A command-center intent already waiting takes priority.
+    try:
+        return remote_intents.get_nowait()
+    except queue.Empty:
+        pass
+
+    # Remote-driven mode: the operated machine may be headless, so block on the
+    # relay's intent queue instead of local stdin. The voice 'stop' listener is
+    # still armed so a spoken halt works during execution.
+    if FEATURES["remote"]:
+        if FEATURES["deepgram"]:
+            try:
+                from services.deepgram_input import listen_for_stop_command
+                listen_for_stop_command(halt_callback=engine.request_halt)
+            except Exception:
+                pass
+        while True:
+            try:
+                return remote_intents.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
     if FEATURES["deepgram"]:
         try:
             from services.deepgram_input import listen_and_transcribe, listen_for_stop_command
@@ -144,6 +171,7 @@ def main() -> None:
     router    = ShepherdIntentRouter()
     evolution = RoutineEvolution()
     engine    = ShepherdExecutionEngine(coords=coords, telemetry=telemetry, mode=mode, evolution=evolution)
+    remote_intents: "queue.Queue[str]" = queue.Queue()
 
     # ── Start dashboard ───────────────────────────────────────────────────────
     try:
@@ -152,6 +180,19 @@ def main() -> None:
         print(f"[dashboard] Control Hub → http://localhost:{DASHBOARD_PORT}\n")
     except Exception as e:
         print(f"[dashboard] Could not start: {e}")
+
+    # ── Start the coordinator relay (outbound; never blocks engine) ───────────
+    if FEATURES["remote"]:
+        try:
+            from services.relay_client import start_relay_client
+            from config import COORDINATOR_URL, AGENT_ID, AGENT_PAIRING_CODE
+            start_relay_client(engine, remote_intents)
+            print(f"[relay] Dialing coordinator {COORDINATOR_URL} as '{AGENT_ID}'")
+            print("[relay] ┌──────────────────────────────────────────────┐")
+            print(f"[relay] │  Command Center session code:  {AGENT_PAIRING_CODE:<13} │")
+            print("[relay] └──────────────────────────────────────────────┘\n")
+        except Exception as e:
+            print(f"[relay] Could not start: {e}")
 
     # ── Start Overshoot vision stream (parallel, never blocks engine) ─────────
     if FEATURES["overshoot"]:
@@ -174,7 +215,7 @@ def main() -> None:
 
     while True:
         try:
-            raw = _get_intent_text(engine)
+            raw = _get_intent_text(engine, remote_intents)
             if not raw:
                 continue
 
