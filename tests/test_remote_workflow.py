@@ -90,6 +90,30 @@ def test_coordinator_builds_execution_trace_for_new_task():
     assert conn.snapshot()["trace"]["status"] == "completed"
 
 
+def test_trace_records_deviation_using_step_index_field():
+    """step.deviation carries `step_index` (not `index`); it must still land on
+    the right trace node rather than being silently dropped."""
+    hub = Hub()
+    conn = _conn()
+    hub.apply_event(conn, _ev("execution.start", run_id="r1", mode="AUTONOMOUS"))
+    hub.apply_event(conn, _ev("step.start", run_id="r1", index=0,
+                              action="agent_s", description="open browser"))
+    hub.apply_event(conn, _ev("step.deviation", run_id="r1", step_index=0,
+                              reason="timing: 1200ms vs avg 400ms"))
+    node = conn.snapshot()["trace"]["nodes"][0]
+    assert node["note"] == "timing: 1200ms vs avg 400ms"
+
+
+def test_step_events_never_shadow_an_active_workflow():
+    """While following a saved workflow, stray step.* events don't spawn a trace."""
+    hub = Hub()
+    conn = _conn()
+    hub.apply_event(conn, _ev("workflow.start", workflow_id="WF", name="Job App", start="open"))
+    hub.apply_event(conn, _ev("step.start", run_id="r1", index=0, action="agent_s"))
+    assert conn.snapshot()["trace"] is None
+    assert conn.snapshot()["workflow"]["id"] == "WF"
+
+
 def test_workflow_run_clears_any_stale_trace():
     """Following a saved workflow drops the granular step trace."""
     hub = Hub()

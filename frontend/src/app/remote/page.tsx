@@ -500,12 +500,16 @@ function WorkflowPane({
   const [view, setView] = useState<"workflow" | "trace">(
     wf ? "workflow" : trace ? "trace" : "workflow",
   );
-  // Follow the run: snap to the view that actually has data as it changes.
-  const dataKey = `${wf ? "w" : ""}${trace ? "t" : ""}`;
+  // Snap to the view that has data as presence changes (incl. agent switches,
+  // since this component doesn't remount). Depend only on the presence booleans
+  // so this doesn't re-run on every roster update.
+  const hasWf = !!wf;
+  const hasTrace = !!trace;
   useEffect(() => {
-    if (wf && !trace) setView("workflow");
-    else if (trace && !wf) setView("trace");
-  }, [dataKey, wf, trace]);
+    if (hasWf && !hasTrace) setView("workflow");
+    else if (hasTrace && !hasWf) setView("trace");
+    else if (!hasWf && !hasTrace) setView("workflow");
+  }, [hasWf, hasTrace]);
 
   return (
     <Card className="overflow-hidden">

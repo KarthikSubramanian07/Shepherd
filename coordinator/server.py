@@ -442,11 +442,20 @@ class Hub:
         tr["known"] = bool(d.get("known"))
 
     def _apply_trace_event(self, conn: AgentConn, t: str, d: dict) -> None:
+        # A workflow run streams workflow.* (not step.*); never shadow an active
+        # workflow with a step trace.
+        if conn.workflow is not None:
+            return
         if conn.trace is None:
             conn.trace = _new_trace(d.get("run_id"), None, None)
         tr = conn.trace
+        # step.deviation uses `step_index`; every other step.* uses `index`.
         idx = d.get("index")
         if idx is None:
+            idx = d.get("step_index")
+        if idx is None:
+            return
+        if len(tr["by_index"]) >= _MAX_TRACE_NODES and idx not in tr["by_index"]:
             return
         by = tr["by_index"]
         node = by.get(idx)
@@ -470,6 +479,11 @@ class Hub:
             node.update({"status": "error", "error": d.get("error")})
         elif t in ("step.deviation", "step.fallback"):
             node["note"] = d.get("reason") or d.get("description") or t
+
+
+# Cap trace growth so a misbehaving/compromised agent can't exhaust coordinator
+# memory or UI fan-out bandwidth by emitting unbounded unique step indexes.
+_MAX_TRACE_NODES = 2000
 
 
 def _new_trace(run_id: Optional[str], routine_id: Optional[str],
