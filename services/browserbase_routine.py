@@ -9,7 +9,7 @@ Used two ways:
     variable the next step fills. Degrades to a deterministic fallback value so
     the beat still works offline.
 """
-from config import FEATURES, BROWSERBASE_API_KEY
+from config import FEATURES, BROWSERBASE_API_KEY, BROWSERBASE_PROJECT_ID
 
 
 def run_browser_step(step: dict) -> dict:
@@ -22,16 +22,26 @@ def run_browser_step(step: dict) -> dict:
     if not FEATURES["browserbase"]:
         return _local_fallback(step)
 
+    if not BROWSERBASE_PROJECT_ID:
+        # A cloud session needs a project id, not just a key. Make the miss loud
+        # so it's not mistaken for "Browserbase isn't working" — then degrade.
+        print("[browserbase] BROWSERBASE_PROJECT_ID not set — "
+              "set it (dashboard → Settings) to create a real cloud session; "
+              "using local fallback.")
+        return _local_fallback(step)
+
     try:
-        # VERIFY: check browserbase SDK docs for current API surface
         from browserbase import Browserbase
         from playwright.sync_api import sync_playwright
 
-        bb      = Browserbase(api_key=BROWSERBASE_API_KEY)
-        session = bb.sessions.create(project_id=None)  # VERIFY: project_id param name
+        # browserbase 0.3.0: project_id on the client, flat create_session() +
+        # get_connect_url(session_id) — there is no bb.sessions namespace.
+        bb          = Browserbase(api_key=BROWSERBASE_API_KEY, project_id=BROWSERBASE_PROJECT_ID)
+        session     = bb.create_session()
+        connect_url = bb.get_connect_url(session.id)
 
         with sync_playwright() as p:
-            browser = p.chromium.connect_over_cdp(session.connect_url)
+            browser = p.chromium.connect_over_cdp(connect_url)
             page    = browser.new_page()
             url     = step.get("url", "https://example.com")
             page.goto(url, wait_until="domcontentloaded", timeout=15000)

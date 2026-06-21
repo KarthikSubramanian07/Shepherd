@@ -42,6 +42,8 @@ webrtc  = ["aiortc>=1.9.0"]
 # Band multi-agent oversight. Only the verifier *peer* process needs the SDK;
 # the engine side talks to Band's free Agent API over httpx (already a core dep).
 band    = ["band-sdk[anthropic]>=1.0.0"]
+# ArmorIQ intent-intelligence authorization (ships the armoriq CLI too).
+armoriq = ["armoriq-sdk>=0.1"]
 
 [tool.uv]
 package = false

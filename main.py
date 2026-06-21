@@ -3,10 +3,15 @@
 The Shepherd — main entry loop.
 Voice/typed intent → router → engine → telemetry + memory + dashboard.
 
+Front door is controlled by USE_ROUTER (config / .env):
+  USE_ROUTER=false (default)  free-form autonomous Agent S goals (no routing)
+  USE_ROUTER=true             match a saved workflow/routine first, autonomous on no match
+  ROUTINE_REPLAY=vision|deterministic  how a matched routine is driven (LIVE|LOCKED)
+
 Usage:
   python main.py
-  python main.py --mode LOCKED      # force deterministic fallback
-  python main.py --mode AUTONOMOUS  # free-form Agent S goals (no routine required)
+  python main.py --mode LOCKED      # one-off override: force deterministic replay
+  python main.py --mode AUTONOMOUS  # one-off override: free-form Agent S goals
 """
 import os
 import queue
@@ -15,7 +20,7 @@ import time
 import threading
 
 from config import (
-    FEATURES, EXECUTION_MODE, DASHBOARD_PORT,
+    FEATURES, EXECUTION_MODE, DASHBOARD_PORT, USE_ROUTER, ROUTINE_REPLAY,
     AUTONOMOUS_ON_UNMATCHED, EXIT_WHEN_DONE, BACKEND_URL, CONSOLE_LOG,
 )
 from shepherd_types import Intent, ResolvedRoutine
@@ -165,8 +170,16 @@ def main() -> None:
     listen = "--listen" in sys.argv
     _listen_mode = listen
 
+    # Describe the front door in the un-bundled terms (router on/off + replay style),
+    # falling back to the legacy mode label for a one-off --mode override.
+    if "--mode" in sys.argv:
+        front_door = f"--mode override: {mode}"
+    elif USE_ROUTER:
+        front_door = f"router ON (replay={ROUTINE_REPLAY}, autonomous fallback) -> {mode}"
+    else:
+        front_door = f"router OFF (free-form autonomous) -> {mode}"
     print("\n=== THE SHEPHERD ===")
-    print(f"Mode: {mode}  |  Active features: {[k for k, v in FEATURES.items() if v]}\n")
+    print(f"Front door: {front_door}  |  Active features: {[k for k, v in FEATURES.items() if v]}\n")
 
     # ── Init ──────────────────────────────────────────────────────────────────
     init_sentry()

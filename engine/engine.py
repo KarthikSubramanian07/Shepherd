@@ -92,6 +92,9 @@ class ShepherdExecutionEngine:
         self._halt_flag.set()
 
     def effective_mode(self) -> str:
+        """The legacy LIVE/LOCKED/AUTONOMOUS enum for this run. Compatibility shim:
+        the canonical knobs are USE_ROUTER/ROUTINE_REPLAY (config derives the enum
+        from them). A /api/mode runtime override still wins when set."""
         if _cfg._runtime_mode:
             return _cfg._runtime_mode.upper()
         return self._mode.upper()
@@ -484,6 +487,8 @@ class ShepherdExecutionEngine:
         self.last_trace_id = None
         self._interventions = []
         self._run_action_times = []
+        self._armoriq_denial = None   # set when ArmorIQ refuses the plan's intent
+        self._armoriq_token = None    # signed intent token when authorized
         # Fresh Agent S trajectory per run — its reflection/trajectory state is
         # per-task and must not leak across runs.
         self._agent_s.reset()
@@ -544,6 +549,30 @@ class ShepherdExecutionEngine:
             ],
         })
 
+        # ── ArmorIQ intent authorization (boundary, before any action) ──────────
+        # Capture the plan and request a signed intent token gated by containment.
+        # A denial trips the halt flag so the run aborts at the first boundary
+        # check below (never mid-click); the token is recorded as cryptographic
+        # proof of authorized intent. Fully no-op when ArmorIQ is off.
+        if FEATURES["armoriq"]:
+            try:
+                from services import armoriq_guard
+                auth = armoriq_guard.authorize_run(resolved.routine_id, routine.steps, variables)
+                if auth is not None and auth["authorized"]:
+                    self._armoriq_token = auth.get("token")
+                    event_bus.emit("armoriq.authorized", {
+                        "run_id": run_id, "plan_hash": auth.get("plan_hash"),
+                        "reason": auth.get("reason"),
+                    })
+                elif auth is not None:
+                    self._armoriq_denial = auth.get("reason") or "ArmorIQ denied the plan"
+                    self._halt_flag.set()
+                    event_bus.emit("armoriq.denied", {
+                        "run_id": run_id, "reason": self._armoriq_denial,
+                    })
+            except Exception as e:
+                print(f"[armoriq] gate skipped (non-fatal): {e}")
+
         # Tell the dashboard, per fine step, which milestone it belongs to and whether
         # that milestone is already in the graph (recalled) or new this run.
         loaded_steps = []
@@ -602,8 +631,11 @@ class ShepherdExecutionEngine:
                     # ── halt check (boundary, never mid-click) ──────────────────
                     if self._halt_flag.is_set():
                         status = "aborted"
+                        if self._armoriq_denial:
+                            error = self._armoriq_denial
                         event_bus.emit("execution.halted", {
-                            "run_id": run_id, "step_index": i, "reason": "halt_requested"
+                            "run_id": run_id, "step_index": i,
+                            "reason": "armoriq_denied" if self._armoriq_denial else "halt_requested",
                         })
                         break
 
