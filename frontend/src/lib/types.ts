@@ -247,9 +247,12 @@ export interface TaskGraphNode {
   kind: MilestoneKind | string;
   label: string;
   value: string | null;
+  detail?: string;
   times_seen: number;
   last_status: string | null;
   fine_steps: number;
+  /** Wrong turns the run took while on this milestone (recorded where they began). */
+  mistakes?: string[];
   first_run_id: string;
   last_run_id: string;
   // taught / workflow layer

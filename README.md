@@ -98,11 +98,12 @@ A single console, not a pile of scripts. Every tab is live over WebSocket.
 ```
  Voice / typed intent
    -> Deepgram STT (voice to text, boundary only)
-   -> Intent router       Redis vector search (BAAI/bge, local) + keyword fallback
-   -> Execution engine    LIVE: Agent S plans against the demonstration
-                          LOCKED: deterministic verbatim replay (offline floor)
-                          AUTONOMOUS: an LLM drafts a plan, then Agent S executes,
-                                      reading a per-goal memory graph from past runs
+   -> Intent router       (USE_ROUTER=true) Redis vector search (BAAI/bge, local)
+                          + keyword fallback; else skipped
+   -> Execution engine    autonomous (default): an LLM drafts a plan, then Agent S
+                                      executes it screenshot-by-screenshot
+                          routed + ROUTINE_REPLAY=vision: Agent S plans against the demo
+                          routed + ROUTINE_REPLAY=deterministic: verbatim replay (offline floor)
         |  (at high-stakes boundaries only, never mid-click)
         v
    3-layer oversight stack
@@ -147,8 +148,9 @@ For anything else, switch to **AUTONOMOUS and just say the goal.** There is no
 recorded routine and no script: the planner drafts a plan from your words and
 Agent S drives whatever app the goal needs. "Take my selfie from Photo Booth."
 "Play lo-fi on YouTube." "Find the cheapest flight to NYC and start the booking."
-It opens the app, reads the screen, and goes, building a per-goal memory graph so
-it is faster the next time you ask. This is the difference between a macro
+It opens the app, reads the screen, and goes, recording a per-goal milestone graph
+of the run (which it can recall to plan faster next time when `AUTONOMOUS_USE_MEMORY`
+is on). This is the difference between a macro
 recorder and an actual agent: it generalizes to tasks nobody scripted. And the
 part that matters most, **the same oversight stack watches an autonomous run
 exactly as it watches a recorded one.** Open-ended capability, still on a leash.
@@ -224,22 +226,28 @@ is real OpenTelemetry into Arize Phoenix. None of this is a screenshot of a logo
 
 ## Integrations
 
-| Sponsor | How Shepherd uses it |
-|---|---|
-| **Simular (Agent S)** | The execution engine. Agent S plans every LIVE action against the demonstration and actuates via pyautogui. The cursor moving on its own is Agent S. |
-| **Arize Phoenix** | OpenTelemetry spans on every run, action, and workflow node (`routine.run → agent_s.plan → action.N`). OpenInference I/O on LLM/TOOL spans. Start with `./scripts/serve_phoenix.sh` → http://localhost:6006 |
-| **Deepgram** | Voice three ways: speak the intent, narrate per-step instructions while recording a demonstration, and say "stop" to halt mid-run. Voice is the authoring tool and the oversight control surface. |
-| **Orkes / Agentspan** | The research step is a real Agentspan agent. `shepherd-researcher` compiles into a durable workflow on the self-hosted Agentspan server, reasons, and calls a `fetch_page` tool (Browserbase under the hood). Every run leaves a queryable execution. Open-source, keyless locally, reuses the Anthropic key. |
-| **Browserbase** | The agent's hands on the open web. Mid-task it opens a real cloud browser, reads a live page, and fills from what it found. Degrades to a deterministic local value offline. |
-| **Redis** | Beyond caching: vector search for intent routing (Redis 8 vectorset, VADD/VSIM), agent replay memory, and a semantic LLM cache that skips repeat milestone segmentation by meaning. |
-| **Sentry** | Error monitoring with Phoenix cross-links. Failed runs and exceptions attach a clickable `phoenix.trace_url` in the event context. Set `SENTRY_DSN` in `.env`. |
-| **Band (band.ai)** | A genuine two-agent collaboration over Band's agentic mesh. When the monitor is uncertain about a high-stakes screen, the engine peer posts the flagged action into a Band oversight room; the independent `shepherd-verifier` peer (Claude, wired into Band via its AnthropicAdapter) reads the @mention, judges the risk, and replies with a verdict the human gate consumes. This is Band's Drafter/Reviewer pattern mapped onto Shepherd's Monitor/Verifier handoff. Boundary-only (off the click path), free Agent API tier, and it degrades to the in-process verifier when Band is offline. |
-| **ArmorIQ** | Intent-intelligence authorization in front of the click path. At the run boundary Shepherd captures the resolved plan and ArmorIQ issues a cryptographically-signed intent token gated by an allow/deny policy derived from the same containment rules in `data/policy.yaml`; a denial halts the run before the first action. Security as a core layer (identity, access, runtime enforcement), not an afterthought, and the signed token is intent-level proof alongside the SHA-256 audit chain. Degrades to no-op when ArmorIQ is offline. |
-| **Anthropic / Claude Code** | Built end to end with Claude Code, and aimed at the hardest swing: oversight is the precondition for putting agents anywhere that matters. A clinician, a benefits caseworker, a finance back office cannot hand work to a black box. Shepherd is what makes an agent deployable in health, public services, and economic-opportunity settings at all. Claude is also the verifier, the milestone segmenter, the routine planner, and the Agentspan research brain. |
-| **Cognition / Devin** | Built with Devin alongside Claude Code. Devin drove whole feature branches end to end (the workflow dispatch + finalize gate, the remote command center with WebRTC P2P + Cloudflare Tunnel, the live execution-trace graph, ad-hoc dispatch, fleet session summaries) and self-reviewed via Devin Review, whose findings we resolved in-branch before merge. |
+Ordered by how load-bearing each one actually is in the code. **Status** says what
+it takes to light up: _Core_ (always on, the product needs it), _On by default_,
+_Key-gated_ (needs a credential, else a graceful fallback runs), _Off by default_,
+or _Build-time_ (used to write the code, nothing runs at runtime).
 
-Every integration is feature-flagged and degrades gracefully. With all flags off,
-the core automation and Control Hub run fully offline.
+| Sponsor | Status | How Shepherd actually uses it |
+|---|---|---|
+| **Simular (Agent S)** | Core | The execution engine — the only code that actuates. Real `gui-agents` AgentS3 (`engine/agent_s_adapter.py`): it plans each LIVE and autonomous action from a screenshot and drives the desktop via pyautogui. The cursor moving on its own is Agent S. Nothing else here clicks. |
+| **Anthropic / Claude** | Core | The cognitive layer. Claude is the independent **verifier** (`services/verifier.py`) and the autonomous **routine planner** (`engine/routine_planner.py`), and the model behind the **Agentspan researcher**. It can also drive milestone segmentation and the Agent S planner, but those are provider-configurable (Gemini is the default segmenter to conserve budget; the Agent S provider is set per-config). The deployability thesis — agents in health, public services, finance — rests on this oversight. |
+| **Arize Phoenix** | On by default | Real OpenTelemetry: spans on every run, plan, action, and workflow node (`routine.run → agent_s.plan → action.N`) with OpenInference I/O on LLM/TOOL spans. Pure observability, off the click path; degrades to no-op spans if Phoenix is down. `./scripts/serve_phoenix.sh` → http://localhost:6006 |
+| **Redis** | On if running | An accelerator, not a dependency. Vector search for intent routing (Redis 8 vectorset, `VADD`/`VSIM`), agent replay memory, and a semantic LLM cache for milestone segmentation — all off the click path. Routing falls back to keyword matching and the cache to heuristics when Redis is absent, so the system runs fine without it. |
+| **Deepgram** | Key-gated | Real `deepgram-sdk`, three live voice paths: speak the intent, narrate per-step instructions while recording a demonstration, and say "stop" to halt mid-run. Falls back to typed input when `DEEPGRAM_API_KEY` is unset. |
+| **Browserbase** | Key-gated | The agent's hands on the open web. With a key it opens a real cloud browser (CDP + Playwright), reads a live page, and fills from what it found. Degrades to a deterministic local value when offline or unconfigured. |
+| **Orkes / Agentspan** | Server-gated | The research digression is a real Agentspan agent: `shepherd-researcher` compiles into a durable workflow on a self-hosted Agentspan server, reasons, and calls a `fetch_page` tool (Browserbase under the hood). Runs only for routines that request a research step; reuses the Anthropic key. Degrades to a direct page read when the server is unreachable. (Orkes Conductor workflow-wrapping is scaffolded but not yet wired.) |
+| **ArmorIQ** | Key-gated | Intent authorization in front of the click path. At the run boundary Shepherd captures the resolved plan and ArmorIQ issues a cryptographically-signed intent token gated by an allow/deny policy derived from `data/policy.yaml`; a denial halts the run **before the first action**. The SDK is installed and the boundary gate is wired; it no-ops cleanly when `ARMORIQ_API_KEY` is unset. |
+| **Sentry** | DSN-gated | Error monitoring with real Phoenix cross-links: failed runs and exceptions attach a clickable `phoenix.trace_url` to the event context. Post-mortem only, never on the click path. Set `SENTRY_DSN` in `.env`. |
+| **Band (band.ai)** | Off by default | Designed as a two-agent oversight handoff: on an uncertain high-stakes flag, the engine peer posts the action into a Band room and an independent `shepherd-verifier` peer (Claude) replies with a verdict the human gate consumes — Band's Drafter/Reviewer pattern on Shepherd's Monitor/Verifier. Boundary-only. The Band SDK is an optional extra; with it uninstalled or unconfigured (the default today), the same verdict comes from the in-process Claude verifier instead. |
+| **Cognition / Devin** | Build-time | A coding agent used during development, not a runtime dependency — no Devin code runs in production. `devin-ai-integration[bot]` authored or co-authored several merged feature branches (WebRTC P2P remote, the live execution-trace graph, fleet session summaries), reviewed via Devin Review and resolved in-branch before merge. |
+
+Every runtime integration is feature-flagged and degrades gracefully. With all
+flags off, the core automation and Control Hub run fully offline — the only thing
+you can't remove is Agent S (the engine) and a planner/verifier model.
 
 ---
 
@@ -280,10 +288,20 @@ curl localhost:8765/api/audit/verify
 
 ## Execution modes
 
-`LIVE` (Agent S plans against the demonstration), `LOCKED` (deterministic replay,
-the offline demo floor), `AUTONOMOUS` (an LLM drafts a plan from the raw goal and
-reads a per-goal memory graph, then Agent S executes it). Switch at runtime with
-`POST /api/mode/<MODE>` or the Control Hub sidebar, no restart.
+Two un-bundled knobs decide how an intent is handled (`USE_ROUTER` / `ROUTINE_REPLAY`):
+
+- **`USE_ROUTER=false`** (default) — skip routing; every intent runs as a free-form
+  **autonomous** Agent S goal (an LLM drafts a plan from the raw words, then Agent S
+  executes it screenshot-by-screenshot). Prior memory is **not** consulted unless
+  `AUTONOMOUS_USE_MEMORY=true` — off by default, so each run plans fresh.
+- **`USE_ROUTER=true`** — match a saved workflow/routine first, falling back to
+  autonomous on no match. `ROUTINE_REPLAY` picks how a matched routine is driven:
+  `vision` (Agent S plans against the demonstration, was *LIVE*) or `deterministic`
+  (verbatim coordinate replay, the offline floor, was *LOCKED*).
+
+These derive the legacy `LIVE`/`LOCKED`/`AUTONOMOUS` enum internally. Switch at
+runtime with `POST /api/mode/<MODE>` or the Control Hub sidebar (no restart) — a
+runtime override wins for the live process until changed.
 
 ---
 

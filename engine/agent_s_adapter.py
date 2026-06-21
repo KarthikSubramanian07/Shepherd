@@ -49,6 +49,30 @@ from engine.agent_s_grounding import (
 _TERMINAL_TOKENS = {"DONE", "FAIL", "FAILED", "WAIT"}
 
 
+def _flatten_action(action: str) -> str:
+    """Force one chained action onto a single physical line.
+
+    Each action is meant to be ONE Python statement, but the model sometimes
+    embeds a real newline inside a typed string — e.g. typewrite('https://…\\n')
+    to "press Enter" — which decodes from JSON to an actual newline and makes the
+    line an unterminated string literal when exec'd. Re-escape CR/LF so the
+    statement stays on one line (and a typed newline is still typed)."""
+    return action.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
+
+
+def _history_record(actions: list[str], reasoning: str) -> str:
+    """A compact record of what a turn actually DID — the literal keys/actions it
+    pressed, not just the narrative. Lets the next turn see what it has already
+    typed (so it won't re-type or overwrite a field it already got right) and what
+    keys it sent (so it can tell a no-op apart from a real change)."""
+    keys = "; ".join(a.replace("pyautogui.", "") for a in actions)
+    rec = f"pressed: {keys}"
+    why = (reasoning or "").strip().replace("\n", " ")
+    if why:
+        rec += f"  — to {why[:100]}"
+    return rec[:340]
+
+
 def _is_actionable(code: str) -> bool:
     c = (code or "").strip()
     if not c:
@@ -288,8 +312,10 @@ class AgentSAdapter:
 
             if self._chain_history:
                 history = (
-                    "Actions you have ALREADY performed in previous turns (do NOT "
-                    "repeat them — they are done):\n"
+                    "Keys/actions you have ALREADY pressed in previous turns (most "
+                    "recent last). Use this to know what you have already typed: do NOT "
+                    "re-type or overwrite a field whose value is already correct — only "
+                    "fix fields that are still wrong or empty:\n"
                     + "\n".join(f"  turn {n}: {h}" for n, h in enumerate(self._chain_history))
                     + "\n\n"
                 )
@@ -325,6 +351,19 @@ class AgentSAdapter:
                 "isn't truly frontmost, your text lands in Spotlight or the wrong field. "
                 "Do NOT rely on a Spotlight launch (command+space) to also grab focus; "
                 "call activate_app to launch AND focus deterministically.\n"
+                "- REPLACING A FIELD IS ONE ATOMIC BATCH: click the field, select-all "
+                "(command+a), AND type_text the new value — all in the SAME turn. NEVER "
+                "end a batch right after a select-all: a text selection is lost the moment "
+                "the next turn re-focuses or re-clicks, so you will loop forever selecting "
+                "and never replacing. If you select text, you MUST type_text its "
+                "replacement in the same batch. click → select-all → type_text is "
+                "deterministic — chain it.\n"
+                "- DO NOT OVERWRITE CORRECT CONTENT. Compare each field on screen to the "
+                "goal AND to the keys you already pressed (history above). If a field "
+                "(recipient, subject, body) already holds the correct value — including "
+                "text you typed on an earlier turn — leave it ALONE and move to the next "
+                "unfinished field. Only clear/retype fields that are wrong or empty; never "
+                "re-do a field you already completed.\n"
                 "- DISMISS STRAY POPUPS. If you see an emoji/Character Viewer, Spotlight, "
                 "an autocomplete, or any overlay obstructing input, press 'escape' as the "
                 "FIRST action of the batch before doing anything else.\n"
@@ -333,21 +372,39 @@ class AgentSAdapter:
                 "you'll get a fresh screenshot next turn.\n"
                 "- Prefer the keyboard (hotkeys, Tab, typing, the address bar) over "
                 "clicking; it's far more reliable than pixel coordinates.\n"
+                "- To submit or load a URL, press Enter as a SEPARATE action "
+                "(pyautogui.press('enter')) AFTER typing. NEVER put a newline inside "
+                "typed text (e.g. typewrite('https://…\\n')) — type on one action, "
+                "press Enter on the next.\n"
                 "- IGNORE any code editor, terminal, or console window in the screenshot "
                 "(e.g. logs about an 'autonomous agent') — that is NOT part of your task; "
                 "judge progress only from the actual application you're driving.\n"
-                "- Do NOT repeat actions listed above as already performed. If the goal "
-                "is already satisfied by them (e.g. the email compose window is open with "
-                'its fields filled), return status "done" with empty actions.\n'
-                "- Each action is one line of Python using only `pyautogui`, `time`, and "
-                "`activate_app(name)` "
+                "- Do NOT repeat actions listed above as already performed.\n"
+                "- VERIFY BEFORE DONE: only return \"done\" when what is ON SCREEN "
+                "actually satisfies THIS goal's specifics — the right topic/subject, "
+                "recipient, and body. 'A draft exists' or 'the compose window is open "
+                "with fields filled' is NOT enough; the CONTENT must match the goal.\n"
+                "- STALE/LEFTOVER STATE: content from a PREVIOUS task (e.g. a draft on a "
+                "different topic or subject than asked) is NOT your work and does NOT "
+                "count as done — clear those fields and redo them for THIS goal. If you "
+                "see a draft whose subject/topic doesn't match the goal, overwrite it.\n"
+                "- TYPING TEXT: use type_text('the exact text') to enter any field text "
+                "(subjects, bodies, addresses). It pastes the text so capitalization, "
+                "punctuation and newlines come out EXACTLY as written. Do NOT use "
+                "pyautogui.typewrite for text — it mangles capitalization (holds Shift, "
+                "so 'Introduction' becomes 'INTRODUCTION'). Use pyautogui only for keys "
+                "and clicks (hotkey, press, click).\n"
+                "- Each action is one line of Python using only `pyautogui`, `time`, "
+                "`activate_app(name)`, and `type_text(text)` "
                 "(e.g. activate_app('Mail'); pyautogui.hotkey('command','n'); "
-                "pyautogui.typewrite('hi', interval=0.02); "
+                "type_text('Hello there'); "
                 "pyautogui.press('enter'); time.sleep(1); pyautogui.click(840, 220)).\n\n"
                 'Return ONLY JSON: {"observation": "what I actually see on screen now", '
                 '"reasoning": "...", "status": "continue|done|fail", '
                 '"actions": ["<python line>", ...]}\n'
-                'Use status "done" the moment the goal is achieved, "fail" if it cannot be done.'
+                'Use status "done" ONLY when the on-screen result matches the goal\'s '
+                'specifics; "fail" if it cannot be done. When unsure whether the content '
+                'truly matches, keep going ("continue") rather than declaring done.'
             )
 
             client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -377,7 +434,8 @@ class AgentSAdapter:
             # in the logs (not just a forward narrative from history).
             self.last_reasoning = f"[sees] {observation}\n{reasoning}" if observation else reasoning
             status = (plan.get("status") or "continue").lower()
-            actions = [a for a in (plan.get("actions") or []) if isinstance(a, str) and a.strip()]
+            actions = [_flatten_action(a) for a in (plan.get("actions") or [])
+                       if isinstance(a, str) and a.strip()]
 
             if status == "done":
                 return AutonomousStepResult(outcome="done", raw="DONE")
@@ -388,11 +446,18 @@ class AgentSAdapter:
                 return AutonomousStepResult(outcome="wait", raw="WAIT")
 
             code = "\n".join(actions)
-            # Remember what this turn did so the next turn won't repeat it. Use the
-            # action-level reasoning (not the observation) so history stays a record of
-            # what was DONE, while observation each turn comes fresh from the screenshot.
-            summary = reasoning or "; ".join(actions)
-            self._chain_history.append(summary[:200])
+            # Defensive: a malformed batch must not crash the run. If the assembled
+            # script won't compile, drop this turn and fall back so the loop
+            # re-observes next turn instead of raising.
+            try:
+                compile(code, "<agent_s_chain>", "exec")
+            except SyntaxError as se:
+                print(f"[agent_s] step {step_index}: dropping un-compilable batch "
+                      f"({se.msg}): {code!r}")
+                return None
+            # Remember the literal keys/actions this turn pressed so the next turn
+            # knows what it has already typed and won't overwrite a correct field.
+            self._chain_history.append(_history_record(actions, reasoning))
             print(f"[agent_s] autonomous step {step_index}: chained {len(actions)} actions in one request")
             return AutonomousStepResult(outcome="action", code=code, raw=code)
 
@@ -479,8 +544,9 @@ class AgentSAdapter:
 
             if self._chain_history:
                 history = (
-                    "Actions you have ALREADY performed in previous turns (do NOT "
-                    "repeat them — they are done):\n"
+                    "Keys/actions you have ALREADY pressed in previous turns (most "
+                    "recent last). Use this to know what you have already typed: do NOT "
+                    "re-type or overwrite a field whose value is already correct:\n"
                     + "\n".join(f"  turn {n}: {h}" for n, h in enumerate(self._chain_history))
                     + "\n\n"
                 )
@@ -565,8 +631,17 @@ class AgentSAdapter:
                 "fields, hotkeys, pressing Enter, short waits).\n"
                 "- STOP the batch before any action whose target only appears after a "
                 "previous action — you'll get a fresh screenshot next turn.\n"
+                "- TYPING TEXT: use type_text('the exact text') for field text — it "
+                "pastes so capitalization, punctuation and newlines are exact. Do NOT use "
+                "pyautogui.typewrite for text (it holds Shift and mangles capitalization, "
+                "e.g. 'Introduction' -> 'INTRODUCTION'); use pyautogui only for keys and "
+                "clicks.\n"
                 "- Prefer the keyboard (hotkeys, Tab, typing, the address bar) over "
                 "clicking; it's far more reliable than pixel coordinates.\n"
+                "- To submit or load a URL, press Enter as a SEPARATE action "
+                "(pyautogui.press('enter')) AFTER typing. NEVER put a newline inside "
+                "typed text (e.g. typewrite('https://…\\n')) — type on one action, "
+                "press Enter on the next.\n"
                 "- IGNORE any code editor, terminal, or console window in the screenshot "
                 "— that is NOT part of your task.\n"
                 "- ROUTING: set `next` to the key of the FIRST milestone above you have "
@@ -583,7 +658,9 @@ class AgentSAdapter:
                 '"actions": ["<python line>", ...], "next": "<node key|SAME|END>", '
                 '"completed": ["<node key>", ...], "branch": "<guard text or null>", '
                 '"extracted": {}}\n'
-                'Use status "done" only when the WHOLE workflow goal is achieved, '
+                'Use status "done" only when the WHOLE workflow goal is achieved and '
+                "the on-screen content matches the goal's specifics (not merely that a "
+                "draft/form exists, and not leftover content from a previous task); "
                 '"fail" if it cannot be done.'
             )
 
@@ -610,7 +687,8 @@ class AgentSAdapter:
 
             self.last_reasoning = (plan.get("reasoning") or "").strip()
             status = (plan.get("status") or "continue").lower()
-            actions = [a for a in (plan.get("actions") or []) if isinstance(a, str) and a.strip()]
+            actions = [_flatten_action(a) for a in (plan.get("actions") or [])
+                       if isinstance(a, str) and a.strip()]
             nxt = (plan.get("next") or "SAME").strip()
             branch = plan.get("branch") or None
             extracted = {k: str(v) for k, v in (plan.get("extracted") or {}).items()
@@ -618,11 +696,18 @@ class AgentSAdapter:
             completed = [str(k) for k in (plan.get("completed") or []) if isinstance(k, str)]
 
             if actions:
-                summary = self.last_reasoning or "; ".join(actions)
-                self._chain_history.append(summary[:200])
+                self._chain_history.append(_history_record(actions, self.last_reasoning))
                 print(f"[agent_s] workflow step {step_no}: chained {len(actions)} "
                       f"actions, completed={completed}, next={nxt}")
                 code = "\n".join(actions)
+                try:
+                    compile(code, "<agent_s_workflow_chain>", "exec")
+                except SyntaxError as se:
+                    print(f"[agent_s] workflow step {step_no}: dropping un-compilable "
+                          f"batch ({se.msg}): {code!r}")
+                    return AutonomousStepResult(outcome="wait", raw=self.last_reasoning or None,
+                                                next="SAME", branch=branch,
+                                                extracted=extracted, completed=completed)
                 return AutonomousStepResult(outcome="action", code=code, raw=code,
                                             next=nxt, branch=branch, extracted=extracted,
                                             completed=completed)

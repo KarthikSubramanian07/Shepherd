@@ -53,9 +53,18 @@ CONTINUATIONS — fold them into the milestone in progress.
 RULES:
   - Granularity: produce what a human would narrate. Typically 3-8 milestones.
     NEVER one per click; NEVER one blob for the whole run.
+  - BE SPECIFIC. `label` names the concrete action + its target (e.g. "Type
+    recipient address", "Click Compose", "Navigate to Gmail inbox") — NOT a vague
+    category like "Interact" or "Fill field". `detail` is a fuller one-line
+    description of what concretely happened across this milestone's steps.
   - Group consecutive steps serving one goal (filling several fields = one "Fill...").
   - A new-tab/app digression is its own milestone (e.g. "Research..."); the
     return-and-continue afterwards is a separate milestone.
+  - WRONG TURNS: a mis-click, a dead-end the run backs out of, a retry, or a
+    correction does NOT advance the task. Emit it as its own element flagged
+    "detour": true (covering its fine indices) so it is recorded as a mistake
+    AGAINST the milestone it interrupted — never as a forward step. Forward
+    milestones omit the flag (or set it false).
   - value = the salient payload (search term, URL host, record/field handled), else null.
   - Reuse a PRIOR milestone's exact label when this milestone is the same action
     as one already in the task graph (listed below) — this keeps the graph stable.
@@ -63,7 +72,10 @@ RULES:
 KIND must be one of: open | navigate | search | research | scan | fill | submit | verify | interact
 
 OUTPUT: ONLY a JSON array, no prose. Each element:
-  {"kind": "...", "label": "<=6 words, imperative", "value": <string|null>, "fine_start": <int>, "fine_end": <int>}
+  {"kind": "...", "label": "specific action, <=6 words, imperative",
+   "detail": "<fuller one-line description of what happened>",
+   "value": <string|null>, "detour": <bool — omit or false for forward steps>,
+   "fine_start": <int>, "fine_end": <int>}
 Cover every fine index in order with no gaps or overlaps
 (next.fine_start = prev.fine_end + 1; first.fine_start = the first index shown)."""
 
@@ -80,10 +92,10 @@ TRACE:
 6 hotkey cmd+return — "Submit form\""""
 _EX1_OUT = """\
 [
-  {"kind": "open", "label": "Open application form", "value": "demo-form", "fine_start": 0, "fine_end": 3},
-  {"kind": "fill", "label": "Fill applicant details", "value": null, "fine_start": 4, "fine_end": 4},
-  {"kind": "verify", "label": "Reach credential field", "value": "API key", "fine_start": 5, "fine_end": 5},
-  {"kind": "submit", "label": "Submit application", "value": null, "fine_start": 6, "fine_end": 6}
+  {"kind": "open", "label": "Open application form", "detail": "opened Chrome to the demo application form", "value": "demo-form", "fine_start": 0, "fine_end": 3},
+  {"kind": "fill", "label": "Fill applicant details", "detail": "filled first name, last name, email and phone", "value": null, "fine_start": 4, "fine_end": 4},
+  {"kind": "verify", "label": "Reach credential field", "detail": "tabbed onto the API key field (monitor trigger)", "value": "API key", "fine_start": 5, "fine_end": 5},
+  {"kind": "submit", "label": "Submit application", "detail": "submitted the form with cmd+return", "value": null, "fine_start": 6, "fine_end": 6}
 ]"""
 
 _EX2_IN = """\
@@ -104,11 +116,11 @@ TRACE:
 12 hotkey cmd+return — "Submit application\""""
 _EX2_OUT = """\
 [
-  {"kind": "open", "label": "Open grant application", "value": "grant-form", "fine_start": 0, "fine_end": 1},
-  {"kind": "fill", "label": "Fill organization details", "value": null, "fine_start": 2, "fine_end": 3},
-  {"kind": "research", "label": "Look up EIN", "value": "EIN", "fine_start": 4, "fine_end": 8},
-  {"kind": "fill", "label": "Complete application", "value": null, "fine_start": 9, "fine_end": 11},
-  {"kind": "submit", "label": "Submit application", "value": null, "fine_start": 12, "fine_end": 12}
+  {"kind": "open", "label": "Open grant application", "detail": "opened the grant application portal", "value": "grant-form", "fine_start": 0, "fine_end": 1},
+  {"kind": "fill", "label": "Fill organization details", "detail": "entered org name and year founded", "value": null, "fine_start": 2, "fine_end": 3},
+  {"kind": "research", "label": "Look up EIN", "detail": "opened a new tab, searched for the EIN, read it off the IRS record", "value": "EIN", "fine_start": 4, "fine_end": 8},
+  {"kind": "fill", "label": "Complete application", "detail": "switched back and entered the EIN and requested amount", "value": null, "fine_start": 9, "fine_end": 11},
+  {"kind": "submit", "label": "Submit application", "detail": "submitted the completed application", "value": null, "fine_start": 12, "fine_end": 12}
 ]"""
 
 _EX3_IN = """\
@@ -124,13 +136,11 @@ TRACE:
 7 wait — "scan: dashboard loaded\""""
 _EX3_OUT = """\
 [
-  {"kind": "open", "label": "Open portal", "value": "portal", "fine_start": 0, "fine_end": 0},
-  {"kind": "fill", "label": "Enter credentials", "value": null, "fine_start": 1, "fine_end": 2},
-  {"kind": "submit", "label": "Sign in", "value": null, "fine_start": 3, "fine_end": 3},
-  {"kind": "verify", "label": "Sign-in rejected", "value": "invalid password", "fine_start": 4, "fine_end": 4},
-  {"kind": "fill", "label": "Re-enter password", "value": null, "fine_start": 5, "fine_end": 5},
-  {"kind": "submit", "label": "Retry sign in", "value": null, "fine_start": 6, "fine_end": 6},
-  {"kind": "scan", "label": "Dashboard loaded", "value": null, "fine_start": 7, "fine_end": 7}
+  {"kind": "open", "label": "Open portal", "detail": "opened the login portal in Chrome", "value": "portal", "fine_start": 0, "fine_end": 0},
+  {"kind": "fill", "label": "Enter credentials", "detail": "typed the email and password", "value": "user@x.com", "fine_start": 1, "fine_end": 2},
+  {"kind": "submit", "label": "Sign in", "detail": "submitted the login form", "value": null, "fine_start": 3, "fine_end": 3},
+  {"kind": "fill", "label": "Fix rejected password", "detail": "first password was rejected; re-entered the correct one and resubmitted", "value": "invalid password", "detour": true, "fine_start": 4, "fine_end": 6},
+  {"kind": "scan", "label": "Dashboard loaded", "detail": "dashboard loaded after the retry", "value": null, "fine_start": 7, "fine_end": 7}
 ]"""
 
 _FEWSHOT = [
@@ -228,6 +238,8 @@ def _parse(data: list, n_steps: int, prior_labels: list[str]) -> list[dict]:
             "kind": kind,
             "label": label,
             "value": item.get("value") or None,
+            "detail": str(item.get("detail") or "")[:200],
+            "detour": bool(item.get("detour")),
             "fine": max(1, fe - fs + 1),
             "fine_start": fs,
             "fine_end": fe,
@@ -257,6 +269,7 @@ def _heuristic_segment(steps, variables: dict) -> list[dict]:
     for m in heur:
         out.append({
             "kind": m["kind"], "label": m["label"], "value": m["value"],
+            "detail": "", "detour": False,
             "fine": m["fine"], "fine_start": idx, "fine_end": idx + m["fine"] - 1,
         })
         idx += m["fine"]

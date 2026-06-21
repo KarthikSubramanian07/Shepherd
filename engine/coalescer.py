@@ -16,7 +16,7 @@ import queue
 import threading
 
 from shepherd_types import RunTrace
-from engine.task_graph import TaskGraphStore, milestone_key
+from engine.task_graph import TaskGraphStore, milestone_key, compress_to_correct_path
 from engine.milestones import segment
 from engine import trace_journal, workflow_edit
 from dashboard.events import event_bus
@@ -83,29 +83,27 @@ def _coalesce(trace: RunTrace) -> None:
     prior_labels = [n.label for n in graph.nodes]
 
     executed_ms = segment(trace.executed, trace.variables, prior_labels=prior_labels)
-    _fill_intervention_node_keys(trace, executed_ms)
 
-    # Dedupe within this run so times_seen counts runs, not intra-run repeats.
-    unique_ms: list[dict] = []
-    by_key: dict[str, dict] = {}
-    for m in executed_ms:
-        key = milestone_key(m["kind"], m["value"], m["label"])
-        if key in by_key:
-            by_key[key]["fine"] += m["fine"]
-        else:
-            by_key[key] = dict(m)
-            unique_ms.append(by_key[key])
+    # Compress wrong turns into the milestone they backed out to: the graph stores
+    # the canonical FORWARD path (each node the next correct step), not the
+    # fumbling. This also dedupes within the run — a key appears once — so
+    # times_seen counts runs, not intra-run repeats.
+    path_ms = compress_to_correct_path(executed_ms)
+    _fill_intervention_node_keys(trace, path_ms)
 
     appended = 0
-    for m in unique_ms:
+    for m in path_ms:
         kind, _node = _store.record_milestone(
-            graph, m["kind"], m["label"], m["value"], m["fine"], trace.status, trace.run_id)
+            graph, m["kind"], m["label"], m["value"], m["fine"], trace.status, trace.run_id,
+            detail=m.get("detail", ""), mistakes=m.get("mistakes"))
         if kind == "appended" and was_known:
             appended += 1
 
-    # Link consecutive milestones (in executed order) into the workflow DAG.
+    # Link consecutive forward milestones into the workflow DAG. A shared node
+    # whose successor differs across runs becomes a genuine branch point; a
+    # matching path reinforces the existing edge.
     ordered_keys = [
-        milestone_key(m["kind"], m["value"], m["label"]) for m in executed_ms
+        milestone_key(m["kind"], m["value"], m["label"]) for m in path_ms
     ]
     for from_key, to_key in zip(ordered_keys, ordered_keys[1:]):
         _store.record_edge(graph, from_key, to_key, trace.run_id)
@@ -124,7 +122,8 @@ def _coalesce(trace: RunTrace) -> None:
         "node_count": len(graph.nodes),
         "edge_count": len(graph.edges),
         "appended":   appended,
-        "milestones": [m["label"] for m in unique_ms],
+        "compressed": len(executed_ms) - len(path_ms),
+        "milestones": [m["label"] for m in path_ms],
         "mode":       "edit" if (was_known and trace.interventions) else "create",
         "baked_ops":  applied_ops,
     })

@@ -165,11 +165,15 @@ class TaskGraphNode:
     """
     key: str                          # stable signature: kind::value::label
     kind: str                         # open|navigate|search|scan|fill|submit|interact
-    label: str                        # human label, e.g. "Search: AI agent safety"
+    label: str                        # specific action label, e.g. "Type recipient address"
     value: Optional[str] = None       # captured payload (search term, URL host, …)
+    detail: str = ""                  # fuller one-line description of the concrete action(s)
     times_seen: int = 0
     last_status: Optional[str] = None
     fine_steps: int = 0               # # of clicks that collapsed into this milestone
+    # Wrong turns the run took WHILE on this milestone (detours it backed out of /
+    # corrected). Recorded at the node the mistake BEGAN from, not as their own nodes.
+    mistakes: list[str] = field(default_factory=list)
     first_run_id: str = ""
     last_run_id: str = ""
     # ── taught / workflow layer ────────────────────────────────────────────────

@@ -34,12 +34,17 @@ interface MilestoneData {
   label: string;
   kind: string;
   value: string | null;
+  detail: string | null;
+  mistakes: string[];
+  fineSteps: number;
   timesSeen: number;
   taught: boolean;
   procedure: string | null;
   conditionals: Conditional[];
   stat: NodeStat;
 }
+
+const MISTAKE_COLOR = "#dc2626"; // wrong turns recorded against this milestone
 
 function MilestoneNode(props: NodeProps) {
   const data = props.data as unknown as MilestoneData;
@@ -55,8 +60,8 @@ function MilestoneNode(props: NodeProps) {
       className="rounded-xl border bg-panel px-4 py-3 shadow-lg"
       style={{
         borderColor,
-        minWidth: 210,
-        maxWidth: 280,
+        minWidth: 230,
+        maxWidth: 300,
         boxShadow: data.taught
           ? `0 0 0 1px ${TAUGHT_COLOR}55`
           : stat.onModalPath
@@ -85,8 +90,35 @@ function MilestoneNode(props: NodeProps) {
         )}
       </div>
       <div className="mt-1.5 text-sm font-medium text-ink">{data.label}</div>
+      {data.detail && (
+        <div className="mt-1 text-[11px] leading-snug text-muted">{data.detail}</div>
+      )}
       {data.value && (
-        <div className="mt-0.5 max-w-[190px] truncate text-[11px] text-muted">{data.value}</div>
+        <div className="mt-1 max-w-[250px] truncate font-mono text-[11px] text-ink/80">
+          {data.value}
+        </div>
+      )}
+      {data.fineSteps > 0 && (
+        <div className="mt-1 text-[10px] text-muted">
+          {data.fineSteps} action{data.fineSteps === 1 ? "" : "s"}
+        </div>
+      )}
+
+      {data.mistakes.length > 0 && (
+        <div
+          className="mt-2 rounded-md px-2 py-1 text-[10px] leading-snug"
+          style={{ background: `${MISTAKE_COLOR}14`, color: MISTAKE_COLOR }}
+          title="Wrong turns the run took here and backed out of"
+        >
+          <span className="font-semibold">
+            ⚠ {data.mistakes.length} wrong turn{data.mistakes.length === 1 ? "" : "s"}:
+          </span>
+          <ul className="mt-0.5 list-disc space-y-0.5 pl-3.5">
+            {data.mistakes.map((mk, i) => (
+              <li key={i}>{mk}</li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* Graph-theoretic role: decision point (with branch entropy) / merge */}
@@ -189,6 +221,9 @@ export function TaskGraphView({ graph }: { graph: TaskGraph }) {
         label: n.label,
         kind: n.kind,
         value: n.value,
+        detail: n.detail ?? null,
+        mistakes: n.mistakes ?? [],
+        fineSteps: n.fine_steps,
         timesSeen: n.times_seen,
         taught: n.source === "taught",
         procedure: n.procedure ?? null,

@@ -129,6 +129,74 @@ def summarize(steps, variables: dict):
     return milestones, mapping
 
 
+def _mistake_label(m: dict) -> str:
+    """Concise description of a wrong turn, for recording on the node it began from."""
+    lbl = (m.get("label") or m.get("kind") or "action").strip()
+    val = (m.get("value") or "").strip()
+    return f"{lbl} ({val})" if val else lbl
+
+
+def compress_to_correct_path(milestones: list[dict]) -> list[dict]:
+    """
+    Reduce an executed milestone sequence to its canonical FORWARD path, recording
+    the wrong turns onto the milestone they began from.
+
+    A run wanders: it takes a wrong turn, notices, and backs out. Those detours are
+    not separate paths through the workflow — they are fumbling *inside* one step.
+    Two signals mark one:
+      • an explicit `detour: true` flag from the segmenter, or
+      • a BACKTRACK — the run returns to a milestone already on the path (everything
+        attempted in between was a detour).
+    Either way the detour is folded BACK INTO the milestone the run was on when it
+    began: that node's fine-step count + index range absorb the detour (so cost is
+    kept and index coverage stays contiguous), and the detour's description is
+    appended to the node's `mistakes` — but no detour node or back-edge is emitted.
+
+    The result is a chain of distinct, forward-advancing milestones — each the
+    "next correct step" — which a later run reinforces (a matching key edits the
+    node) or diverges from (a new edge off a shared node is a branch).
+
+    Pure + deterministic. In/out shape is segment()'s milestone dict
+    ({kind,label,value,detail,fine,fine_start,fine_end} (+ optional `detour`)).
+    """
+    chain: list[dict] = []
+    seen: dict[str, int] = {}   # milestone key -> its index in `chain`
+
+    def _absorb(into: dict, detour: dict, *, mistake: bool) -> None:
+        # Fold a detour's cost into the surviving node; never change its key
+        # (kind/value/label stay fixed so `seen` and node identity hold).
+        into["fine"] += detour["fine"]
+        into["fine_start"] = min(into["fine_start"], detour["fine_start"])
+        into["fine_end"]   = max(into["fine_end"], detour["fine_end"])
+        if mistake:
+            into.setdefault("mistakes", []).append(_mistake_label(detour))
+
+    for m in milestones:
+        # Explicit detour: not a step of its own — record it on the milestone the
+        # run is currently on (where the mistake began) and move on.
+        if m.get("detour"):
+            if chain:
+                _absorb(chain[-1], m, mistake=True)
+            continue
+
+        key = milestone_key(m["kind"], m["value"], m["label"])
+        p = seen.get(key)
+        if p is not None:
+            # Backtrack: the nodes after `p` were a wrong turn taken WHILE on `p`.
+            # Record them as mistakes on `p`; fold the revisit itself as cost only.
+            for d in chain[p + 1:]:
+                _absorb(chain[p], d, mistake=True)
+                seen.pop(milestone_key(d["kind"], d["value"], d["label"]), None)
+            _absorb(chain[p], m, mistake=False)
+            del chain[p + 1:]
+        else:
+            node = dict(m)
+            node.pop("detour", None)
+            chain.append(node)
+            seen[key] = len(chain) - 1
+    return chain
+
+
 class TaskGraphStore:
     def __init__(self, path: str = _PATH) -> None:
         self._path = path
@@ -176,19 +244,32 @@ class TaskGraphStore:
 
     # ── mutation (boundary-only) ────────────────────────────────────────────────
     def record_milestone(self, graph: TaskGraph, kind: str, label: str, value,
-                         fine_steps: int, status: str, run_id: str) -> tuple[str, TaskGraphNode]:
-        """Merge a milestone into the graph. Returns ('matched'|'appended', node)."""
+                         fine_steps: int, status: str, run_id: str,
+                         detail: str = "", mistakes: Optional[list[str]] = None
+                         ) -> tuple[str, TaskGraphNode]:
+        """Merge a milestone into the graph. Returns ('matched'|'appended', node).
+
+        `detail` is a fuller one-line description of the concrete action; `mistakes`
+        are wrong turns the run made while on this milestone — accumulated across
+        runs (deduped) so a recurringly error-prone step shows its failure modes.
+        """
         key = milestone_key(kind, value, label)
+        mistakes = mistakes or []
         existing = self.node_by_key(graph, key)
         if existing is not None:
             existing.times_seen += 1
             existing.last_status = status
             existing.fine_steps  = fine_steps
             existing.last_run_id = run_id
+            if detail:
+                existing.detail = detail
+            if mistakes:
+                existing.mistakes = sorted(set(existing.mistakes) | set(mistakes))
             return "matched", existing
         node = TaskGraphNode(
-            key=key, kind=kind, label=label, value=value,
+            key=key, kind=kind, label=label, value=value, detail=detail,
             times_seen=1, last_status=status, fine_steps=fine_steps,
+            mistakes=list(mistakes),
             first_run_id=run_id, last_run_id=run_id,
             instruction=label, source="observed",
         )
@@ -260,9 +341,11 @@ def serialize_node(n: TaskGraphNode) -> dict:
         "kind":         n.kind,
         "label":        n.label,
         "value":        n.value,
+        "detail":       n.detail,
         "times_seen":   n.times_seen,
         "last_status":  n.last_status,
         "fine_steps":   n.fine_steps,
+        "mistakes":     n.mistakes,
         "first_run_id": n.first_run_id,
         "last_run_id":  n.last_run_id,
         "instruction":  n.instruction,
@@ -331,8 +414,10 @@ def _node_from_raw(n: dict) -> TaskGraphNode:
     fields existed (they default cleanly)."""
     return TaskGraphNode(
         key=n["key"], kind=n["kind"], label=n["label"], value=n.get("value"),
+        detail=n.get("detail", ""),
         times_seen=n.get("times_seen", 0), last_status=n.get("last_status"),
         fine_steps=n.get("fine_steps", 0),
+        mistakes=n.get("mistakes", []),
         first_run_id=n.get("first_run_id", ""), last_run_id=n.get("last_run_id", ""),
         instruction=n.get("instruction") or n["label"],
         requires=n.get("requires", []),

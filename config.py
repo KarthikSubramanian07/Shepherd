@@ -104,7 +104,9 @@ class Settings(BaseSettings):
     # instead of one action per turn. Falls back to single-action Agent S if off
     # or if the chained planner is unavailable.
     autonomous_chain: bool = True
-    autonomous_chain_max: int = 3   # max actions/request — small so a focus slip can't cascade
+    autonomous_chain_max: int = 5   # max actions/request — must fit a full field replace
+                                    # (activate + click + select-all + type + confirm); too
+                                    # small and the model defers the type and loops forever
     # Print every workflow event (routing, planning, steps, monitor, graph, halts)
     # to stdout. Comprehensive terminal logging; turn off for a quiet console.
     console_log: bool = True

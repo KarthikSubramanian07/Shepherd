@@ -75,6 +75,31 @@ def activate_app(name: str, settle: float = 1.2) -> None:
     time.sleep(settle)
 
 
+def type_text(text: str) -> None:
+    """Reliable text entry for the autonomous agent — paste via the macOS clipboard
+    (pbcopy + AppleScript Cmd+V) instead of typing character-by-character.
+
+    pyautogui.typewrite holds Shift to make capitals; at low intervals the release
+    lags, so letters after a capital stay uppercase ('Introduction' -> 'INTRODUCTION')
+    until it catches up. Pasting sends no per-character keystrokes, so capitalization,
+    punctuation and newlines come out exactly as written. Falls back to typewrite if
+    the clipboard path fails. The focused field must already be active (click/select
+    first), same as typewrite."""
+    if not text:
+        return
+    try:
+        subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True, timeout=5)
+        time.sleep(0.1)
+        subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to keystroke "v" using command down'],
+            check=False, timeout=5,
+        )
+    except Exception as e:
+        print(f"[engine] type_text paste failed ({e}); falling back to typewrite")
+        pyautogui.typewrite(text, interval=0.05)
+
+
 class ShepherdExecutionEngine:
     def __init__(
         self,
@@ -1473,6 +1498,7 @@ class ShepherdExecutionEngine:
                 "pyautogui": pyautogui,
                 "time": time,
                 "activate_app": activate_app,
+                "type_text": type_text,
             },
         )
 
