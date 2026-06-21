@@ -23,3 +23,6 @@ agent_config.yaml
 # SimuLang replay runtime (npx tsx resolves @simular-ai/simulang-js here)
 /node_modules/
 /package-lock.json
+
+# Overlay Electron HUD — install with: cd overlay && npm install
+overlay/node_modules/
