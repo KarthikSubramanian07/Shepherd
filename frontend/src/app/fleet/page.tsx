@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Activity, ChevronDown, ChevronRight, Cpu, Globe, Loader2, MessageSquareText, Plus, Rocket, Square, Trash2, Users, X } from "lucide-react";
-import { api, type FleetAgentTrace, type FleetSnapshot } from "@/lib/api";
+import { api, type FleetSnapshot } from "@/lib/api";
+import type { RemoteTrace } from "@/lib/coordinator";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, CardBody, CardHeader } from "@/components/ui/primitives";
 import { TraceGraph } from "@/components/graph/TraceGraph";
@@ -35,7 +36,7 @@ export default function FleetPage() {
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [traceOpen, setTraceOpen] = useState<Record<string, boolean>>({});
-  const [traces, setTraces] = useState<Record<string, FleetAgentTrace>>({});
+  const [traces, setTraces] = useState<Record<string, RemoteTrace>>({});
   const idRef = useRef(1);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const traceTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -61,19 +62,23 @@ export default function FleetPage() {
       .filter(([, v]) => v)
       .map(([k]) => k);
     if (openIds.length === 0) return;
-    const results = await Promise.all(
-      openIds.map(async (id) => {
-        const tr = await api.getAgentTrace(id);
-        return [id, tr] as const;
-      }),
-    );
-    setTraces((prev) => {
-      const next = { ...prev };
-      for (const [id, tr] of results) {
-        if (tr) next[id] = tr;
-      }
-      return next;
-    });
+    try {
+      const results = await Promise.all(
+        openIds.map(async (id) => {
+          const tr = await api.getAgentTrace(id);
+          return [id, tr] as const;
+        }),
+      );
+      setTraces((prev) => {
+        const next = { ...prev };
+        for (const [id, tr] of results) {
+          if (tr) next[id] = tr;
+        }
+        return next;
+      });
+    } catch {
+      // Backend unreachable — keep existing traces, retry on next interval.
+    }
   }, [traceOpen]);
 
   useEffect(() => {
@@ -290,7 +295,7 @@ export default function FleetPage() {
                     {traceOpen[a.agent_id] && traces[a.agent_id] && (
                       <div className="mt-2 h-[320px] rounded-lg border border-edge bg-panel2/40">
                         <TraceGraph
-                          trace={traces[a.agent_id] as Parameters<typeof TraceGraph>[0]["trace"]}
+                          trace={traces[a.agent_id]}
                           nodeShots={{}}
                         />
                       </div>

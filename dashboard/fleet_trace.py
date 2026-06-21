@@ -19,6 +19,7 @@ from dashboard.events import event_bus
 
 # ── trace bookkeeping (mirrors coordinator/server.py::_new_trace) ─────────
 _MAX_TRACE_NODES = 2000
+_MAX_FINISHED_TRACES = 200
 
 _lock = threading.Lock()
 # agent_id → trace dict
@@ -90,6 +91,7 @@ def _on_event(message: dict) -> None:
         if tr:
             tr["status"] = d.get("status", "completed")
             tr["current"] = None
+        _evict_finished()
         return
 
     if t in ("execution.halted", "execution.suspended"):
@@ -158,6 +160,21 @@ def _on_event(message: dict) -> None:
 
 # ── public API ────────────────────────────────────────────────────────────
 
+def _evict_finished() -> None:
+    """Drop the oldest finished traces when we exceed the cap."""
+    with _lock:
+        finished = [(k, v) for k, v in _traces.items()
+                    if v.get("status") not in ("running", None)]
+        excess = len(finished) - _MAX_FINISHED_TRACES
+        if excess <= 0:
+            return
+        for aid, tr in finished[:excess]:
+            _traces.pop(aid, None)
+            rid = tr.get("run_id")
+            if rid:
+                _run_to_agent.pop(rid, None)
+
+
 def get_trace(agent_id: str) -> Optional[dict]:
     """Return a roster-safe snapshot of the trace for *agent_id*, or None."""
     with _lock:
@@ -171,7 +188,7 @@ def get_trace(agent_id: str) -> Optional[dict]:
         "known":     tr.get("known"),
         "status":    tr.get("status", "running"),
         "current":   tr.get("current"),
-        "nodes":     list(tr.get("nodes", [])),
+        "nodes":     [dict(n) for n in tr.get("nodes", [])],
     }
 
 

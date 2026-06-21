@@ -15,6 +15,7 @@ import type {
   RunSummary,
   TaskGraph,
 } from "./types";
+import type { RemoteTrace } from "./coordinator";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
@@ -282,7 +283,7 @@ export const api = {
     const res = await fetch(`${BACKEND}/api/fleet/halt_all`, { method: "POST" });
     return res.json().catch(() => ({ ok: false }));
   },
-  getAgentTrace: async (agentId: string): Promise<FleetAgentTrace | null> => {
+  getAgentTrace: async (agentId: string): Promise<RemoteTrace | null> => {
     const res = await fetch(`${BACKEND}/api/fleet/${agentId}/trace`, { cache: "no-store" });
     const body = await res.json().catch(() => null);
     return body?.trace ?? null;
@@ -317,27 +318,6 @@ export interface FleetSnapshot {
   queue: QueueSurface[];
   max_agents?: number;
   active?: number;
-}
-
-export interface FleetTraceNode {
-  index: number;
-  action?: string;
-  description?: string;
-  thinking?: string;
-  status?: "pending" | "running" | "completed" | "failed" | "error";
-  durationMs?: number;
-  error?: string;
-  note?: string;
-}
-
-export interface FleetAgentTrace {
-  runId: string | null;
-  routineId: string | null;
-  kind?: string | null;
-  known: boolean | null;
-  status?: string;
-  current: number | null;
-  nodes: FleetTraceNode[];
 }
 
 export type Api = typeof api;
