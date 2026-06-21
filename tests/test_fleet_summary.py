@@ -34,13 +34,11 @@ def test_recent_steps_accumulated_from_step_start():
     hub = Hub()
     conn = _conn()
 
-    # Patch generate_title_async to avoid real LLM calls.
-    with patch("coordinator.server.generate_title_async"):
-        hub.apply_event(conn, _ev("execution.start", run_id="R1", goal="test goal"))
-        hub.apply_event(conn, _ev("step.start", index=0, description="Open browser", total=5))
-        hub.apply_event(conn, _ev("step.start", index=1, description="Navigate to site", total=5))
-        hub.apply_event(conn, _ev("step.start", index=2, description="Click login", total=5))
-        hub.apply_event(conn, _ev("step.start", index=3, description="Enter credentials", total=5))
+    hub.apply_event(conn, _ev("execution.start", run_id="R1", goal="test goal"))
+    hub.apply_event(conn, _ev("step.start", index=0, description="Open browser", total=5))
+    hub.apply_event(conn, _ev("step.start", index=1, description="Navigate to site", total=5))
+    hub.apply_event(conn, _ev("step.start", index=2, description="Click login", total=5))
+    hub.apply_event(conn, _ev("step.start", index=3, description="Enter credentials", total=5))
 
     snap = conn.snapshot()
     steps = snap["recentSteps"]
@@ -56,13 +54,12 @@ def test_recent_steps_reset_on_new_execution():
     hub = Hub()
     conn = _conn()
 
-    with patch("coordinator.server.generate_title_async"):
-        hub.apply_event(conn, _ev("execution.start", run_id="R1", goal="first run"))
-        hub.apply_event(conn, _ev("step.start", index=0, description="Step A"))
-        assert len(conn.snapshot()["recentSteps"]) == 1
+    hub.apply_event(conn, _ev("execution.start", run_id="R1", goal="first run"))
+    hub.apply_event(conn, _ev("step.start", index=0, description="Step A"))
+    assert len(conn.snapshot()["recentSteps"]) == 1
 
-        hub.apply_event(conn, _ev("execution.start", run_id="R2", goal="second run"))
-        assert conn.snapshot()["recentSteps"] == []
+    hub.apply_event(conn, _ev("execution.start", run_id="R2", goal="second run"))
+    assert conn.snapshot()["recentSteps"] == []
 
 
 def test_title_generation_triggered_on_execution_start():
@@ -100,14 +97,14 @@ def test_title_not_regenerated_after_first_trigger():
         assert mock_gen.call_count == 1
 
 
-def test_title_fallback_truncation():
-    """The fallback truncation produces a sane short title."""
+def test_title_truncation():
+    """Truncation produces a sane short title."""
     short = "Apply to job"
     assert _truncate_goal(short) == short
 
-    long = "This is a very long goal description that goes on and on about what the agent should do"
+    long = "This is a very long goal description that goes on and on about what the agent should do right now"
     result = _truncate_goal(long)
-    assert len(result) <= 55  # _FALLBACK_TRUNC + "…"
+    assert len(result) <= 65  # _MAX_TITLE_LEN + "…"
     assert result.endswith("…")
 
 
@@ -119,6 +116,20 @@ def test_intent_received_captures_goal_text():
     assert conn._goal_text == "apply to the job"
 
 
+def test_default_title_uses_raw_intent_text():
+    """With TITLE_GEN_LLM off (default), title is the raw intent/goal text."""
+    from coordinator.title_gen import generate_title_async
+
+    conn = _conn()
+    conn.run_id = "R1"
+
+    # Default path: no LLM, just use the goal text directly.
+    with patch("coordinator.title_gen.TITLE_GEN_LLM", False):
+        generate_title_async(conn, "apply to the Acme SWE role")
+
+    assert conn.title == "apply to the Acme SWE role"
+
+
 def test_title_gen_sync_fallback_when_llm_unavailable():
     """When LLM is not available, falls back to truncated goal."""
     from coordinator.title_gen import _generate_title_sync
@@ -128,17 +139,17 @@ def test_title_gen_sync_fallback_when_llm_unavailable():
         assert result == "Apply to the Acme SWE position"
 
 
-def test_generate_title_async_sets_conn_title():
-    """The async generator sets conn.title after completion."""
+def test_generate_title_async_llm_mode():
+    """With TITLE_GEN_LLM on, title is set asynchronously via LLM."""
     from coordinator.title_gen import generate_title_async
 
     conn = _conn()
     conn.run_id = "R1"
 
-    with patch("coordinator.title_gen._generate_title_sync", return_value="Applying to Acme"):
+    with patch("coordinator.title_gen.TITLE_GEN_LLM", True), \
+         patch("coordinator.title_gen._generate_title_sync", return_value="Applying to Acme"):
         async def _run():
             generate_title_async(conn, "apply to acme")
-            # Yield control so the created task can complete.
             await asyncio.sleep(0)
             await asyncio.sleep(0)
         asyncio.run(_run())
@@ -147,13 +158,14 @@ def test_generate_title_async_sets_conn_title():
 
 
 def test_generate_title_async_skips_stale_write():
-    """If a new run starts before title gen finishes, the write is skipped."""
+    """If a new run starts before LLM title gen finishes, the write is skipped."""
     from coordinator.title_gen import generate_title_async
 
     conn = _conn()
     conn.run_id = "R1"
 
-    with patch("coordinator.title_gen._generate_title_sync", return_value="Old title"):
+    with patch("coordinator.title_gen.TITLE_GEN_LLM", True), \
+         patch("coordinator.title_gen._generate_title_sync", return_value="Old title"):
         async def _run():
             generate_title_async(conn, "old goal")
             # Simulate a new run starting before the task completes.
@@ -165,3 +177,25 @@ def test_generate_title_async_skips_stale_write():
 
     # The stale title should NOT have been written.
     assert conn.title is None
+
+
+def test_title_set_immediately_in_snapshot():
+    """With default config, title appears in snapshot right after execution.start."""
+    hub = Hub()
+    conn = _conn()
+
+    hub.apply_event(conn, _ev("execution.start", run_id="R1", goal="Book flight to NYC"))
+    snap = conn.snapshot()
+    assert snap["title"] == "Book flight to NYC"
+
+
+def test_intent_text_preserved_through_execution_start():
+    """intent.received goal text persists into execution.start for title."""
+    hub = Hub()
+    conn = _conn()
+
+    hub.apply_event(conn, _ev("intent.received", raw_text="apply to the job", source="cli"))
+    hub.apply_event(conn, _ev("execution.start", run_id="R1"))
+
+    snap = conn.snapshot()
+    assert snap["title"] == "apply to the job"
