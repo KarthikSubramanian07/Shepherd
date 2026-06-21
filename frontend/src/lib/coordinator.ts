@@ -164,6 +164,9 @@ export interface CoordinatorState {
   frameTs: number;
 }
 
+/** Callback for WebRTC signaling messages arriving from the coordinator. */
+export type WebRTCSignalHandler = (type: string, agentId: string, data: unknown) => void;
+
 export interface CoordinatorApi extends CoordinatorState {
   watch: (agentId: string) => void;
   sendCommand: (
@@ -171,6 +174,10 @@ export interface CoordinatorApi extends CoordinatorState {
     command: RemoteCommand,
     payload?: Record<string, unknown>,
   ) => void;
+  /** Send a WebRTC signaling message to an agent through the coordinator. */
+  sendSignal: (agentId: string, type: string, data: unknown) => void;
+  /** Register a handler for incoming WebRTC signals (offer/answer/ice). */
+  onWebRTCSignal: (handler: WebRTCSignalHandler | null) => void;
   selected: RemoteAgent | null;
   /** Per-milestone screenshots captured from the live frame stream, keyed by
    * workflow node key, for the currently watched agent. */
@@ -199,6 +206,7 @@ export function useCoordinator(): CoordinatorApi {
   const nodeShotsRef = useRef<Map<string, Map<string, string>>>(new Map());
   const [, bump] = useReducer((n: number) => n + 1, 0);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const webrtcHandlerRef = useRef<WebRTCSignalHandler | null>(null);
 
   // Restore the last-used code from the browser before the first connect.
   useEffect(() => {
@@ -267,6 +275,11 @@ export function useCoordinator(): CoordinatorApi {
         frameRef.current = url;
         setFrame(url);
         setFrameTs(msg.ts ?? Date.now());
+      } else if (
+        (msg.type === "webrtc.offer" || msg.type === "webrtc.answer" || msg.type === "webrtc.ice") &&
+        msg.agent_id
+      ) {
+        webrtcHandlerRef.current?.(msg.type, msg.agent_id, msg.data);
       }
     };
 
@@ -331,6 +344,20 @@ export function useCoordinator(): CoordinatorApi {
     [],
   );
 
+  const sendSignal = useCallback(
+    (agentId: string, type: string, data: unknown) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type, agent_id: agentId, data }));
+      }
+    },
+    [],
+  );
+
+  const onWebRTCSignal = useCallback((handler: WebRTCSignalHandler | null) => {
+    webrtcHandlerRef.current = handler;
+  }, []);
+
   const events = selectedId ? eventsRef.current.get(selectedId) ?? [] : [];
   const selected = agents.find((a) => a.id === selectedId) ?? null;
   const nodeShots: Record<string, string> = selectedId
@@ -346,6 +373,8 @@ export function useCoordinator(): CoordinatorApi {
     frameTs,
     watch,
     sendCommand,
+    sendSignal,
+    onWebRTCSignal,
     selected,
     nodeShots,
     code,

@@ -2,12 +2,13 @@
 
 Demonstrate one machine monitoring and operating another through the Shepherd Coordinator relay.
 
-Two deployment topologies are documented below:
+Three deployment topologies are documented below:
 
 | Topology | Cost | Exposure | Best for |
 |----------|------|----------|----------|
-| **Tailscale private mesh** (recommended) | Free | None (private) | Development, demos, teams |
-| **Hosted coordinator** (VPS + Caddy) | ~€4/mo | Public `wss://` | Public/multi-network deployments |
+| **Cloudflare Tunnel** (recommended) | Free | Public `wss://`, unlimited BW | Hackathons, demos, any network |
+| **Tailscale private mesh** | Free | None (private) | Development, same-tailnet teams |
+| **Hosted coordinator** (VPS + Caddy) | ~€4/mo | Public `wss://` | Permanent public deployments |
 
 ---
 
@@ -28,7 +29,117 @@ playwright install chromium
 
 ---
 
-## Topology 1: Tailscale Private Mesh (Recommended — Free)
+## Topology 1: Cloudflare Tunnel (Recommended — Free, Unlimited Bandwidth)
+
+Zero config, no domain needed, unlimited bandwidth, automatic TLS + WebSocket support. The coordinator runs on your machine; Cloudflare tunnels traffic to it from a public URL.
+
+### Why This Works
+
+Cloudflare Quick Tunnels give you a random `https://*.trycloudflare.com` URL that proxies all traffic (including WebSockets) to your local port — for free, with no bandwidth cap. The URL stays stable as long as `cloudflared` is running. A keepalive wrapper script auto-restarts it if it drops.
+
+### Machines
+
+| Role | Description |
+|------|-------------|
+| **Machine A** (coordinator + operated) | Runs the coordinator, the operated agent, AND `cloudflared`. |
+| **Machine B** (operator) | Runs the Command Center UI in a browser. Connects to the tunnel URL. |
+
+### Step 1: Install cloudflared (Machine A)
+
+```bash
+# Linux (Debian/Ubuntu)
+curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+  -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared
+
+# macOS
+brew install cloudflare/cloudflare/cloudflared
+
+# Windows — download from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+```
+
+### Step 2: Start the Coordinator (Machine A)
+
+```bash
+cd shepherd
+
+export COORDINATOR_TOKEN="my-demo-secret"
+export COORDINATOR_PORT=8770
+
+# Start the coordinator
+.venv/bin/python -m coordinator
+```
+
+### Step 3: Start the Tunnel (Machine A, second terminal)
+
+```bash
+cd shepherd
+
+# Option A: One-liner (restarts manually if it dies)
+cloudflared tunnel --url http://localhost:8770
+
+# Option B: Auto-restart wrapper (recommended)
+./scripts/tunnel.sh
+```
+
+The script prints the public URL:
+
+```
+==============================================
+  COORDINATOR URL: https://random-words-here.trycloudflare.com
+==============================================
+
+  Set in frontend/.env.local:
+    NEXT_PUBLIC_COORDINATOR_URL=https://random-words-here.trycloudflare.com
+
+  Set on operated machine:
+    COORDINATOR_URL=https://random-words-here.trycloudflare.com
+```
+
+The URL is also written to `.tunnel_url` in the repo root for programmatic access.
+
+### Step 4: Start the Operated Agent (Machine A, third terminal)
+
+```bash
+cd shepherd
+
+export COORDINATOR_URL="$(cat .tunnel_url)"    # or paste the URL manually
+export COORDINATOR_TOKEN="my-demo-secret"
+export AGENT_PAIRING_CODE="DEMO"
+export TARGET_URL="https://example.com"
+
+DISPLAY=:0 .venv/bin/python scripts/operate.py
+```
+
+Verify the agent registered:
+
+```bash
+curl "$(cat .tunnel_url)/api/health"
+# → {"ok":true,"agents":1,"protocol_version":1}
+```
+
+### Step 5: Connect the Command Center (Machine B)
+
+```bash
+cd shepherd/frontend
+
+# Point the UI at the tunnel URL
+echo 'NEXT_PUBLIC_COORDINATOR_URL=https://random-words-here.trycloudflare.com' >> .env.local
+echo 'NEXT_PUBLIC_COORDINATOR_TOKEN=my-demo-secret' >> .env.local
+
+npm install && npm run dev
+```
+
+Open `http://localhost:3000/remote` in a browser. Enter session code `DEMO`. You should see Machine A's live screen and can send commands.
+
+### Notes
+
+- **Idle timeout**: Cloudflare free plan closes WebSockets after 100s of no traffic. The relay client sends frames every ~0.3s, so this is a non-issue during active use. If the agent is idle, the WebSocket ping/pong (every 20s) keeps it alive.
+- **URL stability**: The URL stays the same as long as `cloudflared` is running. The `scripts/tunnel.sh` wrapper auto-restarts on crash and prints the new URL.
+- **No account needed**: Quick tunnels work without a Cloudflare account. For a persistent subdomain (same URL across restarts), create a free account + add a domain to Cloudflare DNS.
+
+---
+
+## Topology 2: Tailscale Private Mesh (Free, Private)
 
 No public exposure, no hosting costs, no TLS certificates to manage. Both machines communicate over Tailscale's encrypted WireGuard mesh using private `100.x.y.z` IPs.
 
@@ -163,7 +274,7 @@ And point WSL2's agent/UI at the Windows host's Tailscale IP.
 
 ---
 
-## Topology 2: Hosted Coordinator (Public Internet)
+## Topology 3: Hosted Coordinator (Public Internet)
 
 For deployments where the operated machine and operator are on different networks without Tailscale, host the coordinator on a VPS with a public IP and TLS termination.
 

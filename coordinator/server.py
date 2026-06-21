@@ -454,6 +454,14 @@ async def agent_ws(ws: WebSocket) -> None:
                     print(f"[coordinator] warning: agent '{agent_id}' speaks "
                           f"protocol v{client_version}, we only support v{PROTOCOL_VERSION}")
                 await hub.push_roster()
+            elif mtype in ("webrtc.offer", "webrtc.answer", "webrtc.ice"):
+                # WebRTC signaling: relay to the watching UI(s) for this agent.
+                await hub.broadcast_session(
+                    conn,
+                    {"type": mtype, "agent_id": agent_id,
+                     "data": msg.get("data")},
+                    only_watching=True,
+                )
     except WebSocketDisconnect:
         pass
     except Exception:
@@ -505,6 +513,17 @@ async def ui_ws(ws: WebSocket) -> None:
                 hub.ui_watch[ws] = None
             elif mtype == "command":
                 await _relay_command(ws, msg)
+            elif mtype in ("webrtc.answer", "webrtc.ice"):
+                # WebRTC signaling from UI → agent.
+                agent_id = msg.get("agent_id")
+                conn = hub.agents.get(agent_id) if agent_id else None
+                if conn and conn.online and hub._can_see(ws, conn):
+                    try:
+                        await conn.ws.send_text(json.dumps(
+                            {"type": mtype, "data": msg.get("data")}))
+                    except Exception:
+                        hub.drop_agent(conn)
+                        await hub.push_roster()
     except WebSocketDisconnect:
         pass
     except Exception:
