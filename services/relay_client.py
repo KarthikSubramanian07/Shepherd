@@ -203,6 +203,8 @@ class RelayClient:
         elif command in ("workflow.pause", "workflow.resume", "workflow.intervene",
                          "workflow.finalize"):
             self._apply_workflow_command(command, payload)
+        elif command == "promote":
+            self._promote_graph(payload)
 
     def _apply_workflow_command(self, command: str, payload: dict) -> None:
         """Drive the milestone executor's control gate from the Command Center.
@@ -231,6 +233,45 @@ class RelayClient:
                 new_id=(payload.get("new_id") or "").strip(),
                 name=(payload.get("name") or "").strip(),
             )
+
+    def _promote_graph(self, payload: dict) -> None:
+        """Auto-promote a crystallized task graph into a dispatchable workflow.
+
+        Called by the Command Center's 'Bake out a new workflow' toggle after the
+        coalescer saves the graph (task.graph.saved event). Reuses
+        WorkflowStore.promote() and derives name + intent_patterns from the graph's
+        stored intents (populated by TaskGraphStore.save)."""
+        try:
+            from engine.task_graph import TaskGraphStore
+            from engine.workflow_store import WorkflowStore
+
+            task_key = (payload.get("task_key") or "").strip()
+            if not task_key:
+                return
+
+            store = TaskGraphStore()
+            graph = store.load(task_key, {})
+            if graph.run_count == 0 and not graph.nodes:
+                return  # graph not yet crystallized
+
+            raw_name = graph.intents[0] if graph.intents else task_key.replace("AUTONOMOUS::", "")
+            name = raw_name.strip()[:60]
+            intent_patterns = list(graph.intents) if graph.intents else [raw_name]
+
+            slug = task_key.replace("AUTONOMOUS::", "").replace(" ", "_")
+            workflow_id = f"WF_{slug.upper()[:40]}"
+
+            wf = WorkflowStore().promote(graph, workflow_id, name, intent_patterns)
+            event_bus.emit("task.graph.promoted", {
+                "task_key":        task_key,
+                "workflow_id":     wf.id,
+                "name":            wf.name,
+                "version":         wf.version,
+                "node_count":      len(wf.nodes),
+                "intent_patterns": wf.intent_patterns,
+            })
+        except Exception as e:
+            print(f"[relay] promote failed (non-fatal): {e}")
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

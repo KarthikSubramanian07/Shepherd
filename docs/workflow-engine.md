@@ -299,7 +299,13 @@ so the segmenter/coalescer don't care which model runs:
 4. **Workflow + dispatch (done)** — promote a graph to a named, versioned Workflow
    (`engine/workflow_store.py`, `data/workflows.json`); `Router.resolve_plan` returns a
    `Plan{WORKFLOW | ROUTINE | GENERIC}` preferring a saved Workflow (`router/router.py`),
-   indexed into the same vector search.
+   indexed into the same vector search. **Auto-promotion trigger**: after a first-time
+   ad-hoc autonomous run completes and the coalescer saves the task graph
+   (`task.graph.saved` event with `known=false`), the Command Center's default-on
+   "Bake out a new workflow" toggle fires a `promote` command via the relay. The agent
+   calls `WorkflowStore.promote()` with name derived from the stored intents and
+   `intent_patterns` from the graph's `intents` list. The operator can untoggle to
+   skip. Endpoint: `POST /api/task-graphs/{task_key}/promote`.
 5. **Milestone-graph executor (done; being superseded — see §0)** — traverses the
    workflow node-by-node with a single-message advance and pluggable workers (AgentS
    / LLM / Scripted) (`engine/workflow_executor.py`); Control Hub steer/teach gate

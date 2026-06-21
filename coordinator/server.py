@@ -149,6 +149,10 @@ class AgentConn:
             # copy the list so the roster snapshot never aliases live trace state,
             # matching _workflow_view (the node dicts are still serialized immediately).
             "nodes":     list(tr.get("nodes", [])),
+            # Auto-promote signals: promoteReady = graph saved & eligible for
+            # promotion; promoted = the workflow that was created from it.
+            "promoteReady": tr.get("promote_ready", False),
+            "promoted":     tr.get("promoted"),
         }
 
     def _progress(self) -> float:
@@ -348,6 +352,16 @@ class Hub:
             if conn.trace:
                 conn.trace["status"] = "halted"
                 conn.trace["current"] = None
+        elif t == "task.graph.saved":
+            if conn.trace and conn.trace.get("known") is False:
+                conn.trace["promote_ready"] = True
+        elif t == "task.graph.promoted":
+            if conn.trace:
+                conn.trace["promoted"] = {
+                    "workflow_id": d.get("workflow_id"),
+                    "name": d.get("name"),
+                    "version": d.get("version"),
+                }
         elif t == "mode.changed":
             conn.mode = d.get("mode", conn.mode)
         elif t.startswith("workflow."):

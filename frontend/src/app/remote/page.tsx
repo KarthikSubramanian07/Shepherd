@@ -57,6 +57,38 @@ export default function RemoteCommandCenterPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false);
   const [pickedNode, setPickedNode] = useState<string | null>(null);
+  const [bakeToggle, setBakeToggle] = useState(true);
+  // Track whether we've already fired the promote command for this run.
+  // Keyed by "agentId:runId" to avoid re-firing after agent switch-back.
+  const promotedRef = useRef<string | null>(null);
+
+  // Auto-promote: when the toggle is on and the trace signals promoteReady,
+  // fire the promote command exactly once per run (idempotency guard).
+  const trace = c.selected?.trace ?? null;
+  const promoteKey = c.selectedId && trace?.runId ? `${c.selectedId}:${trace.runId}` : null;
+  useEffect(() => {
+    if (
+      bakeToggle &&
+      trace?.promoteReady &&
+      !trace?.promoted &&
+      trace?.routineId &&
+      c.selectedId &&
+      promoteKey &&
+      promotedRef.current !== promoteKey
+    ) {
+      promotedRef.current = promoteKey;
+      c.sendCommand(c.selectedId, "promote", { task_key: trace.routineId });
+    }
+  }, [bakeToggle, trace?.promoteReady, trace?.promoted, trace?.routineId, promoteKey, c.selectedId, c.sendCommand]);
+
+  // Reset the toggle when a genuinely new run starts (runId changes).
+  const prevRunId = useRef(trace?.runId);
+  useEffect(() => {
+    if (trace?.runId && trace.runId !== prevRunId.current) {
+      prevRunId.current = trace.runId;
+      setBakeToggle(true);
+    }
+  }, [trace?.runId]);
 
   // WebRTC P2P screen streaming.
   const sendSignalForAgent = useCallback(
@@ -268,6 +300,35 @@ export default function RemoteCommandCenterPage() {
                     }
                   />
                 </div>
+
+                {/* Auto-promote toggle: visible for first-time autonomous tasks */}
+                {trace?.known === false && !trace?.promoted && (
+                  <Card className="flex items-center gap-3 border-accent/30 bg-accent/5 px-4 py-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-[13px] text-ink">
+                      <input
+                        type="checkbox"
+                        checked={bakeToggle}
+                        onChange={(e) => setBakeToggle(e.target.checked)}
+                        className="h-4 w-4 rounded border-edge accent-accent"
+                      />
+                      <Sparkles size={13} className="text-accent" />
+                      Bake out a new workflow from this run
+                    </label>
+                    <span className="ml-auto text-[11px] text-muted">
+                      {trace.promoteReady
+                        ? "Graph crystallized — promoting…"
+                        : trace.status === "completed"
+                          ? "Waiting for crystallization…"
+                          : "Will promote on completion"}
+                    </span>
+                  </Card>
+                )}
+                {trace?.promoted && (
+                  <Card className="flex items-center gap-2 border-ok/40 bg-ok/5 px-4 py-2 text-sm text-ok">
+                    <ShieldCheck size={16} />
+                    Baked into workflow: <span className="font-mono text-[12px]">{trace.promoted.name}</span>
+                  </Card>
+                )}
 
                 {/* Dispatch bar — ad-hoc task → vector router → workflow / fresh run */}
                 <Card className="p-3">
