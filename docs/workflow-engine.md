@@ -352,7 +352,26 @@ so the segmenter/coalescer don't care which model runs:
 
 ---
 
-## 9.1 Routing precision: retrieve → LLM filter
+## 9.1 Mode → candidate-source gating
+
+The router's `resolve_plan(intent, *, mode=None)` gates candidate generation by
+execution mode, preventing over-broad demo routines from absorbing novel tasks
+in AUTONOMOUS and keeping LOCKED deterministic:
+
+| Mode | Workflow candidates | Routine candidates | LLM filter | Autonomous fallback |
+|------|--------------------|--------------------|-----------|---------------------|
+| **AUTONOMOUS** | ✓ (vector + pattern) | ✗ | ✓ | ✓ (on GENERIC) |
+| **LIVE** | ✓ (vector + pattern) | ✓ (vector + keyword) | ✓ | ✓ (if enabled) |
+| **LOCKED** | ✗ | keyword only | ✗ | ✗ |
+
+In AUTONOMOUS mode, `main.py` calls `resolve_plan(intent, mode="AUTONOMOUS")`
+before `execute_autonomous()`. If the plan returns `kind=WORKFLOW`, the matched
+workflow is dispatched (same path as LIVE). Otherwise the intent goes free-form
+and crystallizes + auto-promotes a new workflow on success.
+
+---
+
+## 9.2 Routing precision: retrieve → LLM filter
 
 The router's `resolve_plan()` uses a two-stage pipeline to prevent false-positive
 routing (e.g. a research intent incorrectly matching `ROUTINE_JOB_APPLICATION` at

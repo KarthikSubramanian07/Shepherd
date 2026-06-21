@@ -29,11 +29,19 @@ class ShepherdIntentRouter:
             print(f"[router] workflow indexing skipped (non-fatal): {e}")
 
     # ── dispatch: prefer a saved WORKFLOW, else a ROUTINE, else GENERIC ────────
-    def resolve_plan(self, intent: Intent) -> Plan:
+    def resolve_plan(self, intent: Intent, *, mode: str | None = None) -> Plan:
         """Return how to satisfy the intent.
 
-        Pipeline (when vector search is available):
-          1. Gather top-K candidates from BOTH workflow and routine vector sets.
+        The optional *mode* parameter gates which candidate sources participate:
+          - AUTONOMOUS: WORKFLOW candidates only (no routines); LLM filter active.
+          - LIVE (default / mode=None): WORKFLOW + ROUTINE candidates; LLM filter.
+          - LOCKED: keyword-only routine resolution (zero-API, fully offline/
+            deterministic). No vector search, no LLM filter, no workflows, no
+            autonomous fallback.
+
+        Pipeline (when vector search is available, i.e. non-LOCKED):
+          1. Gather top-K candidates from workflow and/or routine vector sets
+             (filtered by mode).
           2. Call LLM filter (select) on ALL candidates — no score-based bypass.
           3. If LLM picks a candidate -> route to it; if NONE -> GENERIC.
           4. Graceful degradation: LLM unavailable/errored -> conservative top-1
@@ -42,10 +50,31 @@ class ShepherdIntentRouter:
         Offline fallback (Redis down): intent_pattern substring matching.
         """
         text = intent.raw_text
+        effective_mode = (mode or "").upper() or None
 
-        # ── Gather candidates from both vector sets ─────────────────────────
+        # ── LOCKED: deterministic keyword-only, zero-API ────────────────────
+        if effective_mode == "LOCKED":
+            resolved = self._resolve_keyword(intent)
+            if resolved is not None:
+                return Plan(
+                    kind="ROUTINE",
+                    target=resolved.routine_id,
+                    params=resolved.variables,
+                    confidence=resolved.confidence,
+                    matched=resolved.matched_keywords,
+                    source="keyword",
+                )
+            return Plan(
+                kind="GENERIC", target="", params={}, confidence=0.0, source="fallback"
+            )
+
+        # ── Gather candidates from vector sets ──────────────────────────────
         wf_candidates = self._vector.workflow_candidates(text)
-        rt_candidates = self._vector.candidates(text)
+        rt_candidates = (
+            self._vector.candidates(text)
+            if effective_mode != "AUTONOMOUS"
+            else []
+        )
 
         # When vector search returned anything, also let an explicit intent_pattern
         # match compete. A pattern hit is a deliberate, high-precision trigger, so
@@ -62,7 +91,9 @@ class ShepherdIntentRouter:
                     (cid, s) for (cid, s) in wf_candidates if cid != wf_off.id
                 ]
                 wf_candidates.insert(0, (wf_off.id, 0.99))
-            return self._route_with_candidates(text, wf_candidates, rt_candidates)
+            return self._route_with_candidates(
+                text, wf_candidates, rt_candidates
+            )
 
         # ── Offline fallback: substring match on workflow intent_patterns ───
         wf = self._match_workflow_offline(text)
@@ -78,16 +109,17 @@ class ShepherdIntentRouter:
             )
 
         # ── Keyword fallback for routines ───────────────────────────────────
-        resolved = self._resolve_keyword(intent)
-        if resolved is not None:
-            return Plan(
-                kind="ROUTINE",
-                target=resolved.routine_id,
-                params=resolved.variables,
-                confidence=resolved.confidence,
-                matched=resolved.matched_keywords,
-                source="keyword",
-            )
+        if effective_mode != "AUTONOMOUS":
+            resolved = self._resolve_keyword(intent)
+            if resolved is not None:
+                return Plan(
+                    kind="ROUTINE",
+                    target=resolved.routine_id,
+                    params=resolved.variables,
+                    confidence=resolved.confidence,
+                    matched=resolved.matched_keywords,
+                    source="keyword",
+                )
 
         return Plan(
             kind="GENERIC", target="", params={}, confidence=0.0, source="fallback"
