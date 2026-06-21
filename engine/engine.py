@@ -320,8 +320,20 @@ class ShepherdExecutionEngine:
             memory_hint = ""
             if AUTONOMOUS_USE_MEMORY and graph.nodes:
                 memory_hint = RoutinePlanner._memory_hint([n.label for n in graph.nodes])
+                # Surface taught conditionals so the agent applies learned
+                # corrections on re-runs (teaching loop for autonomous mode).
+                taught_parts = []
+                for n in graph.nodes:
+                    for c in n.conditionals:
+                        taught_parts.append(f"  • at '{n.label}': if {c.when} → {c.do}")
+                if taught_parts:
+                    memory_hint += (
+                        "\n\nTAUGHT CORRECTIONS (apply these when relevant):\n"
+                        + "\n".join(taught_parts)
+                    )
                 print(f"[autonomous] recalled {len(graph.nodes)} milestone(s) from memory "
-                      f"(run #{graph.run_count})")
+                      f"(run #{graph.run_count})"
+                      + (f", {len(taught_parts)} taught correction(s)" if taught_parts else ""))
 
         event_bus.emit("execution.start", {
             "run_id":      run_id,
@@ -387,10 +399,16 @@ class ShepherdExecutionEngine:
                                 "run_id": run_id, "step_index": i, "steer": steer_text,
                             })
                             flag = "save_as_rule" if remember else "one_off"
+                            # Build a descriptive scenario for the teaching loop.
+                            # Use last reasoning if available so the conditional
+                            # clause captures WHEN this steer is relevant.
+                            last_ctx = (self._agent_s.last_reasoning or "").strip()
+                            scenario = (f"while: {last_ctx[:120]}" if last_ctx
+                                        else f"at step {i} of task")
                             self._interventions.append(InterventionEvent(
                                 step_index=i, trigger="steer", decision="override",
                                 instruction=steer_text, flag=flag,
-                                node_key="", scenario="operator steer", ts=time.time(),
+                                node_key="", scenario=scenario, ts=time.time(),
                             ))
                     except queue.Empty:
                         pass
@@ -457,10 +475,15 @@ class ShepherdExecutionEngine:
                                     "run_id": run_id, "step_index": i, "steer": steer_text,
                                 })
                                 flag = "save_as_rule" if remember else "one_off"
+                                # Capture the agent's current reasoning for a
+                                # richer scenario in the teaching conditional.
+                                last_ctx = (self._agent_s.last_reasoning or "").strip()
+                                scenario = (f"while: {last_ctx[:120]}" if last_ctx
+                                            else f"at step {i} of task")
                                 self._interventions.append(InterventionEvent(
                                     step_index=i, trigger="steer", decision="override",
                                     instruction=steer_text, flag=flag,
-                                    node_key="", scenario="operator steer", ts=time.time(),
+                                    node_key="", scenario=scenario, ts=time.time(),
                                 ))
                         except queue.Empty:
                             pass

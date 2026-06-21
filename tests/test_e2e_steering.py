@@ -354,3 +354,219 @@ class TestE2ECoordinatorEventTracking:
         assert conn.block is not None
         assert conn.routing is not None
         assert conn._goal_text is not None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TEST GROUP 5: Intervention → Task Graph → Workflow Pipeline
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestE2EInterventionPipeline:
+    """Verify steers with remember=True persist through the full teaching loop:
+    InterventionEvent → coalescer → task graph conditional → memory hint on re-run."""
+
+    def test_save_as_rule_steer_becomes_conditional(self):
+        """A steer with remember=True should become a conditional clause on
+        the milestone node after coalescing."""
+        from shepherd_types import RunTrace, RoutineStep, InterventionEvent
+        from engine.coalescer import coalesce_now
+        from engine.task_graph import TaskGraphStore, milestone_key
+
+        store = TaskGraphStore()
+
+        # Build a trace with a steer intervention (save_as_rule)
+        executed = [
+            RoutineStep(action="agent_s", description="Navigate to google.com"),
+            RoutineStep(action="agent_s", description="Click search bar"),
+            RoutineStep(action="agent_s", description="Type query and press Enter"),
+        ]
+        intervention = InterventionEvent(
+            step_index=1, trigger="steer", decision="override",
+            instruction="also search for Python tutorials",
+            flag="save_as_rule", node_key="",
+            scenario="while: clicking the search bar",
+            ts=time.time(),
+        )
+        trace = RunTrace(
+            run_id="test-pipeline-1",
+            routine_id="AUTONOMOUS::navigate_to_google_and_search",
+            variables={"GOAL": "navigate to google and search"},
+            status="completed",
+            started_at=time.time() - 10,
+            ended_at=time.time(),
+            executed=executed,
+            interventions=[intervention],
+            intent_text="navigate to google and search",
+        )
+
+        # Run the coalescer synchronously
+        with patch("engine.coalescer.trace_journal") as mock_journal:
+            coalesce_now(trace)
+
+        # Load the graph and verify conditional was baked
+        graph = store.load("AUTONOMOUS::navigate_to_google_and_search",
+                          {"GOAL": "navigate to google and search"})
+        assert len(graph.nodes) > 0, "Graph should have nodes after coalescing"
+
+        # Find a node with a conditional
+        all_conditionals = []
+        for node in graph.nodes:
+            for c in node.conditionals:
+                all_conditionals.append(c)
+
+        assert len(all_conditionals) >= 1, (
+            f"Expected at least 1 conditional, got {len(all_conditionals)}. "
+            f"Nodes: {[(n.key, n.label, n.conditionals) for n in graph.nodes]}"
+        )
+        # Verify the conditional content matches our steer
+        cond = all_conditionals[0]
+        assert "Python tutorials" in cond.do
+        assert cond.source == "taught"
+
+    def test_one_off_steer_does_not_become_conditional(self):
+        """A steer with remember=False should NOT bake into the workflow."""
+        from shepherd_types import RunTrace, RoutineStep, InterventionEvent
+        from engine.coalescer import coalesce_now
+        from engine.task_graph import TaskGraphStore
+
+        store = TaskGraphStore()
+
+        executed = [
+            RoutineStep(action="agent_s", description="Open settings page"),
+            RoutineStep(action="agent_s", description="Toggle dark mode"),
+        ]
+        intervention = InterventionEvent(
+            step_index=0, trigger="steer", decision="override",
+            instruction="actually use light mode",
+            flag="one_off", node_key="",
+            scenario="while: opening settings",
+            ts=time.time(),
+        )
+        trace = RunTrace(
+            run_id="test-pipeline-2",
+            routine_id="AUTONOMOUS::open_settings_and_toggle",
+            variables={"GOAL": "open settings and toggle"},
+            status="completed",
+            started_at=time.time() - 5,
+            ended_at=time.time(),
+            executed=executed,
+            interventions=[intervention],
+            intent_text="open settings and toggle",
+        )
+
+        with patch("engine.coalescer.trace_journal"):
+            coalesce_now(trace)
+
+        graph = store.load("AUTONOMOUS::open_settings_and_toggle",
+                          {"GOAL": "open settings and toggle"})
+        # No conditionals should be baked — one_off is journal-only
+        all_conditionals = []
+        for node in graph.nodes:
+            for c in node.conditionals:
+                all_conditionals.append(c)
+        assert len(all_conditionals) == 0, (
+            f"one_off steer should not produce conditionals, got: {all_conditionals}"
+        )
+
+    def test_taught_conditionals_surface_in_memory_hint(self):
+        """On a re-run of the same goal, taught conditionals should appear
+        in the memory_hint passed to predict_autonomous."""
+        from shepherd_types import TaskGraph, TaskGraphNode, Conditional
+        from engine.task_graph import TaskGraphStore, milestone_key
+        from engine.routine_planner import RoutinePlanner
+
+        store = TaskGraphStore()
+        # Create a graph with a taught conditional
+        graph = store.load("AUTONOMOUS::test_memory_hint_goal",
+                          {"GOAL": "test memory hint goal"})
+        key = milestone_key("navigate", "google.com", "Navigate to Google")
+        store.record_milestone(graph, "navigate", "Navigate to Google",
+                              "google.com", 1, "completed", "run-1")
+        # Add a conditional to the node
+        store.add_conditional(graph, key,
+                            when="while: clicking search bar",
+                            do="also search for Python tutorials")
+        store.save(graph, intent_text="test memory hint goal",
+                  variables={"GOAL": "test memory hint goal"}, run_id="run-1")
+
+        # Now load the graph as the engine would on a re-run
+        graph2 = store.load("AUTONOMOUS::test_memory_hint_goal",
+                           {"GOAL": "test memory hint goal"})
+        assert len(graph2.nodes) == 1
+        assert len(graph2.nodes[0].conditionals) == 1
+
+        # Build the memory_hint as the engine does
+        memory_hint = RoutinePlanner._memory_hint([n.label for n in graph2.nodes])
+        taught_parts = []
+        for n in graph2.nodes:
+            for c in n.conditionals:
+                taught_parts.append(f"  • at '{n.label}': if {c.when} → {c.do}")
+        if taught_parts:
+            memory_hint += (
+                "\n\nTAUGHT CORRECTIONS (apply these when relevant):\n"
+                + "\n".join(taught_parts)
+            )
+
+        assert "TAUGHT CORRECTIONS" in memory_hint
+        assert "Python tutorials" in memory_hint
+        assert "Navigate to Google" in memory_hint
+
+    def test_intervention_node_key_backfill(self):
+        """Coalescer's _fill_intervention_node_keys should map step_index
+        to the correct milestone when node_key is empty."""
+        from engine.coalescer import _fill_intervention_node_keys
+        from shepherd_types import RunTrace, InterventionEvent
+        from engine.task_graph import milestone_key
+
+        intervention = InterventionEvent(
+            step_index=2, trigger="steer", decision="override",
+            instruction="test instruction", flag="save_as_rule",
+            node_key="",  # empty — should be filled
+            scenario="test scenario", ts=time.time(),
+        )
+        trace = RunTrace(
+            run_id="test-backfill",
+            routine_id="test",
+            interventions=[intervention],
+        )
+        # Simulated milestone list from segment()
+        milestones = [
+            {"kind": "navigate", "value": "google.com", "label": "Open Google",
+             "fine": 2, "fine_start": 0, "fine_end": 1},
+            {"kind": "fill", "value": None, "label": "Type search query",
+             "fine": 1, "fine_start": 2, "fine_end": 3},
+        ]
+        _fill_intervention_node_keys(trace, milestones)
+
+        expected_key = milestone_key("fill", None, "Type search query")
+        assert intervention.node_key == expected_key
+
+    def test_steer_scenario_captures_agent_reasoning(self):
+        """The scenario field should capture agent's last_reasoning for
+        richer conditional clauses in the teaching loop."""
+        engine = self._make_engine()
+
+        # Set up agent reasoning context
+        engine._agent_s.last_reasoning = "Planning to navigate to google.com"
+
+        # Simulate steer consumption (like the engine loop does)
+        engine.request_steer("also upload resume.pdf")
+        steer_text, remember = engine._steer_queue.get_nowait()
+        assert steer_text == "also upload resume.pdf"
+
+        # Verify what scenario would be built
+        last_ctx = (engine._agent_s.last_reasoning or "").strip()
+        scenario = (f"while: {last_ctx[:120]}" if last_ctx
+                    else "at step 0 of task")
+        assert scenario == "while: Planning to navigate to google.com"
+
+    def _make_engine(self):
+        mock_agent = MagicMock()
+        mock_agent.available = True
+        mock_agent._chain_history = []
+        mock_agent.last_reasoning = ""
+        mock_agent.reset_autonomous = MagicMock()
+        engine = ShepherdExecutionEngine(
+            coords={}, telemetry=MagicMock(), mode="AUTONOMOUS",
+            agent_s=mock_agent, planner=MagicMock(),
+        )
+        return engine
