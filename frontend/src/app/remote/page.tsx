@@ -72,6 +72,12 @@ export default function RemoteCommandCenterPage() {
     setHalting(false);
   }, [c.selectedId]);
 
+  // Auto-reopen roster when the selected agent disappears (disconnect, etc.)
+  // so the user isn't stuck with no way to pick another agent.
+  useEffect(() => {
+    if (!c.selected && !rosterOpen) setRosterOpen(true);
+  }, [c.selected, rosterOpen]);
+
   // Clear halting state when the halt is confirmed or the agent stops naturally.
   const selectedStatus = c.selected?.status;
   const events = c.events;
