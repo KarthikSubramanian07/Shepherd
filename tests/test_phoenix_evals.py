@@ -53,3 +53,16 @@ def test_no_redis_is_empty(monkeypatch):
 def test_score_verdict_noop_without_key(monkeypatch):
     monkeypatch.setattr(phoenix_evals, "available", lambda: False)
     assert phoenix_evals.score_verdict("credentials", "halt") is None
+
+
+def test_score_plan_noop_without_key(monkeypatch):
+    monkeypatch.setattr(phoenix_evals, "available", lambda: False)
+    assert phoenix_evals.score_plan("apply to a job", [{"action": "open"}]) is None
+
+
+def test_score_plan_uses_judge(monkeypatch):
+    monkeypatch.setattr(phoenix_evals, "available", lambda: True)
+    monkeypatch.setattr(phoenix_evals, "_judge",
+                        lambda p: {"sound": True, "score": 0.9, "explanation": "fine"})
+    out = phoenix_evals.score_plan("g", [{"action": "open"}, {"action": "type"}])
+    assert out["sound"] is True and out["score"] == 0.9

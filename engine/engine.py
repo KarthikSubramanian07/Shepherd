@@ -218,6 +218,22 @@ class ShepherdExecutionEngine:
                 ],
             })
 
+            # Arize: LLM-judge the freshly drafted plan and annotate the Phoenix
+            # plan span (plan_quality). Fire-and-forget so the judge never blocks
+            # planning; the score shows up next to the trace in Phoenix.
+            try:
+                from services import phoenix_evals
+                if phoenix_evals.available():
+                    from telemetry.telemetry import _current_span_id
+                    _sid = _current_span_id()
+                    _steps = list(routine.steps)
+                    threading.Thread(
+                        target=lambda: phoenix_evals.score_plan(goal, _steps, span_id=_sid),
+                        daemon=True,
+                    ).start()
+            except Exception as _pe:
+                print(f"[phoenix-eval] plan dispatch non-fatal: {_pe}")
+
             # Hand the drafted plan to the reactive Agent S loop as guidance, then
             # execute it with screenshots at sensible intervals (chained), adapting
             # to the real screen — rather than blindly running a keyboard-only script.
