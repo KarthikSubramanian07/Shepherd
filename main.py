@@ -225,10 +225,11 @@ def main() -> None:
             print(f"[backend] Could not attach to backend: {e}")
     else:
         try:
-            from dashboard.server import start_dashboard, register_intent_queue
+            from dashboard.server import start_dashboard, register_intent_queue, register_engine
             # Let the dashboard's POST /api/intent enqueue goals for this agent —
             # this is what "run an agent from the frontend" rides on locally.
             register_intent_queue(remote_intents)
+            register_engine(engine)
             threading.Thread(target=start_dashboard, daemon=True).start()
             print(f"[dashboard] Control Hub → http://localhost:{DASHBOARD_PORT}\n")
         except Exception as e:
@@ -277,6 +278,25 @@ def main() -> None:
             raw = remote_intents.get()   # fed by CLI + frontend + coordinator + poller
             if not raw:
                 continue
+
+            # ── Resume from suspended task ────────────────────────────────
+            if raw == "__RESUME__":
+                ctx = engine._suspended_task
+                if ctx is None:
+                    continue  # stale resume signal, ignore
+                engine._suspended_task = None
+                idle.clear()
+                print(f"[autonomous] resuming suspended task: {ctx.goal[:60]}...")
+                result = engine._execute_autonomous_reactive(
+                    ctx.goal, plan_hint=ctx.plan_hint, resume_ctx=ctx)
+                _after_run(engine, telemetry, memory, result, confidence=1.0)
+                if _should_end_session():
+                    print("[shepherd] Task complete — ending session.\n")
+                    break
+                continue
+
+            # ── New task — discard any suspended state ────────────────────
+            engine._suspended_task = None
             idle.clear()   # a run is starting → pause the CLI prompt
 
             intent = Intent(raw_text=raw, timestamp=time.time())

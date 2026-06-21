@@ -167,6 +167,29 @@ export default function RemoteCommandCenterPage() {
     [c],
   );
 
+  const steer = useCallback(
+    (text: string) => {
+      const t = text.trim();
+      if (!t || !c.selectedId) return;
+      c.sendCommand(c.selectedId, "steer", { text: t, remember: true });
+      setToast(`Steer sent: "${t}"`);
+      setIntent("");
+    },
+    [c],
+  );
+
+  const newTask = useCallback(
+    (text: string) => {
+      const t = text.trim();
+      if (!t || !c.selectedId) return;
+      c.sendCommand(c.selectedId, "new_task", { text: t });
+      setToast(`New task dispatched: "${t}"`);
+      setIntent("");
+      setHalting(false);
+    },
+    [c],
+  );
+
   const intervene = useCallback(
     (payload: WorkflowIntervenePayload) => {
       if (!c.selectedId) return;
@@ -443,38 +466,89 @@ export default function RemoteCommandCenterPage() {
                   </Card>
                 )}
 
-                {/* Dispatch bar — ad-hoc task → vector router → workflow / fresh run */}
+                {/* Dispatch bar — 3-state: idle/running/suspended */}
                 <Card className="p-3">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      value={intent}
-                      onChange={(e) => setIntent(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && send(intent)}
-                      placeholder={`Dispatch a task to ${c.selected.name}… (ex. "apply to the job")`}
-                    />
-                    <Button onClick={() => send(intent)} disabled={!intent.trim()}>
-                      <Send size={15} /> Dispatch
-                    </Button>
-                    <MicCommandButton onTranscript={send} onError={(m) => setToast(m)} />
-                    <Button
-                      variant="danger"
-                      disabled={halting}
-                      onClick={() => {
-                        haltEvtBase.current = c.events.length;
-                        setHalting(true);
-                        setToast("Halt requested \u2014 agent will stop at next step boundary");
-                        c.sendCommand(c.selected!.id, "halt");
-                      }}
-                    >
-                      {halting ? <Loader2 size={15} className="animate-spin" /> : <Hand size={15} />}
-                      {halting ? "Halting\u2026" : "Halt"}
-                    </Button>
-                  </div>
-                  <p className="mt-2 text-[11px] text-muted">
-                    A typed or spoken task is routed by the vector layer to a saved
-                    workflow (or a fresh autonomous run if none matches). Mid-run, Halt
-                    stops the agent at the next safe step boundary.
-                  </p>
+                  {(() => {
+                    const agentStatus = c.selected.status;
+                    const isRunning = agentStatus === "running";
+                    const isSuspended = agentStatus === "suspended";
+                    const isIdle = !isRunning && !isSuspended;
+
+                    const placeholder = isRunning
+                      ? "Steer: amend the current task…"
+                      : isSuspended
+                        ? "Instruction before resuming…"
+                        : `Describe a new task for ${c.selected.name}…`;
+
+                    const handleEnter = () => {
+                      if (!intent.trim()) return;
+                      if (isRunning || isSuspended) steer(intent);
+                      else send(intent);
+                    };
+
+                    return (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={intent}
+                            onChange={(e) => setIntent(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleEnter()}
+                            placeholder={placeholder}
+                          />
+                          {isIdle && (
+                            <Button onClick={() => send(intent)} disabled={!intent.trim()}>
+                              <Play size={15} /> New Task
+                            </Button>
+                          )}
+                          {isRunning && (
+                            <>
+                              <Button onClick={() => steer(intent)} disabled={!intent.trim()}>
+                                <Send size={15} /> Steer
+                              </Button>
+                              <Button
+                                variant="danger"
+                                disabled={halting}
+                                onClick={() => {
+                                  haltEvtBase.current = c.events.length;
+                                  setHalting(true);
+                                  setToast("Halt requested \u2014 agent will stop at next step boundary");
+                                  c.sendCommand(c.selected!.id, "halt");
+                                }}
+                              >
+                                {halting ? <Loader2 size={15} className="animate-spin" /> : <Hand size={15} />}
+                                {halting ? "Halting\u2026" : "Halt"}
+                              </Button>
+                            </>
+                          )}
+                          {isSuspended && (
+                            <Button onClick={() => steer(intent)} disabled={!intent.trim()}>
+                              <Play size={15} /> Resume
+                            </Button>
+                          )}
+                          {(isRunning || isSuspended) && (
+                            <Button
+                              variant="ghost"
+                              onClick={() => {
+                                if (intent.trim()) newTask(intent);
+                                else {
+                                  setToast("Type a new task first, then click New Task");
+                                }
+                              }}
+                              title="Abandon current task and start fresh"
+                            >
+                              <Sparkles size={15} /> New Task
+                            </Button>
+                          )}
+                          <MicCommandButton onTranscript={isRunning || isSuspended ? steer : send} onError={(m) => setToast(m)} />
+                        </div>
+                        <p className="mt-2 text-[11px] text-muted">
+                          {isRunning && "Agent is running. Steer amends the current goal. Halt pauses without losing context."}
+                          {isSuspended && "Agent is suspended. Type a steer instruction and Resume, or start a New Task."}
+                          {isIdle && "Describe a task — routed to a saved workflow or a fresh autonomous run."}
+                        </p>
+                      </>
+                    );
+                  })()}
                   {c.selected.routing && <RoutingBanner routing={c.selected.routing} />}
                 </Card>
 

@@ -830,11 +830,18 @@ import queue as _queue
 
 _intent_queue = None
 _pending_intents: "_queue.Queue[str]" = _queue.Queue()
+_engine_ref = None
 
 
 def register_intent_queue(q) -> None:
     global _intent_queue
     _intent_queue = q
+
+
+def register_engine(engine) -> None:
+    """Give the dashboard a reference to the engine for steering/suspend queries."""
+    global _engine_ref
+    _engine_ref = engine
 
 
 @app.post("/api/intent")
@@ -863,6 +870,70 @@ async def next_intent() -> JSONResponse:
         return JSONResponse({"text": _pending_intents.get_nowait()})
     except _queue.Empty:
         return JSONResponse({"text": None})
+
+
+@app.post("/api/steer")
+async def steer_task(request: Request) -> JSONResponse:
+    """Steer a running/suspended autonomous task (all-in-one mode)."""
+    if _engine_ref is None:
+        return JSONResponse({"error": "no engine registered"}, status_code=503)
+    try:
+        body = await request.json()
+        text = (body.get("text") or "").strip()
+        remember = body.get("remember", True)
+    except Exception:
+        text, remember = "", True
+    if not text:
+        return JSONResponse({"error": "text required"}, status_code=400)
+
+    if _engine_ref.is_suspended():
+        from shepherd_types import InterventionEvent
+        import time as _time
+
+        ctx = _engine_ref._suspended_task
+        ctx.goal = f"{ctx.goal}\n\n[OPERATOR STEER]: {text}"
+        ctx.chain_history.append(f">>> USER INTERVENED (IMPORTANT): {text}")
+        flag = "save_as_rule" if remember else "one_off"
+        ctx.interventions.append(InterventionEvent(
+            step_index=ctx.step_index, trigger="steer", decision="override",
+            instruction=text, flag=flag,
+            node_key="", scenario="operator steer (on resume)", ts=_time.time(),
+        ))
+        if _intent_queue is not None:
+            _intent_queue.put("__RESUME__")
+        event_bus.emit("remote.steer", {"text": text, "source": "dashboard", "resumed": True})
+        return JSONResponse({"ok": True, "action": "resumed", "text": text})
+    else:
+        _engine_ref.request_steer(text, remember)
+        event_bus.emit("remote.steer", {"text": text, "source": "dashboard", "resumed": False})
+        return JSONResponse({"ok": True, "action": "steered", "text": text})
+
+
+@app.post("/api/new_task")
+async def new_task(request: Request) -> JSONResponse:
+    """Halt the current task and start a new one (compound halt + intent)."""
+    try:
+        body = await request.json()
+        text = (body.get("text") or "").strip()
+    except Exception:
+        text = ""
+    if not text:
+        return JSONResponse({"error": "text required"}, status_code=400)
+
+    # Halt any running task
+    if _engine_ref is not None:
+        try:
+            _engine_ref.request_halt()
+        except Exception:
+            pass
+
+    # Queue the new intent
+    if _intent_queue is not None:
+        _intent_queue.put(text)
+    else:
+        _pending_intents.put(text)
+    event_bus.emit("remote.intent", {"text": text, "source": "dashboard"})
+    return JSONResponse({"ok": True, "action": "new_task", "text": text})
 
 
 def start_dashboard() -> None:

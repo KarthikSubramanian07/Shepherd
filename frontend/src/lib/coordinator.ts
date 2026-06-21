@@ -22,7 +22,8 @@ export type RemoteAgentStatus =
   | "running"
   | "blocked"
   | "completed"
-  | "failed";
+  | "failed"
+  | "suspended";
 
 export interface RemoteOption {
   key: string;
@@ -210,6 +211,8 @@ export type RemoteCommand =
   | "intent"
   | "approve"
   | "halt"
+  | "steer"
+  | "new_task"
   | "override"
   | "mode"
   | "workflow.pause"
