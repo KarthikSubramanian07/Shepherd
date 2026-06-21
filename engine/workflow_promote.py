@@ -101,6 +101,19 @@ def _after_promote(wf: Workflow, task_key: str, ws_path: str) -> None:
     from engine.workflow_describe import generate_description
     generate_description(wf.id, ws_path)
 
+    # Graduate the proven workflow into a deterministic SimuLang script (zero LLM
+    # tokens to replay). Best-effort artifact; replay uses it only when the
+    # simulang CLI is present, else Agent S vision replay remains the fallback.
+    try:
+        from services import simulang_runner
+        path = simulang_runner.compile_workflow(wf)
+        if path:
+            event_bus.emit("workflow.compiled", {
+                "workflow_id": wf.id, "engine": "simulang", "tokens_per_run": 0,
+            })
+    except Exception as e:
+        print(f"[simulang] compile-on-promote non-fatal: {e}")
+
 
 def backfill_workflows(
     min_nodes: int = 2,
