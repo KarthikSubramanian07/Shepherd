@@ -70,6 +70,8 @@ containment:
     - "Firefox"
     - "TextEdit"
     - "Notes"
+    - "Photos"
+    - "Photo Booth"
 
   # URL domain/host allowlist for browser and open_app URL steps.
   # Partial match: "localhost" matches http://localhost:8765/demo-form.

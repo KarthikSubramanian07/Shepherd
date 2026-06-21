@@ -12,7 +12,13 @@ from PIL import Image
 from config import SCREEN_WIDTH, SCREEN_HEIGHT
 
 # FaceTimeOS caps screenshot dims so grounding models stay within context limits.
-MAX_GROUNDING_DIM = 2400
+# These MUST stay under what the vision API will re-scale to server-side, otherwise
+# the model grounds in a different (downscaled) pixel space than the one we register
+# as grounding_width/height — and resize_coordinates maps the click to the wrong spot.
+# Anthropic downsizes any image whose long edge exceeds ~1568px OR that is above
+# ~1.15MP, so we cap on BOTH so our registered dims == what the model actually sees.
+MAX_GROUNDING_DIM = 1568
+MAX_GROUNDING_PIXELS = 1_150_000
 
 _CLICK_RE = re.compile(
     r"(pyautogui\.(?:click|doubleClick|moveTo|dragTo))\((\d+),\s*(\d+)([^)]*)\)"
@@ -30,10 +36,15 @@ class ScreenGeometry:
 
 def scale_screen_dimensions(
     width: int, height: int, max_dim_size: int = MAX_GROUNDING_DIM,
+    max_pixels: int = MAX_GROUNDING_PIXELS,
 ) -> tuple[int, int]:
     if width <= 0 or height <= 0:
         return max_dim_size, max_dim_size
-    scale_factor = min(max_dim_size / width, max_dim_size / height, 1)
+    # 1) cap the long edge, 2) cap total pixels — whichever is tighter wins, so the
+    # image stays under the vision API's server-side downscale threshold.
+    scale_factor = min(max_dim_size / width, max_dim_size / height, 1.0)
+    if width * height * scale_factor * scale_factor > max_pixels:
+        scale_factor = min(scale_factor, (max_pixels / (width * height)) ** 0.5)
     return int(width * scale_factor), int(height * scale_factor)
 
 

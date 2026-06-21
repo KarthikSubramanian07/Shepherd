@@ -109,58 +109,64 @@ class ShepherdExecutionEngine:
         event_bus.emit("routine.planning", {"goal": goal})
         print(f"[planner] Drafting routine for: {goal}")
 
-        plan_json = ""
-        try:
-            with self._telemetry.span("routine.plan", oi_kind="LLM") as plan_span:
-                routine, extracted = self._planner.draft(goal)
-                plan_json = json.dumps(
-                    [{"action": s.action, "description": s.description or s.action}
-                     for s in routine.steps],
-                    indent=2,
-                )
-                apply_llm_plan_span(
-                    plan_span,
-                    instruction=goal,
-                    response=plan_json,
-                    outcome="planned",
-                    model=PLANNER_MODEL,
-                    provider=PLANNER_ENGINE_TYPE,
-                )
-        except Exception as e:
-            print(f"[planner] Failed ({e}) — falling back to reactive Agent S loop")
-            event_bus.emit("routine.plan_failed", {"goal": goal, "error": str(e)})
-            return self._execute_autonomous_reactive(goal)
+        # Single parent span so the planning LLM call and the execution loop nest
+        # under ONE trace in Phoenix instead of appearing as two separate roots.
+        with self._telemetry.span("routine.run", oi_kind="CHAIN") as run_span:
+            run_span.set_attribute("routine.goal", goal)
+            apply_chain_span(run_span, input_text=goal, output_text="")
 
-        for i, step in enumerate(routine.steps):
-            print(f"[planner]   {i:02d} [{step.action}] {step.description or step.action}")
+            plan_json = ""
+            try:
+                with self._telemetry.span("routine.plan", oi_kind="LLM") as plan_span:
+                    routine, extracted = self._planner.draft(goal)
+                    plan_json = json.dumps(
+                        [{"action": s.action, "description": s.description or s.action}
+                         for s in routine.steps],
+                        indent=2,
+                    )
+                    apply_llm_plan_span(
+                        plan_span,
+                        instruction=goal,
+                        response=plan_json,
+                        outcome="planned",
+                        model=PLANNER_MODEL,
+                        provider=PLANNER_ENGINE_TYPE,
+                    )
+            except Exception as e:
+                print(f"[planner] Failed ({e}) — falling back to reactive Agent S loop")
+                event_bus.emit("routine.plan_failed", {"goal": goal, "error": str(e)})
+                return self._execute_autonomous_reactive(goal)
 
-        event_bus.emit("routine.planned", {
-            "goal":        goal,
-            "description": routine.description,
-            "total_steps": len(routine.steps),
-            "steps": [
-                {
-                    "index":       i,
-                    "action":      s.action,
-                    "description": s.description or s.action,
-                }
-                for i, s in enumerate(routine.steps)
-            ],
-        })
+            for i, step in enumerate(routine.steps):
+                print(f"[planner]   {i:02d} [{step.action}] {step.description or step.action}")
 
-        resolved = ResolvedRoutine(
-            routine_id=AUTONOMOUS_ROUTINE_ID,
-            variables=extracted,
-            confidence=1.0,
-            matched_keywords=[],
-        )
+            event_bus.emit("routine.planned", {
+                "goal":        goal,
+                "description": routine.description,
+                "total_steps": len(routine.steps),
+                "steps": [
+                    {
+                        "index":       i,
+                        "action":      s.action,
+                        "description": s.description or s.action,
+                    }
+                    for i, s in enumerate(routine.steps)
+                ],
+            })
 
-        saved_mode = self._mode
-        self._mode = "LIVE"
-        try:
-            return self.execute(resolved, routine=routine, mode_override="LIVE")
-        finally:
-            self._mode = saved_mode
+            resolved = ResolvedRoutine(
+                routine_id=AUTONOMOUS_ROUTINE_ID,
+                variables=extracted,
+                confidence=1.0,
+                matched_keywords=[],
+            )
+
+            saved_mode = self._mode
+            self._mode = "LIVE"
+            try:
+                return self.execute(resolved, routine=routine, mode_override="LIVE")
+            finally:
+                self._mode = saved_mode
 
     def _execute_autonomous_reactive(self, goal: str) -> ExecutionResult:
         """
