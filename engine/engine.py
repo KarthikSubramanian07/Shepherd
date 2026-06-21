@@ -664,7 +664,9 @@ class ShepherdExecutionEngine:
         error: Optional[str] = None
         status = "completed"
 
-        # Dynamically extend monitored steps with evolution-flagged risky ones
+        # Dynamically extend monitored steps with evolution-flagged risky ones,
+        # plus steps Phoenix evals have promoted (the judge repeatedly called them
+        # genuine risks) — Arize data deciding which steps get human oversight.
         dynamic_risky: set[int] = set()
         if self._evolution:
             try:
@@ -673,7 +675,13 @@ class ShepherdExecutionEngine:
                 )
             except Exception:
                 pass
-        monitored = set(routine.high_stakes_steps) | dynamic_risky
+        eval_promoted: set[int] = set()
+        try:
+            from services import phoenix_evals
+            eval_promoted = phoenix_evals.promoted_steps(resolved.routine_id)
+        except Exception:
+            pass
+        monitored = set(routine.high_stakes_steps) | dynamic_risky | eval_promoted
 
         try:
             with self._telemetry.span("routine.execute", oi_kind="CHAIN") as span:
@@ -1924,6 +1932,25 @@ class ShepherdExecutionEngine:
         event_bus.emit("monitor.decision", {
             "run_id": run_id, "step_index": index, "decision": decision,
         })
+
+        # Arize close-the-loop: an LLM-judge scores whether this oversight call was
+        # correct, writes it back to the Phoenix span, and nudges adaptive risk so
+        # genuinely-risky steps get promoted into the monitored set next run.
+        # Fire-and-forget so the judge LLM call never blocks the gate.
+        try:
+            from services import phoenix_evals
+            if phoenix_evals.available():
+                from telemetry.telemetry import _current_span_id
+                _span_id = _current_span_id()
+                threading.Thread(
+                    target=lambda: phoenix_evals.score_verdict(
+                        reason, decision, routine_id=routine_id,
+                        step_index=index, span_id=_span_id,
+                    ),
+                    daemon=True,
+                ).start()
+        except Exception as _ee:
+            print(f"[phoenix-eval] dispatch non-fatal: {_ee}")
 
         # Reliability backbone: record the intervention as a structured Sentry issue
         # (decision/trigger/verdict tags, the screenshot, and a Phoenix trace link),
