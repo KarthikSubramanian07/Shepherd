@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # or if the chained planner is unavailable.
     autonomous_chain: bool = True
     autonomous_chain_max: int = 6   # max actions to plan in one request
+    # End the session once a task finishes instead of looping for another intent.
+    # Ignored in remote mode (the command center keeps the agent serving).
+    exit_when_done: bool = True
 
     # ── Dashboard ──────────────────────────────────────────────────────────
     dashboard_port: int = 8765
@@ -138,6 +141,7 @@ AUTONOMOUS_ON_UNMATCHED = settings.autonomous_on_unmatched
 AUTONOMOUS_MAX_STEPS = settings.autonomous_max_steps
 AUTONOMOUS_CHAIN = settings.autonomous_chain
 AUTONOMOUS_CHAIN_MAX = settings.autonomous_chain_max
+EXIT_WHEN_DONE = settings.exit_when_done
 
 DASHBOARD_PORT = settings.dashboard_port
 EVENTS_DB_PATH = settings.events_db_path

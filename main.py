@@ -14,7 +14,10 @@ import sys
 import time
 import threading
 
-from config import FEATURES, EXECUTION_MODE, DASHBOARD_PORT, AUTONOMOUS_ON_UNMATCHED
+from config import (
+    FEATURES, EXECUTION_MODE, DASHBOARD_PORT,
+    AUTONOMOUS_ON_UNMATCHED, EXIT_WHEN_DONE,
+)
 from shepherd_types import Intent
 from router.router import ShepherdIntentRouter
 from engine.engine import ShepherdExecutionEngine
@@ -242,6 +245,9 @@ def main() -> None:
                 })
                 result = engine.execute_autonomous(raw)
                 _after_run(engine, telemetry, memory, result, confidence=1.0)
+                if _should_end_session():
+                    print("[shepherd] Task complete — ending session.\n")
+                    break
                 continue
 
             resolved = router.resolve(intent)
@@ -257,6 +263,9 @@ def main() -> None:
                     })
                     result = engine.execute_autonomous(raw)
                     _after_run(engine, telemetry, memory, result, confidence=0.0)
+                    if _should_end_session():
+                        print("[shepherd] Task complete — ending session.\n")
+                        break
                     continue
                 print("[router] No routine matched. Try: 'fill form', 'open browser', or 'demo'\n")
                 event_bus.emit("intent.unmatched", {"raw_text": intent.raw_text})
@@ -279,6 +288,9 @@ def main() -> None:
             # ── Execute (synchronous, blocking) ───────────────────────────────
             result = engine.execute(resolved)
             _after_run(engine, telemetry, memory, result, confidence=resolved.confidence)
+            if _should_end_session():
+                print("[shepherd] Task complete — ending session.\n")
+                break
 
         except KeyboardInterrupt:
             print("\n[shepherd] Bye.")
@@ -288,6 +300,14 @@ def main() -> None:
             if FEATURES["sentry"]:
                 import sentry_sdk
                 sentry_sdk.capture_exception(e)
+
+
+def _should_end_session() -> bool:
+    """
+    End the program once a task finishes (EXIT_WHEN_DONE), unless we're a remote
+    agent — the command center keeps the session alive to serve more goals.
+    """
+    return EXIT_WHEN_DONE and not FEATURES["remote"]
 
 
 def _after_run(engine, telemetry, memory, result, confidence: float) -> None:
