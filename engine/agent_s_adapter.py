@@ -269,7 +269,7 @@ class AgentSAdapter:
         return None
 
     def _plan_chain(
-        self, goal: str, step_index: int, memory_hint: str = "",
+        self, goal: str, step_index: int, memory_hint: str = "", plan_hint: str = "",
     ) -> Optional[AutonomousStepResult]:
         """
         Plan SEVERAL chained UI actions from one screenshot via a direct Claude
@@ -297,9 +297,11 @@ class AgentSAdapter:
                 history = "This is your first turn; nothing has been done yet.\n\n"
 
             b64 = base64.standard_b64encode(self._capture()).decode()
+            plan_block = f"{plan_hint}\n\n" if plan_hint else ""
             prompt = (
                 "You are an autonomous desktop agent on macOS pursuing this goal:\n"
-                f"  {goal}\n"
+                f"  {goal}\n\n"
+                f"{plan_block}"
                 f"{memory_hint}\n"
                 f"{history}"
                 f"The screenshot is {SCREEN_WIDTH}x{SCREEN_HEIGHT}px (use absolute "
@@ -374,19 +376,19 @@ class AgentSAdapter:
             return None
 
     def predict_autonomous(
-        self, goal: str, step_index: int, memory_hint: str = "",
+        self, goal: str, step_index: int, memory_hint: str = "", plan_hint: str = "",
     ) -> AutonomousStepResult:
         """
         One turn of free-form planning: screenshot + full goal instruction.
 
-        memory_hint (optional) carries the milestone trail from a prior run of this
-        goal, so the agent reuses what worked before. With AUTONOMOUS_CHAIN on, this
-        plans SEVERAL chained UI actions per request (one screenshot → a multi-action
-        pyautogui script). Falls back to single-action Agent S when chaining is off.
+        plan_hint (optional) is a drafted roadmap to follow while adapting to the
+        screen; memory_hint (optional) is the milestone trail from a prior run. With
+        AUTONOMOUS_CHAIN on, this plans SEVERAL chained UI actions per request (one
+        screenshot → a multi-action script). Falls back to single-action Agent S.
         """
         from config import AUTONOMOUS_CHAIN
         if AUTONOMOUS_CHAIN:
-            chained = self._plan_chain(goal, step_index, memory_hint)
+            chained = self._plan_chain(goal, step_index, memory_hint, plan_hint)
             if chained is not None:
                 return chained
             # else: chained planner unavailable (no key / parse fail) → Agent S below
@@ -397,7 +399,8 @@ class AgentSAdapter:
 
         try:
             obs, geom = self._observation()
-            info, action = agent.predict(instruction=goal + memory_hint, observation=obs)
+            info, action = agent.predict(
+                instruction=goal + plan_hint + memory_hint, observation=obs)
             self.last_reasoning = (info or {}).get("plan", "") or ""
 
             raw = (action[0] if action else "") or ""

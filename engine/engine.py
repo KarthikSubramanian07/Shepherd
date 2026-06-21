@@ -166,25 +166,18 @@ class ShepherdExecutionEngine:
                 ],
             })
 
-            resolved = ResolvedRoutine(
-                routine_id=AUTONOMOUS_ROUTINE_ID,
-                variables=extracted,
-                confidence=1.0,
-                matched_keywords=[],
+            # Hand the drafted plan to the reactive Agent S loop as guidance, then
+            # execute it with screenshots at sensible intervals (chained), adapting
+            # to the real screen — rather than blindly running a keyboard-only script.
+            plan_hint = (
+                "PLAN (your roadmap — follow it in order, but adapt to what is "
+                "actually on screen each turn):\n"
+                + "\n".join(f"  {i + 1}. {s.description or s.action}"
+                            for i, s in enumerate(routine.steps))
             )
+            return self._execute_autonomous_reactive(goal, plan_hint=plan_hint)
 
-            saved_mode = self._mode
-            self._mode = "LIVE"
-            try:
-                # graph_key = the per-goal memory key, so this run reads + extends the
-                # same graph the planner just consulted (generate + use, per goal).
-                return self.execute(
-                    resolved, routine=routine, mode_override="LIVE", graph_key=task_key,
-                )
-            finally:
-                self._mode = saved_mode
-
-    def _execute_autonomous_reactive(self, goal: str) -> ExecutionResult:
+    def _execute_autonomous_reactive(self, goal: str, plan_hint: str = "") -> ExecutionResult:
         """
         Reactive loop — Agent S plans each action from the full intent
         and current screenshot until DONE, FAIL, halt, or step budget exhausted.
@@ -273,7 +266,8 @@ class ShepherdExecutionEngine:
 
                     apps, tools = None, None
                     with self._telemetry.span("agent_s.plan", oi_kind="LLM") as plan_span:
-                        result = self._agent_s.predict_autonomous(goal, i, memory_hint)
+                        result = self._agent_s.predict_autonomous(
+                            goal, i, memory_hint, plan_hint=plan_hint)
                         apps, tools = summarize_agent_code(result.code)
                         apply_llm_plan_span(
                             plan_span,

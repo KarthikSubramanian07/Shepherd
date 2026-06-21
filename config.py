@@ -73,9 +73,10 @@ class Settings(BaseSettings):
     # the agent is a persistent server taking goals from the CLI and/or frontend.
     # Set true for one-shot use. Ignored in remote/--listen mode.
     exit_when_done: bool = False
-    # Draft a routines.json-style step list before Agent S executes (vs reactive loop).
-    # Off by default: use the reactive Agent S loop that re-screenshots each turn.
-    autonomous_plan_first: bool = False
+    # Draft a plan first, then execute it through the reactive Agent S loop (which
+    # re-screenshots at sensible intervals) using the plan as a roadmap. On by
+    # default. Off = skip planning, react turn-by-turn from the goal alone.
+    autonomous_plan_first: bool = True
     autonomous_plan_max_steps: int = 12
     # Routine planner LLM — independent of Agent S (text-only JSON drafting)
     planner_engine_type: str = "anthropic"   # "anthropic" | "openai"
