@@ -43,8 +43,11 @@ const MODES = ["LIVE", "LOCKED", "AUTONOMOUS"] as const;
 
 export function Sidebar() {
   const pathname = usePathname();
+  const isRemote = pathname.startsWith("/remote");
   const { state } = useShepherd();
   const [switching, setSwitching] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const collapsed = isRemote && !hovered;
 
   // Dev mode reveals developer-only tabs. `?dev=true` turns it on (persisted in
   // localStorage so it survives navigation, since nav links drop the query),
@@ -87,28 +90,37 @@ export function Sidebar() {
       : "On watch";
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-edge bg-panel/70">
+    <aside
+      className={cn(
+        "flex shrink-0 flex-col border-r border-edge bg-panel/70 transition-all duration-200",
+        isRemote ? (hovered ? "w-60" : "w-14") : "w-60",
+      )}
+      onMouseEnter={() => isRemote && setHovered(true)}
+      onMouseLeave={() => isRemote && setHovered(false)}
+    >
       {/* Brand lockup · shepherd's crook + lantern */}
-      <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
+      <div className={cn("flex items-center gap-2.5 pb-3 pt-4", collapsed ? "justify-center px-2" : "px-4")}>
         <ShepherdMark />
-        <div>
-          {/* Wordmark in the logo's own typeface (extracted from the brand art) */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/shepherd-wordmark.png"
-            alt="Shepherd"
-            className="h-[19px] w-auto"
-            draggable={false}
-          />
-          <div className="mt-1 font-serif text-[12px] italic leading-none text-accent-ink">
-            Oversight console
+        {!collapsed && (
+          <div>
+            {/* Wordmark in the logo's own typeface (extracted from the brand art) */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/shepherd-wordmark.png"
+              alt="Shepherd"
+              className="h-[19px] w-auto"
+              draggable={false}
+            />
+            <div className="mt-1 font-serif text-[12px] italic leading-none text-accent-ink">
+              Oversight console
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Live watch · the agent heartbeat */}
-      <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-edge bg-panel2/70 px-3 py-2">
-        <span className="relative flex h-2 w-2">
+      <div className={cn("mx-3 mb-2 flex items-center gap-2 rounded-lg border border-edge bg-panel2/70", collapsed ? "justify-center px-1 py-2" : "px-3 py-2")}>
+        <span className="relative flex h-2 w-2 shrink-0">
           {(running || halted) && (
             <span
               className="absolute inline-flex h-full w-full animate-watch rounded-full"
@@ -120,9 +132,11 @@ export function Sidebar() {
             style={{ backgroundColor: watchHex }}
           />
         </span>
-        <span className="truncate text-[11px] text-muted">
-          {watchLabel} · <span className="font-mono text-ink/70">{state.mode}</span>
-        </span>
+        {!collapsed && (
+          <span className="truncate text-[11px] text-muted">
+            {watchLabel} · <span className="font-mono text-ink/70">{state.mode}</span>
+          </span>
+        )}
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 px-2 py-1">
@@ -132,8 +146,10 @@ export function Sidebar() {
             <Link
               key={href}
               href={href}
+              title={collapsed ? label : undefined}
               className={cn(
-                "group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-200 ease-out",
+                "group relative flex items-center rounded-lg py-2 text-sm transition-all duration-200 ease-out",
+                collapsed ? "justify-center px-1" : "gap-2.5 px-3",
                 active
                   ? "bg-accent/[0.08] font-medium text-ink"
                   : "text-muted hover:translate-x-0.5 hover:bg-panel2 hover:text-ink",
@@ -153,35 +169,37 @@ export function Sidebar() {
                   active ? "scale-110 text-accent" : "group-hover:scale-105",
                 )}
               />
-              {label}
+              {!collapsed && label}
             </Link>
           );
         })}
       </nav>
 
       {/* Mode toggle */}
-      <div className="border-t border-edge px-3 py-3">
-        <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
-          Execution mode
+      {!collapsed && (
+        <div className="border-t border-edge px-3 py-3">
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+            Execution mode
+          </div>
+          <div className="flex gap-1">
+            {MODES.map((m) => (
+              <button
+                key={m}
+                disabled={switching || state.status === "running"}
+                onClick={() => void switchMode(m)}
+                className={cn(
+                  "flex-1 rounded-md px-1.5 py-1 text-[10px] font-semibold transition-colors",
+                  state.mode === m
+                    ? "bg-accent text-white shadow-card"
+                    : "text-muted hover:bg-panel2 hover:text-ink",
+                )}
+              >
+                {m.slice(0, m === "AUTONOMOUS" ? 4 : m.length)}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex gap-1">
-          {MODES.map((m) => (
-            <button
-              key={m}
-              disabled={switching || state.status === "running"}
-              onClick={() => void switchMode(m)}
-              className={cn(
-                "flex-1 rounded-md px-1.5 py-1 text-[10px] font-semibold transition-colors",
-                state.mode === m
-                  ? "bg-accent text-white shadow-card"
-                  : "text-muted hover:bg-panel2 hover:text-ink",
-              )}
-            >
-              {m.slice(0, m === "AUTONOMOUS" ? 4 : m.length)}
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
 
 
     </aside>
