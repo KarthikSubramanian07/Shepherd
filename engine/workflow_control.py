@@ -31,6 +31,15 @@ _pause = threading.Event()
 # How long the executor blocks at a milestone once paused, awaiting a directive.
 PAUSE_TIMEOUT_S = 120.0
 
+# ── end-of-run persistence gate ───────────────────────────────────────────────
+# After a run bakes `remember` steers into the workflow, the operator decides what
+# to do with the result: persist into the reference workflow (default), save it as
+# a brand-new workflow, or discard. Unattended runs fall back to `persist` on
+# timeout so crystallized judgment calls are never silently lost.
+_finalize_cv = threading.Condition()
+_finalize_decision: Optional[dict] = None
+FINALIZE_TIMEOUT_S = 90.0
+
 
 # ── Control Hub side ──────────────────────────────────────────────────────────────
 def request_pause() -> None:
@@ -64,10 +73,28 @@ def submit_intervention(
         _cv.notify_all()
 
 
+def submit_finalize(decision: str = "persist", new_id: str = "", name: str = "") -> None:
+    """Control Hub side: the operator's end-of-run choice for the baked workflow.
+
+    decision ∈ {"persist", "save_as_new", "discard"}.
+    `new_id` / `name` are only used for save_as_new (a fresh workflow id + label)."""
+    global _finalize_decision
+    with _finalize_cv:
+        _finalize_decision = {
+            "decision": (decision or "persist").strip(),
+            "new_id":   (new_id or "").strip(),
+            "name":     (name or "").strip(),
+        }
+        _finalize_cv.notify_all()
+
+
 def reset() -> None:
     """Drop any queued directives and clear pause (between runs / in tests)."""
+    global _finalize_decision
     with _cv:
         _pending.clear()
+    with _finalize_cv:
+        _finalize_decision = None
     _pause.clear()
 
 
@@ -163,3 +190,81 @@ def bake(workflow: Workflow, interventions: list[InterventionEvent], run_id: str
     workflow.nodes = graph.nodes
     workflow.edges = graph.edges
     return applied
+
+
+# ── end-of-run persistence gate ───────────────────────────────────────────────
+def _emit_finalize(workflow: Workflow, applied: list[dict]) -> None:
+    """Announce that a baked workflow is awaiting the operator's persist choice."""
+    try:
+        from dashboard.events import event_bus
+        event_bus.emit("workflow.finalize", {
+            "workflow_id":      workflow.id,
+            "name":             workflow.name,
+            "current_version":  workflow.version,
+            "proposed_version": workflow.version + 1,
+            "ops":              applied,
+        })
+    except Exception:
+        pass
+
+
+def await_finalize(workflow: Workflow, applied: list[dict]) -> dict:
+    """Executor side: announce the proposed bake and block (bounded) for the
+    operator's choice. Defaults to `persist` on timeout so an unattended run still
+    crystallizes the judgment calls into the reference workflow."""
+    global _finalize_decision
+    with _finalize_cv:
+        _finalize_decision = None
+    _emit_finalize(workflow, applied)
+    with _finalize_cv:
+        deadline = time.time() + FINALIZE_TIMEOUT_S
+        while _finalize_decision is None:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            _finalize_cv.wait(timeout=remaining)
+        return _finalize_decision or {"decision": "persist"}
+
+
+def persist_baked(workflow: Workflow, applied: list[dict], decision: dict) -> dict:
+    """Apply the operator's finalize choice to the in-memory (already-baked)
+    workflow and persist accordingly. Returns an outcome dict for the event log.
+
+      persist      → bump version + save the reference workflow (default)
+      save_as_new  → save a clone under a new id at version 1 (reference untouched)
+      discard      → save nothing (the bake is dropped)
+    """
+    import copy
+    from dataclasses import replace
+    from engine.workflow_store import WorkflowStore
+
+    choice = (decision or {}).get("decision", "persist")
+    store = WorkflowStore()
+
+    if choice == "discard":
+        outcome = {"action": "discarded", "workflow_id": workflow.id,
+                   "version": workflow.version, "ops": applied}
+    elif choice == "save_as_new":
+        new_id = (decision.get("new_id") or "").strip() or f"{workflow.id}_COPY_{int(time.time())}"
+        name = (decision.get("name") or "").strip() or f"{workflow.name} (copy)"
+        clone = replace(
+            workflow, id=new_id, name=name, version=1,
+            nodes=copy.deepcopy(workflow.nodes), edges=copy.deepcopy(workflow.edges),
+            from_graph=workflow.id, created_at=0.0, updated_at=0.0,
+        )
+        store.save(clone)
+        outcome = {"action": "saved_as_new", "workflow_id": new_id,
+                   "version": clone.version, "ops": applied}
+    else:
+        # default: persist into the reference workflow
+        workflow.version += 1
+        store.save(workflow)
+        outcome = {"action": "persisted", "workflow_id": workflow.id,
+                   "version": workflow.version, "ops": applied}
+
+    try:
+        from dashboard.events import event_bus
+        event_bus.emit("workflow.finalized", outcome)
+    except Exception:
+        pass
+    return outcome

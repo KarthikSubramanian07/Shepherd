@@ -170,7 +170,8 @@ class RelayClient:
             if mode in ("LIVE", "LOCKED"):
                 _cfg._runtime_mode = mode
                 event_bus.emit("mode.changed", {"mode": mode})
-        elif command in ("workflow.pause", "workflow.resume", "workflow.intervene"):
+        elif command in ("workflow.pause", "workflow.resume", "workflow.intervene",
+                         "workflow.finalize"):
             self._apply_workflow_command(command, payload)
 
     def _apply_workflow_command(self, command: str, payload: dict) -> None:
@@ -193,6 +194,12 @@ class RelayClient:
                 remember=bool(payload.get("remember")),
                 decision=(payload.get("decision") or "override").strip() or "override",
                 target_node=(payload.get("target_node") or "").strip(),
+            )
+        elif command == "workflow.finalize":
+            workflow_control.submit_finalize(
+                decision=(payload.get("decision") or "persist").strip() or "persist",
+                new_id=(payload.get("new_id") or "").strip(),
+                name=(payload.get("name") or "").strip(),
             )
 
 

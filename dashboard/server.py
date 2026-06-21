@@ -461,7 +461,21 @@ async def workflow_control_action(action: str, request: Request) -> JSONResponse
             target_node=(body.get("target_node") or "").strip(),
         )
         return JSONResponse({"ok": True})
-    return JSONResponse({"error": "action must be pause|resume|intervene"},
+    if action == "finalize":
+        # End-of-run persist gate: the operator's choice for the baked workflow.
+        #   {"decision": "persist" | "save_as_new" | "discard",
+        #    "new_id": "...", "name": "..."}   (new_id/name only for save_as_new)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        workflow_control.submit_finalize(
+            decision=(body.get("decision") or "persist").strip(),
+            new_id=(body.get("new_id") or "").strip(),
+            name=(body.get("name") or "").strip(),
+        )
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "action must be pause|resume|intervene|finalize"},
                         status_code=400)
 
 

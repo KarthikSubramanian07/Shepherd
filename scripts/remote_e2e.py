@@ -40,7 +40,6 @@ import compat  # noqa: F401,E402  (pyautogui shim — must precede pyautogui)
 from dashboard.events import event_bus  # noqa: E402
 from engine import llm, workflow_control  # noqa: E402
 from engine.workflow_executor import WorkflowExecutor  # noqa: E402
-from engine.workflow_store import WorkflowStore  # noqa: E402
 from services.relay_client import start_relay_client  # noqa: E402
 from shepherd_types import Workflow, TaskGraphNode, TaskGraphEdge  # noqa: E402
 
@@ -166,9 +165,10 @@ def main() -> None:
         applied = workflow_control.bake(workflow, run.interventions,
                                         run_id=f"remote-{int(time.time())}")
         if applied:
-            workflow.version += 1
-            WorkflowStore().save(workflow)
-            print(f"\n  ✎ BAKED {len(applied)} op(s) → workflow v{workflow.version}: {applied}")
+            print(f"\n  ✎ BAKED {len(applied)} op(s); awaiting operator's persist choice…")
+            decision = workflow_control.await_finalize(workflow, applied)
+            outcome = workflow_control.persist_baked(workflow, applied, decision)
+            print(f"  ✎ {outcome['action']} → {outcome['workflow_id']} v{outcome['version']}")
 
         vals = page.evaluate(
             "() => ({name: document.getElementById('fullname')?.value,"

@@ -6,12 +6,14 @@
     milestone executor's control gate (engine.workflow_control).
 """
 import queue
+import threading
+import time
 
 from coordinator.server import AgentConn, Hub
 from engine import workflow_control
 from engine.workflow_executor import WorkerTurn
 from services.relay_client import RelayClient
-from shepherd_types import TaskGraphNode
+from shepherd_types import TaskGraphNode, Workflow
 
 
 def _conn() -> AgentConn:
@@ -98,3 +100,78 @@ def test_relay_workflow_commands_drive_control_gate():
     assert iv.next == "research"
     assert iv.remember is True
     workflow_control.reset()
+
+
+# ── end-of-run persist gate (Phase 2) ─────────────────────────────────────────
+def test_coordinator_tracks_finalize_gate():
+    hub = Hub()
+    conn = _conn()
+    hub.apply_event(conn, _ev("workflow.start", workflow_id="WF", name="WF", start="fill"))
+    hub.apply_event(conn, _ev("workflow.done", status="completed", steps=3))
+
+    hub.apply_event(conn, _ev(
+        "workflow.finalize", workflow_id="WF", name="WF",
+        current_version=1, proposed_version=2,
+        ops=[{"op": "add_conditional", "node": "fill", "when": "empty", "do": "research"}],
+    ))
+    fin = conn.snapshot()["workflow"]["finalize"]
+    assert fin is not None
+    assert fin["proposed_version"] == 2
+    assert len(fin["ops"]) == 1
+
+    hub.apply_event(conn, _ev("workflow.finalized", action="persisted",
+                              workflow_id="WF", version=2))
+    snap = conn.snapshot()["workflow"]
+    assert snap["finalize"] is None
+    assert snap["finalized"] == {"action": "persisted", "workflow_id": "WF", "version": 2}
+
+
+def test_relay_finalize_command_resolves_gate():
+    """The Command Center's workflow.finalize command unblocks await_finalize."""
+    workflow_control.reset()
+    relay = RelayClient(engine=None, remote_intents=queue.Queue())
+    wf = Workflow(id="WF", name="WF", version=1)
+
+    out: dict = {}
+
+    def runner():
+        out["decision"] = workflow_control.await_finalize(wf, [{"op": "x"}])
+
+    th = threading.Thread(target=runner)
+    th.start()
+    time.sleep(0.1)  # let the gate start waiting
+    relay._apply_command("workflow.finalize", {"decision": "discard"})
+    th.join(timeout=5)
+
+    assert out["decision"]["decision"] == "discard"
+    workflow_control.reset()
+
+
+def test_persist_baked_applies_decision(monkeypatch):
+    saved: list[Workflow] = []
+    monkeypatch.setattr(
+        "engine.workflow_store.WorkflowStore.save", lambda self, w: saved.append(w)
+    )
+
+    # persist → reference workflow version bumps + saved
+    wf = Workflow(id="WF", name="WF", version=1)
+    out = workflow_control.persist_baked(wf, [{"op": "x"}], {"decision": "persist"})
+    assert out["action"] == "persisted" and wf.version == 2
+    assert saved and saved[-1].id == "WF"
+
+    # save_as_new → reference untouched, a fresh v1 clone saved under new id
+    saved.clear()
+    wf2 = Workflow(id="WF", name="WF", version=2)
+    out = workflow_control.persist_baked(
+        wf2, [], {"decision": "save_as_new", "new_id": "WF_COPY", "name": "Copy"}
+    )
+    assert out["action"] == "saved_as_new" and out["workflow_id"] == "WF_COPY"
+    assert wf2.version == 2  # reference not bumped
+    assert saved and saved[-1].id == "WF_COPY" and saved[-1].version == 1
+
+    # discard → nothing saved, version unchanged
+    saved.clear()
+    wf3 = Workflow(id="WF", name="WF", version=5)
+    out = workflow_control.persist_baked(wf3, [], {"decision": "discard"})
+    assert out["action"] == "discarded" and wf3.version == 5
+    assert saved == []

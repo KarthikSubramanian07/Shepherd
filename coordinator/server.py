@@ -97,12 +97,16 @@ class AgentConn:
             return None
         wf = self.workflow
         return {
-            "id":       wf.get("id"),
-            "name":     wf.get("name"),
-            "current":  wf.get("current"),
-            "awaiting": wf.get("awaiting", False),
-            "nodes":    [wf["nodes"][k] for k in wf.get("order", []) if k in wf["nodes"]],
-            "edges":    wf.get("edges", []),
+            "id":        wf.get("id"),
+            "name":      wf.get("name"),
+            "current":   wf.get("current"),
+            "awaiting":  wf.get("awaiting", False),
+            "nodes":     [wf["nodes"][k] for k in wf.get("order", []) if k in wf["nodes"]],
+            "edges":     wf.get("edges", []),
+            "status":    wf.get("status"),
+            "baked":     wf.get("baked"),
+            "finalize":  wf.get("finalize"),
+            "finalized": wf.get("finalized"),
         }
 
     def _progress(self) -> float:
@@ -326,6 +330,21 @@ class Hub:
             }
         elif t == "workflow.baked":
             wf["baked"] = d.get("ops", d.get("applied", []))
+        elif t == "workflow.finalize":
+            # Run baked judgment calls; awaiting the operator's persist choice.
+            conn.status = "blocked"
+            wf["finalize"] = {
+                "workflow_id": d.get("workflow_id"), "name": d.get("name"),
+                "current_version": d.get("current_version"),
+                "proposed_version": d.get("proposed_version"),
+                "ops": d.get("ops", []),
+            }
+        elif t == "workflow.finalized":
+            wf["finalize"] = None
+            wf["finalized"] = {
+                "action": d.get("action"), "workflow_id": d.get("workflow_id"),
+                "version": d.get("version"),
+            }
         elif t == "workflow.done":
             st = d.get("status")
             conn.status = {"completed": "completed", "blocked": "blocked",
