@@ -80,7 +80,8 @@ A single console, not a pile of scripts. Every tab is live over WebSocket.
 - **Remote**: operate another machine. Its live screen (WebRTC peer-to-peer)
   beside the workflow graph it builds as it goes. Steer or teach it inline.
 - **Routines**: the recorded "tools," each a demonstration plus per-step notes.
-- **Task Graph**: the crystallized milestone DAG a task has learned across runs.
+- **Task Graph**: the crystallized milestone DAG a task has learned across runs,
+  with the modal execution path, branch entropy, and transition odds drawn on it.
 - **Workflows**: the dispatchable, versioned workflows, including the judgment
   calls baked in from your steers.
 - **Runs**: full scrubbable replay of any past run, step by step.
@@ -176,6 +177,21 @@ road. When you steer a run, you can **remember** it: the steer is baked in as a
 conditional, and a finalize gate at run end lets you persist it, save it as a new
 workflow, or discard it. The judgment calls future agents inherit are an explicit
 decision, not a silent side effect.
+
+That crystallized graph is not a doodle, it is a measured object. We treat the
+runs as a **Markov process** over milestones: every edge carries its transition
+probability from how often the agent took it, and **Viterbi** (max-product
+dynamic programming) recovers the single most-likely path through the whole
+workflow, which the UI highlights so you can see at a glance what "normally"
+happens. Each decision point reports its **Shannon entropy** in bits, the honest
+measure of how branchy a choice really is (0 bits is deterministic, 1 bit is a
+true coin flip), and branch and merge points fall out of the in/out degree. The
+layout itself is the **Sugiyama** algorithm: nodes are assigned to layers by
+longest-path rank, then ordered with iterated **median / barycenter** sweeps to
+minimize edge crossings, so a graph with real structure reads as one. The whole
+analysis is in `frontend/src/lib/graph-analysis.ts`. The point is not the math
+for its own sake: it is that you can look at a learned task and immediately tell
+the rote part from the part where judgment lives.
 
 The **oversight learns too.** Every step accumulates success / failure / halt /
 deviation stats across runs, surfaced as per-step confidence in the UI, and a
