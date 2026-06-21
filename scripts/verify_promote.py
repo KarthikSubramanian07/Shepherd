@@ -9,7 +9,6 @@ Run manually to inspect the quality of promoted workflow output:
 Exercises realistic task graph scenarios and prints the resulting
 workflow structure for manual inspection.
 """
-import json
 import os
 import sys
 import tempfile
@@ -222,7 +221,7 @@ def main():
         print(f"  Node count: {len(loaded.nodes)}")
 
         result = _promote(loaded, tmp)
-        print(f"\n  Promoted workflow:")
+        print("\n  Promoted workflow:")
         print(f"    ID:   {result['workflow_id']}")
         print(f"    Name: {result['name']}")
         print(f"    Patterns: {result['intent_patterns']}")

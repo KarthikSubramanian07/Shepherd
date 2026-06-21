@@ -66,6 +66,7 @@ export interface ModeResult {
 export interface WorkflowSummary {
   id: string;
   name: string;
+  description?: string;
   version: number;
   intent_patterns: string[];
   params: string[];
@@ -104,6 +105,7 @@ export interface WorkflowEdgeRaw {
 export interface WorkflowDetail {
   id: string;
   name: string;
+  description?: string;
   intent_patterns: string[];
   params: string[];
   version: number;

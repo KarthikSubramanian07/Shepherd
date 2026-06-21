@@ -12,8 +12,8 @@ The verifier:
 This is defense-in-depth: two independent checks, one rule-based, one model-based.
 The verifier never downgrades a "halt" from the rules — it can only escalate.
 """
+
 import base64
-import io
 import json
 from typing import Optional
 
@@ -43,6 +43,7 @@ def verify(
     """
     try:
         from services import band_collab
+
         if band_collab.available():
             v = band_collab.request_verdict(reason)
             if v:
@@ -62,18 +63,20 @@ def verify(
 
         if screenshot_png:
             b64 = base64.standard_b64encode(screenshot_png).decode()
-            parts.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": "image/png",
-                    "data": b64,
-                },
-            })
+            parts.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": b64,
+                    },
+                }
+            )
 
         prompt = (
             "You are an independent AI safety verifier. The rule-based monitor "
-            f"flagged this screen with reason: \"{reason}\"\n\n"
+            f'flagged this screen with reason: "{reason}"\n\n'
             "Look at the screenshot (if provided) and assess whether this is a "
             "genuine risk that requires human approval or an outright halt.\n\n"
             "Respond with ONLY a JSON object:\n"
@@ -99,15 +102,15 @@ def verify(
         # Extract JSON even if wrapped in prose/fences
         start, end = raw.find("{"), raw.rfind("}")
         if start != -1 and end != -1:
-            parsed = json.loads(raw[start:end + 1])
+            parsed = json.loads(raw[start : end + 1])
             verdict = parsed.get("verdict", "flag")
             if verdict not in ("halt", "flag", "ok"):
                 verdict = "flag"
             return {
-                "verdict":     verdict,
-                "confidence":  float(parsed.get("confidence", 0.7)),
+                "verdict": verdict,
+                "confidence": float(parsed.get("confidence", 0.7)),
                 "explanation": str(parsed.get("explanation", "")),
-                "model":       "claude-haiku-4-5-20251001",
+                "model": "claude-haiku-4-5-20251001",
             }
 
     except Exception as e:
@@ -118,8 +121,8 @@ def verify(
 
 def _safe_default(why: str) -> dict:
     return {
-        "verdict":     "flag",
-        "confidence":  0.5,
+        "verdict": "flag",
+        "confidence": 0.5,
         "explanation": f"Verifier unavailable ({why}) — defaulting to human review",
-        "model":       "none",
+        "model": "none",
     }

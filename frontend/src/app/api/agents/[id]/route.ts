@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
-import { agents } from "@/lib/mock-data";
+
+/**
+ * Proxy: forwards to the Shepherd backend's /api/agents/:id endpoint.
+ */
+const BACKEND = process.env.SHEPHERD_API_BASE ?? "http://localhost:8765";
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
-  const agent = agents.find((a) => a.id === params.id);
-  if (!agent) {
-    return NextResponse.json({ error: "agent not found" }, { status: 404 });
+  try {
+    const res = await fetch(`${BACKEND}/api/agents/${encodeURIComponent((await params).id)}`, { cache: "no-store" });
+    const data = await res.json();
+    return NextResponse.json(data, { status: res.status });
+  } catch {
+    return NextResponse.json({ error: "backend unreachable" }, { status: 502 });
   }
-  return NextResponse.json(agent);
 }

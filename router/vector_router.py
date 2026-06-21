@@ -12,6 +12,10 @@ EMBEDDING_DIM = 384
 VSET_KEY = "shepherd:routines"
 VSET_WF_KEY = "shepherd:workflows"
 SIMILARITY_THRESHOLD = 0.40   # below this, defer to keyword router
+CANDIDATE_RECALL_THRESHOLD = 0.25  # low bar for candidate generation (recall)
+CANDIDATE_K = 5  # top-K candidates to return
+
+_singleton: Optional["VectorRouter"] = None  # set after init for re-index access
 
 
 class VectorRouter:
@@ -41,11 +45,24 @@ class VectorRouter:
             vec = self._embed(text)
             r.execute_command("VADD", VSET_KEY, "FP32", vec, routine_id)
 
+        global _singleton
+        _singleton = self
         print(f"[vector_router] Ready — {len(registry)} routines indexed in Redis vectorset")
 
     @property
     def available(self) -> bool:
         return self._r is not None and self._model is not None
+
+    @staticmethod
+    def _workflow_index_text(wf) -> str:
+        """Build the text to embed for a workflow: name + description +
+        intent_patterns + milestone/node labels for richer matching."""
+        parts = [wf.name]
+        if getattr(wf, "description", None):
+            parts.append(wf.description)
+        parts.extend(wf.intent_patterns)
+        parts.extend(n.label for n in getattr(wf, "nodes", []))
+        return " ".join(parts)
 
     def index_workflows(self, workflows: list) -> None:
         """(Re-)index dispatchable Workflows into their own vectorset so the same
@@ -56,11 +73,22 @@ class VectorRouter:
         try:
             self._r.delete(VSET_WF_KEY)
             for wf in workflows:
-                text = wf.name + " " + " ".join(wf.intent_patterns)
+                text = self._workflow_index_text(wf)
                 self._r.execute_command("VADD", VSET_WF_KEY, "FP32", self._embed(text), wf.id)
             print(f"[vector_router] {len(workflows)} workflows indexed in Redis vectorset")
         except Exception as e:
             print(f"[vector_router] workflow index failed (non-fatal): {e}")
+
+    def index_single_workflow(self, wf) -> None:
+        """Upsert a single workflow into the vectorset (e.g. after async describe
+        enriches its title/description). No-op when unavailable."""
+        if not self.available:
+            return
+        try:
+            text = self._workflow_index_text(wf)
+            self._r.execute_command("VADD", VSET_WF_KEY, "FP32", self._embed(text), wf.id)
+        except Exception as e:
+            print(f"[vector_router] single workflow index failed (non-fatal): {e}")
 
     def resolve_workflow(self, intent_text: str) -> Optional[tuple[str, float]]:
         """Nearest saved workflow id + similarity, or None if below threshold."""
@@ -80,6 +108,48 @@ class VectorRouter:
         except Exception as e:
             print(f"[vector_router] workflow search failed (non-fatal): {e}")
             return None
+
+    def workflow_candidates(self, intent_text: str, k: int = CANDIDATE_K) -> list[tuple[str, float]]:
+        """Return up to k (id, score) workflow candidates above the recall threshold."""
+        if not self.available:
+            return []
+        try:
+            vec = self._embed(intent_text)
+            results = self._r.execute_command(
+                "VSIM", VSET_WF_KEY, "FP32", vec, "WITHSCORES", "COUNT", k
+            )
+            return self._parse_candidates(results)
+        except Exception as e:
+            print(f"[vector_router] workflow candidates failed (non-fatal): {e}")
+            return []
+
+    def candidates(self, intent_text: str, k: int = CANDIDATE_K) -> list[tuple[str, float]]:
+        """Return up to k (routine_id, score) candidates above the recall threshold."""
+        if not self.available:
+            return []
+        try:
+            vec = self._embed(intent_text)
+            results = self._r.execute_command(
+                "VSIM", VSET_KEY, "FP32", vec, "WITHSCORES", "COUNT", k
+            )
+            return self._parse_candidates(results)
+        except Exception as e:
+            print(f"[vector_router] routine candidates failed (non-fatal): {e}")
+            return []
+
+    @staticmethod
+    def _parse_candidates(results) -> list[tuple[str, float]]:
+        """Parse VSIM WITHSCORES results into (id, score) pairs above recall threshold."""
+        if not results:
+            return []
+        out: list[tuple[str, float]] = []
+        # Results come as [id1, score1, id2, score2, ...]
+        for i in range(0, len(results) - 1, 2):
+            cid = results[i].decode() if isinstance(results[i], bytes) else results[i]
+            score = float(results[i + 1])
+            if score >= CANDIDATE_RECALL_THRESHOLD:
+                out.append((cid, round(score, 4)))
+        return out
 
     def resolve(self, intent_text: str) -> Optional[tuple[str, float]]:
         """

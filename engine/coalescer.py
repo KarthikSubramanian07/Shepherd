@@ -114,7 +114,7 @@ def _coalesce(trace: RunTrace) -> None:
         patch = workflow_edit.build_patch(graph, trace)
         applied_ops = workflow_edit.apply_patch(_store, graph, patch, trace.run_id)
 
-    _store.save(graph, intent_text="", variables=trace.variables, run_id=trace.run_id)
+    _store.save(graph, intent_text=trace.intent_text, variables=trace.variables, run_id=trace.run_id)
     event_bus.emit("task.graph.saved", {
         "run_id":     trace.run_id,
         "routine_id": trace.routine_id,

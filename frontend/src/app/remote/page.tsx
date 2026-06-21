@@ -1,14 +1,18 @@
 "use client";
 
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Cpu,
   GitBranch,
   Hand,
   KeyRound,
+  Loader2,
+  Maximize2,
   ListTree,
   Monitor,
   Pause,
@@ -22,6 +26,7 @@ import {
   Trash2,
   WifiOff,
   Workflow as WorkflowIcon,
+  X,
 } from "lucide-react";
 import {
   type RemoteAgent,
@@ -30,6 +35,7 @@ import {
   type RemoteRouting,
   type WorkflowFinalizePayload,
   type WorkflowIntervenePayload,
+  fetchAgentCatalog,
   useCoordinator,
 } from "@/lib/coordinator";
 import { agentStatusStyle } from "@/lib/status";
@@ -57,10 +63,45 @@ export default function RemoteCommandCenterPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false);
   const [pickedNode, setPickedNode] = useState<string | null>(null);
+  const [halting, setHalting] = useState(false);
+  const haltEvtBase = useRef(0);
   const [bakeToggle, setBakeToggle] = useState(true);
+  const [rosterOpen, setRosterOpen] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   // Track whether we've already fired the promote command for this run.
   // Keyed by "agentId:runId" to avoid re-firing after agent switch-back.
   const promotedRef = useRef<string | null>(null);
+
+  // Clear halting state when the selected agent changes.
+  useEffect(() => {
+    setHalting(false);
+    setExpanded(false);
+  }, [c.selectedId]);
+
+  // Auto-reopen roster when the selected agent disappears (disconnect, etc.)
+  // so the user isn't stuck with no way to pick another agent.
+  useEffect(() => {
+    if (!c.selected && !rosterOpen) setRosterOpen(true);
+  }, [c.selected, rosterOpen]);
+
+  // Clear halting state when the halt is confirmed or the agent stops naturally.
+  const selectedStatus = c.selected?.status;
+  const events = c.events;
+  const eventsLen = events.length;
+  useEffect(() => {
+    if (!halting) return;
+    for (let i = haltEvtBase.current; i < events.length; i++) {
+      if (events[i].type === "execution.halted") {
+        const stepIdx = events[i].data?.step_index as number | undefined;
+        setToast(`Agent halted at step ${stepIdx ?? "?"}`);
+        setHalting(false);
+        return;
+      }
+    }
+    if (selectedStatus && selectedStatus !== "running") {
+      setHalting(false);
+    }
+  }, [halting, selectedStatus, eventsLen, events]);
 
   // Auto-promote: when the toggle is on and the trace signals promoteReady,
   // fire the promote command exactly once per run (idempotency guard).
@@ -176,36 +217,65 @@ export default function RemoteCommandCenterPage() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-          {/* Roster */}
-          <div className="space-y-2 xl:col-span-1">
-            <h2 className="text-sm font-semibold text-muted">Fleet</h2>
-            {c.agents.length === 0 ? (
-              <EmptyState
-                icon={<Radio size={20} />}
-                title={c.code ? `No agent on session ${c.code}` : "No agents connected"}
-                description={
-                  c.code
-                    ? "Waiting for an agent to dial in with this session code. Check the code printed on the agent machine."
-                    : "Enter the session code printed on the agent machine, or start Shepherd with COORDINATOR_URL set so it dials in here."
-                }
-              />
-            ) : (
-              c.agents.map((a) => (
-                <RosterCard
-                  key={a.id}
-                  agent={a}
-                  active={a.id === c.selectedId}
-                  onClick={() => {
-                    c.watch(a.id);
-                    setPickedNode(null);
-                  }}
+          {/* Roster — full panel or collapsed agent chip */}
+          {rosterOpen ? (
+            <div className="space-y-2 xl:col-span-1">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-muted">Fleet</h2>
+                {c.selectedId && (
+                  <button
+                    onClick={() => setRosterOpen(false)}
+                    className="rounded p-0.5 text-muted hover:bg-panel2 hover:text-ink"
+                    title="Collapse fleet roster"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                )}
+              </div>
+              {c.agents.length === 0 ? (
+                <EmptyState
+                  icon={<Radio size={20} />}
+                  title={c.code ? `No agent on session ${c.code}` : "No agents connected"}
+                  description={
+                    c.code
+                      ? "Waiting for an agent to dial in with this session code. Check the code printed on the agent machine."
+                      : "Enter the session code printed on the agent machine, or start Shepherd with COORDINATOR_URL set so it dials in here."
+                  }
                 />
-              ))
-            )}
-          </div>
+              ) : (
+                c.agents.map((a) => (
+                  <RosterCard
+                    key={a.id}
+                    agent={a}
+                    active={a.id === c.selectedId}
+                    onClick={() => {
+                      c.watch(a.id);
+                      setPickedNode(null);
+                    }}
+                  />
+                ))
+              )}
+            </div>
+          ) : (
+            c.selected && (
+              <div className="flex items-center gap-2 xl:col-span-4">
+                <button
+                  onClick={() => setRosterOpen(true)}
+                  className="flex items-center gap-2 rounded-lg border border-edge bg-panel/80 px-3 py-1.5 text-sm transition-colors hover:border-accent/40"
+                >
+                  <StatusDot
+                    hex={agentStatusStyle[c.selected.status].hex}
+                    pulse={c.selected.status === "running" || c.selected.status === "blocked"}
+                  />
+                  <span className="font-medium text-ink">{c.selected.name}</span>
+                  <ChevronRight size={14} className="text-muted" />
+                </button>
+              </div>
+            )
+          )}
 
           {/* Detail · unified live view */}
-          <div className="xl:col-span-3">
+          <div className={rosterOpen ? "xl:col-span-3" : "xl:col-span-4"}>
             {!c.selected ? (
               <EmptyState
                 icon={<Monitor size={20} />}
@@ -290,6 +360,23 @@ export default function RemoteCommandCenterPage() {
                     agent={c.selected}
                     webrtcState={webrtc.state}
                     videoRef={webrtc.videoRef}
+                    expanded={expanded}
+                    onToggleExpand={() => setExpanded((v) => !v)}
+                    onHalt={() => {
+                      haltEvtBase.current = c.events.length;
+                      setHalting(true);
+                      setToast("Halt requested \u2014 agent will stop at next step boundary");
+                      c.sendCommand(c.selected!.id, "halt");
+                    }}
+                    halting={halting}
+                    onPause={() => {
+                      c.sendCommand(c.selected!.id, "workflow.pause");
+                      setToast("Pause requested · agent will wait at the next milestone");
+                    }}
+                    onResume={() => {
+                      c.sendCommand(c.selected!.id, "workflow.resume");
+                      setToast("Resumed · agent proceeds autonomously");
+                    }}
                   />
                   <WorkflowPane
                     agent={c.selected}
@@ -326,7 +413,12 @@ export default function RemoteCommandCenterPage() {
                 {trace?.promoted && (
                   <Card className="flex items-center gap-2 border-ok/40 bg-ok/5 px-4 py-2 text-sm text-ok">
                     <ShieldCheck size={16} />
-                    Baked into workflow: <span className="font-mono text-[12px]">{trace.promoted.name}</span>
+                    <span>
+                      Baked into workflow: <span className="font-mono text-[12px]">{trace.promoted.name}</span>
+                      {trace.promoted.description && (
+                        <span className="ml-1 text-[11px] text-ok/70">— {trace.promoted.description}</span>
+                      )}
+                    </span>
                   </Card>
                 )}
 
@@ -343,8 +435,18 @@ export default function RemoteCommandCenterPage() {
                       <Send size={15} /> Dispatch
                     </Button>
                     <MicCommandButton onTranscript={send} onError={(m) => setToast(m)} />
-                    <Button variant="danger" onClick={() => c.sendCommand(c.selected!.id, "halt")}>
-                      <Hand size={15} /> Halt
+                    <Button
+                      variant="danger"
+                      disabled={halting}
+                      onClick={() => {
+                        haltEvtBase.current = c.events.length;
+                        setHalting(true);
+                        setToast("Halt requested \u2014 agent will stop at next step boundary");
+                        c.sendCommand(c.selected!.id, "halt");
+                      }}
+                    >
+                      {halting ? <Loader2 size={15} className="animate-spin" /> : <Hand size={15} />}
+                      {halting ? "Halting\u2026" : "Halt"}
                     </Button>
                   </div>
                   <p className="mt-2 text-[11px] text-muted">
@@ -354,6 +456,9 @@ export default function RemoteCommandCenterPage() {
                   </p>
                   {c.selected.routing && <RoutingBanner routing={c.selected.routing} />}
                 </Card>
+
+                {/* Agent catalog (routines, workflows, task graphs) */}
+                {c.selectedId && <CatalogPanel agentId={c.selectedId} />}
 
                 {/* Raw activity (collapsible secondary pane) */}
                 <Card className="p-0">
@@ -552,52 +657,184 @@ function LiveScreen({
   agent,
   webrtcState,
   videoRef,
+  expanded,
+  onToggleExpand,
+  onHalt,
+  onPause,
+  onResume,
+  halting,
 }: {
   frame: string | null;
   agent: RemoteAgent;
   webrtcState: WebRTCState;
   videoRef: (el: HTMLVideoElement | null) => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onHalt: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  halting: boolean;
 }) {
   const isWebRTC = webrtcState === "connected";
+  const s = agentStatusStyle[agent.status];
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onToggleExpand();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded, onToggleExpand]);
+
   return (
-    <Card className="overflow-hidden">
-      <div className="relative flex min-h-[320px] items-center justify-center bg-black/60">
-        {/* WebRTC video (hidden unless connected) */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className={[
-            "max-h-[60vh] w-full object-contain",
-            isWebRTC ? "" : "hidden",
-          ].join(" ")}
-        />
-        {/* Fallback: base64 frame relay */}
-        {!isWebRTC && (
-          <>
-            {frame ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={frame} alt={`${agent.name} live screen`} className="max-h-[60vh] w-full object-contain" />
-            ) : (
-              <div className="flex flex-col items-center gap-2 py-16 text-muted">
-                <Monitor size={28} />
-                <span className="text-sm">{agent.online ? "Waiting for frames…" : "Agent offline"}</span>
-              </div>
+    <>
+      <Card className="overflow-hidden">
+        <div className="relative flex min-h-[320px] items-center justify-center bg-black/60">
+          {!expanded && (
+            <>
+              {/* WebRTC video (hidden unless connected) */}
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={[
+                  "max-h-[60vh] w-full object-contain",
+                  isWebRTC ? "" : "hidden",
+                ].join(" ")}
+              />
+              {/* Fallback: base64 frame relay */}
+              {!isWebRTC && (
+                <>
+                  {frame ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={frame} alt={`${agent.name} live screen`} className="max-h-[60vh] w-full object-contain" />
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 py-16 text-muted">
+                      <Monitor size={28} />
+                      <span className="text-sm">{agent.online ? "Waiting for frames…" : "Agent offline"}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+          {expanded && (
+            <span className="text-sm text-white/60">Live view expanded</span>
+          )}
+          <div className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white">
+            <Radio size={11} className="text-red-400" /> LIVE · {agent.mode}
+            {isWebRTC && (
+              <span className="ml-1 rounded bg-green-600/80 px-1 text-[10px]">P2P</span>
             )}
-          </>
-        )}
-        <div className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white">
-          <Radio size={11} className="text-red-400" /> LIVE · {agent.mode}
-          {isWebRTC && (
-            <span className="ml-1 rounded bg-green-600/80 px-1 text-[10px]">P2P</span>
-          )}
-          {webrtcState === "connecting" && (
-            <span className="ml-1 rounded bg-yellow-600/80 px-1 text-[10px]">P2P…</span>
-          )}
+            {webrtcState === "connecting" && (
+              <span className="ml-1 rounded bg-yellow-600/80 px-1 text-[10px]">P2P…</span>
+            )}
+          </div>
+          <button
+            onClick={onToggleExpand}
+            className="absolute right-2 top-2 rounded-md bg-black/60 p-1.5 text-white/80 transition-colors hover:text-white"
+            title="Expand live view"
+          >
+            <Maximize2 size={14} />
+          </button>
         </div>
-      </div>
-    </Card>
+      </Card>
+
+      {expanded &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex flex-col bg-black/95">
+            {/* Close button */}
+            <button
+              onClick={onToggleExpand}
+              className="absolute right-4 top-4 z-10 rounded-lg bg-white/10 p-2 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+              title="Close (Esc)"
+            >
+              <X size={20} />
+            </button>
+
+            {/* LIVE badge */}
+            <div className="absolute left-4 top-4 z-10 flex items-center gap-1 rounded-md bg-black/60 px-2 py-1 text-[11px] text-white">
+              <Radio size={11} className="text-red-400" /> LIVE · {agent.mode}
+              {isWebRTC && (
+                <span className="ml-1 rounded bg-green-600/80 px-1 text-[10px]">P2P</span>
+              )}
+            </div>
+
+            {/* Video / frame */}
+            <div className="flex flex-1 items-center justify-center p-4">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className={[
+                  "max-h-[85vh] max-w-full object-contain",
+                  isWebRTC ? "" : "hidden",
+                ].join(" ")}
+              />
+              {!isWebRTC && (
+                <>
+                  {frame ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={frame}
+                      alt={`${agent.name} live screen`}
+                      className="max-h-[85vh] max-w-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 py-16 text-white/50">
+                      <Monitor size={40} />
+                      <span className="text-base">
+                        {agent.online ? "Waiting for frames…" : "Agent offline"}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Bottom toolbar */}
+            <div className="flex items-center justify-between bg-black/60 px-6 py-3 backdrop-blur-sm">
+              <div className="flex items-center gap-3">
+                <StatusDot
+                  hex={s.hex}
+                  pulse={agent.status === "running" || agent.status === "blocked"}
+                />
+                <span className="text-sm font-medium text-white">{agent.name}</span>
+                <Badge tone="accent">{agent.mode}</Badge>
+                <Badge
+                  tone={
+                    agent.status === "blocked" || agent.status === "failed"
+                      ? "halt"
+                      : agent.status === "completed"
+                        ? "ok"
+                        : agent.status === "running"
+                          ? "accent"
+                          : "neutral"
+                  }
+                >
+                  {s.label}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="danger" disabled={halting} onClick={onHalt}>
+                  {halting ? <Loader2 size={15} className="animate-spin" /> : <Hand size={15} />}
+                  {halting ? "Halting\u2026" : "Halt"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={onPause}>
+                  <Pause size={14} /> Pause
+                </Button>
+                <Button size="sm" variant="outline" onClick={onResume}>
+                  <Play size={14} /> Resume
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -1130,6 +1367,94 @@ function InterventionBanner({
           Override
         </Button>
       </div>
+    </Card>
+  );
+}
+
+// ── Catalog panel — agent's routines, workflows, task-graphs ─────────────────
+
+function CatalogPanel({ agentId }: { agentId: string }) {
+  const [open, setOpen] = useState(false);
+  const [catalog, setCatalog] = useState<{
+    routines: { id: string; name: string; description: string; mode: string; stepCount: number; version: number }[];
+    workflows: { id: string; name: string; description?: string | null; version: number; nodes: number }[];
+    task_graphs: { task_key: string; routine_id: string | null; run_count: number; node_count: number; labels: string[] }[];
+    version: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setCatalog(null);
+    let cancelled = false;
+    fetchAgentCatalog(agentId).then((c) => { if (!cancelled) setCatalog(c); });
+    return () => { cancelled = true; };
+  }, [agentId, open]);
+
+  const total = catalog
+    ? catalog.routines.length + catalog.workflows.length + catalog.task_graphs.length
+    : 0;
+
+  return (
+    <Card className="p-0">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-muted hover:text-ink"
+      >
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        Agent catalog
+        <span className="ml-auto text-[11px] text-muted">
+          {catalog ? `${total} items · v${catalog.version}` : "…"}
+        </span>
+      </button>
+      {open && catalog && (
+        <div className="space-y-3 border-t border-edge px-3 py-2 text-xs">
+          {catalog.workflows.length > 0 && (
+            <div>
+              <h4 className="mb-1 font-semibold text-muted">Workflows ({catalog.workflows.length})</h4>
+              <ul className="space-y-1">
+                {catalog.workflows.map((w) => (
+                  <li key={w.id} className="flex items-center gap-2 rounded border border-edge px-2 py-1">
+                    <WorkflowIcon size={12} className="text-accent" />
+                    <span className="font-medium text-ink">{w.name}</span>
+                    <span className="ml-auto text-muted">v{w.version} · {w.nodes} nodes</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {catalog.routines.length > 0 && (
+            <div>
+              <h4 className="mb-1 font-semibold text-muted">Routines ({catalog.routines.length})</h4>
+              <ul className="space-y-1">
+                {catalog.routines.map((r) => (
+                  <li key={r.id} className="flex items-center gap-2 rounded border border-edge px-2 py-1">
+                    <GitBranch size={12} className="text-accent" />
+                    <span className="font-medium text-ink">{r.name}</span>
+                    <span className="ml-auto text-muted">{r.mode} · {r.stepCount} steps</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {catalog.task_graphs.length > 0 && (
+            <div>
+              <h4 className="mb-1 font-semibold text-muted">Task Graphs ({catalog.task_graphs.length})</h4>
+              <ul className="space-y-1">
+                {catalog.task_graphs.map((g) => (
+                  <li key={g.task_key} className="flex items-center gap-2 rounded border border-edge px-2 py-1">
+                    <ListTree size={12} className="text-accent" />
+                    <span className="font-medium text-ink">{g.task_key}</span>
+                    <span className="ml-auto text-muted">{g.run_count} runs · {g.node_count} nodes</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {total === 0 && (
+            <p className="text-muted">No routines, workflows, or task graphs on this agent yet.</p>
+          )}
+        </div>
+      )}
     </Card>
   );
 }

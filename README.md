@@ -157,16 +157,34 @@ exactly as it watches a recorded one.** Open-ended capability, still on a leash.
 
 ### 2. The oversight stack catches it before it costs you
 
-Three layers, fastest first. A rule-based policy engine evaluates every
-high-stakes screen in under a millisecond (credential fields, captchas, phishing,
-outbound sends), enforces app and domain containment, and rate-limits the run. If
-it only flags, an independent Claude verifier gives a second opinion and can
-upgrade to halt or stand down. Anything still flagged blocks and waits for a
-human, who can approve, halt, or steer with a natural-language override. Saying
-"stop" out loud fires the same halt path. Two demo flows ship today: a job
-application that halts at the credential field, and an email that halts before
-sending to an external recipient with a secret in the body. Both are governance
-moments, not form-fillers.
+Defense in depth, fastest first, each layer independent so a miss in one is caught
+by the next.
+
+**Pre-flight, before the first click: cryptographic intent authorization.** When
+ArmorIQ is on, the resolved plan is captured at the run boundary and ArmorIQ
+issues a **cryptographically-signed intent token** gated by an allow/deny policy
+derived from the same containment rules. The plan is authorized as a whole before
+a single action runs, and the signed token is intent-level proof that sits beside
+the audit chain. A tenant-policy denial halts the run before it starts.
+
+**Per high-stakes screen, under a millisecond: the rule-based policy engine.** It
+evaluates credential fields, captchas, phishing, and outbound sends, enforces app
+and domain containment, and rate-limits the run, all from a hot-reloaded
+`data/policy.yaml`.
+
+**On a flag, a genuinely independent second opinion.** A separate Claude verifier
+re-examines the screen and can upgrade a flag to a halt or stand down. This is not
+just an in-process call: when Band is on, the second opinion is a **real
+two-agent collaboration over Band's agentic mesh**: the engine posts the flagged
+action into a shared room, an independent `shepherd-verifier` agent reasons and
+replies with its verdict, and the engine reads it back (live round-trip verified).
+If Band is offline it degrades to the identical in-process check.
+
+**Anything still flagged waits for a human**, who can approve, halt, or steer with
+a natural-language override. Saying "stop" out loud fires the same halt path. Two
+demo flows ship today: a job application that halts at the credential field, and
+an email that halts before sending to an external recipient with a secret in the
+body. Both are governance moments, not form-fillers.
 
 ### 3. It learns: runs crystallize into reusable workflows
 
@@ -218,9 +236,14 @@ Tunnel. The full remote-operation and theoretical peering model is in
 
 The execution engine is Simular's Agent S planning against your demonstration.
 The research digression is a genuine Agentspan (Orkes) agent that compiles into a
-durable workflow on a self-hosted server, reasons, and calls a tool. Intent
-routing, replay memory, and a semantic LLM cache all run on Redis. Observability
-is real OpenTelemetry into Arize Phoenix. None of this is a screenshot of a logo.
+durable workflow on a self-hosted server, reasons, and calls a tool, leaving a
+queryable execution behind. The oversight verifier can be a separate Claude agent
+on Band's mesh. Run authorization is a real ArmorIQ intent token. Three things run
+on Redis: vector intent routing (BGE embeddings over a Redis 8 vector set), agent
+replay memory, and a **semantic LLM cache that hits by meaning, not by key** so a
+paraphrased goal reuses a prior milestone segmentation. Observability is real
+OpenTelemetry into Arize Phoenix. Every one of these was exercised live during the
+build, not stubbed: none of it is a screenshot of a logo.
 
 ---
 
@@ -342,11 +365,11 @@ Open **http://localhost:3000** and speak or type an intent.
 Both are optional and off the click path.
 
 ```bash
-# Phoenix — live OTel traces (no API key for local)
+# Phoenix: live OTel traces (no API key for local)
 ./scripts/serve_phoenix.sh          # Terminal 1 → http://localhost:6006
 uv run python main.py               # Terminal 2
 
-# Sentry — add to .env, then failed runs link back to Phoenix
+# Sentry: add to .env, then failed runs link back to Phoenix
 SENTRY_DSN=https://xxx@oXXX.ingest.sentry.io/XXX
 ```
 

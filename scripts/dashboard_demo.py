@@ -30,7 +30,7 @@ from engine.workflow_executor import WorkflowExecutor, WorkerResult, END
 from dashboard.events import event_bus
 from dashboard import server as dash
 
-from scripts.live_job_app import build_workflow, K_NAME, K_EMAIL, K_PROJECTS, K_RESEARCH, K_SUBMIT
+from scripts.live_job_app import build_workflow, K_PROJECTS, K_RESEARCH, K_SUBMIT
 
 STEP_PACE_S = float(os.getenv("DEMO_PACE_S", "3.0"))
 MODE = os.getenv("DEMO", "scripted")

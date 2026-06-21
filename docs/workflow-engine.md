@@ -256,7 +256,10 @@ the hot path** and needs no deterministic matcher. `goto` reuses an existing nod
 - **`WorkflowNode`** = milestone + `instruction`, `requires: [str]`, `conditionals:
   [{when, do, goto?}]`, `procedure?`, `optional`, `source: observed|taught`.
 - **`WorkflowEdge`** = `from`, `to`, `condition?` (NL guard), `times_seen`.
-- **`Workflow`** = `id, name, intent_patterns, params, nodes, edges, version, from_graph`.
+- **`Workflow`** = `id, name, description, intent_patterns, params, nodes, edges, version, from_graph`.
+- **`RunTrace`** carries `intent_text` — the raw NL intent from the user, threaded from
+  the dispatch point through `engine.py` to the coalescer so `TaskGraphStore.save()`
+  populates `graph.intents` with real language instead of empty strings.
 
 Already implemented this branch: `TaskGraphNode`, `TaskGraphEdge`, `TaskGraph`
 (`shepherd_types.py`), persisted by `engine/task_graph.py`.
@@ -303,9 +306,14 @@ so the segmenter/coalescer don't care which model runs:
    ad-hoc autonomous run completes and the coalescer saves the task graph
    (`task.graph.saved` event with `known=false`), the Command Center's default-on
    "Bake out a new workflow" toggle fires a `promote` command via the relay. The agent
-   calls `WorkflowStore.promote()` with name derived from the stored intents and
-   `intent_patterns` from the graph's `intents` list. The operator can untoggle to
-   skip. Endpoint: `POST /api/task-graphs/{task_key}/promote`.
+   calls the shared `promote_graph()` helper (`engine/workflow_promote.py`) which derives
+   name + `intent_patterns` from the graph's real NL intents, creates the workflow
+   IMMEDIATELY (instantly dispatchable), and fires an async background task
+   (`engine/workflow_describe.py`) that calls the LLM to generate a human-readable title,
+   description, and paraphrased intent_patterns — then re-indexes the vector store. If the
+   LLM is unavailable, the NL-derived values are kept. Both `relay_client._promote_graph()`
+   and `POST /api/task-graphs/{task_key}/promote` delegate to this shared helper.
+   Endpoint: `POST /api/task-graphs/{task_key}/promote`.
 5. **Milestone-graph executor (done; being superseded — see §0)** — traverses the
    workflow node-by-node with a single-message advance and pluggable workers (AgentS
    / LLM / Scripted) (`engine/workflow_executor.py`); Control Hub steer/teach gate
@@ -323,7 +331,7 @@ so the segmenter/coalescer don't care which model runs:
 
 | Concern | Module |
 |---|---|
-| Intent → Plan/route | `router/router.py`, `router/vector_router.py`, `router/registry.py` |
+| Intent → Plan/route | `router/router.py`, `router/vector_router.py`, `router/llm_filter.py`, `router/registry.py` |
 | Fine-step execution (hot path) | `engine/engine.py` |
 | Human intervention gate | `engine/approvals.py` |
 | Milestone segmentation (LLM + heuristic) | `engine/milestones.py` |
@@ -335,10 +343,42 @@ so the segmenter/coalescer don't care which model runs:
 | Frontend graph view | `frontend/src/app/task-graph/`, `frontend/src/components/graph/TaskGraphView.tsx` |
 | Modular LLM layer | `engine/llm.py` |
 | Workflow store (promotion + versioning) | `engine/workflow_store.py` → `data/workflows.json` |
+| Shared promote helper | `engine/workflow_promote.py` |
+| Async workflow description (LLM) | `engine/workflow_describe.py` |
 | Teaching loop (EDIT-mode bake) | `engine/workflow_edit.py` |
 | Milestone-graph executor (traversal) | `engine/workflow_executor.py` |
 | Workflow dispatch + executor wiring | `router/router.py`, `engine/engine.py` |
 | Control Hub steer/teach gate | `engine/workflow_control.py` |
+
+---
+
+## 9.1 Routing precision: retrieve → LLM filter
+
+The router's `resolve_plan()` uses a two-stage pipeline to prevent false-positive
+routing (e.g. a research intent incorrectly matching `ROUTINE_JOB_APPLICATION` at
+cosine 0.79):
+
+```
+Intent
+ └► Vector search (CANDIDATE GENERATION — recall)
+      • top-K (5) from workflows vectorset + top-K from routines vectorset
+      • low recall threshold (0.25) — favor recall, not precision
+ └► LLM filter (PRECISION — always runs when ≥1 candidate)
+      • NO score-based bypass — even a 0.92 cosine can be a false positive
+      • tiny prompt to fast model (Haiku via engine/llm.py):
+        "Which candidate, if any, satisfies the request? Reply id or NONE."
+      • returns chosen id → route; or NONE → GENERIC (autonomous)
+ └► Graceful degradation (LLM unavailable / transient error)
+      • fall back to conservative top-1 threshold (0.40)
+      • offline substring fallback unchanged (Redis down)
+```
+
+Key properties:
+- **Cold path only** — never on the hot per-step execution loop.
+- **LLM is the authoritative precision gate** — always called when candidates
+  exist; one short Haiku call (~64 max tokens, 15s timeout) per routing decision.
+- **Deterministic tests**: `tests/test_llm_filter.py` mocks the LLM to validate
+  both false-positive rejection and false-negative acceptance.
 
 ---
 

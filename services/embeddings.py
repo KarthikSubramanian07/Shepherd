@@ -7,7 +7,6 @@ Redis 8 vectorsets (VADD/VSIM) expect.
 """
 import struct
 import threading
-from typing import Optional
 
 EMBEDDING_DIM = 384
 _MODEL_NAME = "BAAI/bge-small-en-v1.5"

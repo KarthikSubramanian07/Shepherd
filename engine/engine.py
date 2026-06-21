@@ -503,6 +503,7 @@ class ShepherdExecutionEngine:
             executed=executed,
             interventions=list(self._interventions),
             deviations=deviations,
+            intent_text=goal,
         ))
         self._active_graph = None
 
@@ -522,6 +523,7 @@ class ShepherdExecutionEngine:
         routine: RoutineDefinition | None = None,
         mode_override: str | None = None,
         graph_key: str | None = None,
+        intent_text: str = "",
     ) -> ExecutionResult:
         self._halt_flag.clear()
         self.last_step_records = []
@@ -948,6 +950,7 @@ class ShepherdExecutionEngine:
             executed=executed,
             interventions=list(self._interventions),
             deviations=deviations,
+            intent_text=intent_text,
         ))
         self._active_graph = None
         self._step_ms = {}
@@ -1569,7 +1572,8 @@ class ShepherdExecutionEngine:
             plan = None
             if self._mode == "LIVE" and self._agent_s.available:
                 try:
-                    import io as _io, subprocess as _sp0
+                    import io as _io
+                    import subprocess as _sp0
                     # Bring Chrome to front so Claude's screenshot shows the form, not another window.
                     _sp0.run(["osascript", "-e", 'tell application "Google Chrome" to activate'], check=False)
                     time.sleep(0.4)
@@ -1663,7 +1667,9 @@ class ShepherdExecutionEngine:
         "Allow JavaScript from Apple Events", and falls back to click + Tab if JS
         stays blocked.
         """
-        import os as _os, subprocess as _sp, tempfile as _tmp
+        import os as _os
+        import subprocess as _sp
+        import tempfile as _tmp
 
         # Best-effort enable "Allow JavaScript from Apple Events" (checks state first
         # so it never toggles OFF when already enabled).

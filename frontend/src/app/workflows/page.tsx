@@ -59,9 +59,15 @@ export default function WorkflowsPage() {
                     <Badge tone="accent">v{w.version}</Badge>
                   </div>
 
-                  <p className="mt-2 line-clamp-1 flex-1 font-mono text-[11px] text-muted">
-                    {w.id}
-                  </p>
+                  {w.description ? (
+                    <p className="mt-2 line-clamp-2 text-[12px] text-muted">
+                      {w.description}
+                    </p>
+                  ) : (
+                    <p className="mt-2 line-clamp-1 flex-1 font-mono text-[11px] text-muted">
+                      {w.id}
+                    </p>
+                  )}
 
                   {w.intent_patterns.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">

@@ -13,13 +13,14 @@ with no key it is inert and the run proceeds exactly as before. A transport erro
 also degrades to "no enforcement" so ArmorIQ being down never bricks a run — only
 an explicit authentication/authorization failure blocks.
 """
+
 from typing import Optional
 
 from config import FEATURES, ARMORIQ_API_KEY, ARMORIQ_STRICT
 
 _client = None
 _PLAN_LLM = "claude-haiku-4-5"
-_MCP = "shepherd-desktop"   # the "tool surface" the agent acts through, in ArmorIQ terms
+_MCP = "shepherd-desktop"  # the "tool surface" the agent acts through, in ArmorIQ terms
 
 
 def available() -> bool:
@@ -34,6 +35,7 @@ def _get_client():
         return None
     try:
         from armoriq_sdk import ArmorIQClient
+
         _client = ArmorIQClient(api_key=ARMORIQ_API_KEY)
     except Exception as e:
         print(f"[armoriq] client init failed (non-fatal): {e}")
@@ -41,8 +43,9 @@ def _get_client():
     return _client
 
 
-def authorize_run(goal: str, steps, variables: Optional[dict] = None,
-                  policy: Optional[dict] = None) -> Optional[dict]:
+def authorize_run(
+    goal: str, steps, variables: Optional[dict] = None, policy: Optional[dict] = None
+) -> Optional[dict]:
     """Capture the plan and request a signed intent token.
 
     Returns:
@@ -55,7 +58,9 @@ def authorize_run(goal: str, steps, variables: Optional[dict] = None,
         return None
     try:
         plan = _build_plan(goal, steps, variables or {})
-        captured = client.capture_plan(llm=_PLAN_LLM, prompt=goal or "shepherd run", plan=plan)
+        captured = client.capture_plan(
+            llm=_PLAN_LLM, prompt=goal or "shepherd run", plan=plan
+        )
         resolved_policy = policy or _policy_from_containment()
         resp = client.get_intent_token(
             plan_capture=captured,
@@ -68,13 +73,19 @@ def authorize_run(goal: str, steps, variables: Optional[dict] = None,
         # expired; a tenant-policy denial only halts the run in strict mode, so an
         # un-configured tenant never bricks a run (the in-house policy engine still
         # gates). Denials are always surfaced for the audit trail.
-        token   = _field(resp, "jwt_token") or _field(resp, "raw_token") or _field(resp, "token")
+        token = (
+            _field(resp, "jwt_token")
+            or _field(resp, "raw_token")
+            or _field(resp, "token")
+        )
         expired = bool(_field(resp, "is_expired"))
-        pv      = _field(resp, "policy_validation") or {}
-        denied  = list(pv.get("denied_tools") or []) if isinstance(pv, dict) else []
+        pv = _field(resp, "policy_validation") or {}
+        denied = list(pv.get("denied_tools") or []) if isinstance(pv, dict) else []
         authorized = bool(token) and not expired and (not ARMORIQ_STRICT or not denied)
         if denied:
-            print(f"[armoriq] tenant policy flagged tools {denied} (strict={ARMORIQ_STRICT})")
+            print(
+                f"[armoriq] tenant policy flagged tools {denied} (strict={ARMORIQ_STRICT})"
+            )
         if not token:
             reason = "ArmorIQ returned no signed token"
         elif expired:
@@ -86,25 +97,36 @@ def authorize_run(goal: str, steps, variables: Optional[dict] = None,
         else:
             reason = "ArmorIQ intent token issued"
         return {
-            "authorized":   authorized,
-            "token":        token,
-            "reason":       reason,
-            "plan_hash":    _field(resp, "plan_hash"),
+            "authorized": authorized,
+            "token": token,
+            "reason": reason,
+            "plan_hash": _field(resp, "plan_hash"),
             "denied_tools": denied,
         }
     except Exception as e:
         name = type(e).__name__
-        # Auth / token-issuance failures are real denials → block the run.
-        # Network / unknown errors degrade to "no enforcement" so a flaky link
-        # never strands an otherwise-fine run.
-        if name in ("AuthenticationError", "TokenIssuanceError"):
-            return {"authorized": False, "token": None,
-                    "reason": f"ArmorIQ denied the plan ({name}): {e}", "plan_hash": None}
+        # Auth / token-issuance failures are real denials → block the run. Match
+        # by class name AND by an auth/forbidden signal in the message, so a
+        # renamed/subclassed SDK exception can't silently fail OPEN (degrade to
+        # "no enforcement"). Only genuine transport/unknown errors degrade.
+        blob = f"{name} {e}".lower()
+        is_denial = name in ("AuthenticationError", "TokenIssuanceError") or any(
+            s in blob for s in ("unauthor", "forbidden", "denied", "401", "403")
+        )
+        if is_denial:
+            return {
+                "authorized": False,
+                "token": None,
+                "reason": f"ArmorIQ denied the plan ({name}): {e}",
+                "plan_hash": None,
+                "denied_tools": [],
+            }
         print(f"[armoriq] authorize skipped (non-fatal {name}): {e}")
         return None
 
 
 # ── internals ──────────────────────────────────────────────────────────────
+
 
 def _field(resp, name: str):
     """Read a field whether the SDK returns a dict or a pydantic-ish object."""
@@ -121,11 +143,13 @@ def _build_plan(goal: str, steps, variables: dict) -> dict:
             action, target = s.get("action"), s.get("target")
         else:
             action, target = getattr(s, "action", None), getattr(s, "target", None)
-        out.append({
-            "action": action or "step",
-            "mcp":    _MCP,
-            "params": {"index": i, "target": target},
-        })
+        out.append(
+            {
+                "action": action or "step",
+                "mcp": _MCP,
+                "params": {"index": i, "target": target},
+            }
+        )
     return {"goal": goal or "shepherd run", "steps": out, "variables": variables}
 
 
@@ -138,6 +162,7 @@ def _policy_from_containment() -> dict:
     with it (policy.yaml is hot-reloaded)."""
     try:
         from services import policy_engine
+
         p = policy_engine._load()
         triggers = p.get("triggers", {}) or {}
         deny = [f"{_MCP}/{t}" for t, v in triggers.items() if v == "halt"]

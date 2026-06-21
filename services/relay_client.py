@@ -20,7 +20,6 @@ import base64
 import io
 import queue
 import threading
-import time
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -112,6 +111,12 @@ class RelayClient:
             await ws.send(_json({"type": "hello", "name": AGENT_NAME,
                                  "host": AGENT_HOST, "mode": self._engine._mode,
                                  "protocol_version": PROTOCOL_VERSION}))
+
+            # Push the local catalog (routines, workflows, task-graphs) so the
+            # remote Command Center can browse them without hitting :8765 directly.
+            catalog = await self._loop.run_in_executor(None, _collect_catalog)
+            if catalog:
+                await ws.send(_json({"type": "catalog", "catalog": catalog}))
 
             # Start WebRTC P2P screen streaming if enabled.
             # Close any previous sender from a prior connection cycle.
@@ -238,38 +243,17 @@ class RelayClient:
         """Auto-promote a crystallized task graph into a dispatchable workflow.
 
         Called by the Command Center's 'Bake out a new workflow' toggle after the
-        coalescer saves the graph (task.graph.saved event). Reuses
-        WorkflowStore.promote() and derives name + intent_patterns from the graph's
-        stored intents (populated by TaskGraphStore.save)."""
+        coalescer saves the graph (task.graph.saved event). Delegates to the
+        shared promote_graph() helper which derives name + intent_patterns from
+        the graph's stored intents and fires async LLM description generation."""
         try:
-            from engine.task_graph import TaskGraphStore
-            from engine.workflow_store import WorkflowStore
+            from engine.workflow_promote import promote_graph
 
             task_key = (payload.get("task_key") or "").strip()
             if not task_key:
                 return
 
-            store = TaskGraphStore()
-            graph = store.load(task_key, {})
-            if graph.run_count == 0 and not graph.nodes:
-                return  # graph not yet crystallized
-
-            raw_name = graph.intents[0] if graph.intents else task_key.replace("AUTONOMOUS::", "")
-            name = raw_name.strip()[:60]
-            intent_patterns = list(graph.intents) if graph.intents else [raw_name]
-
-            slug = task_key.replace("AUTONOMOUS::", "").replace(" ", "_")
-            workflow_id = f"WF_{slug.upper()[:40]}"
-
-            wf = WorkflowStore().promote(graph, workflow_id, name, intent_patterns)
-            event_bus.emit("task.graph.promoted", {
-                "task_key":        task_key,
-                "workflow_id":     wf.id,
-                "name":            wf.name,
-                "version":         wf.version,
-                "node_count":      len(wf.nodes),
-                "intent_patterns": wf.intent_patterns,
-            })
+            promote_graph(task_key)
         except Exception as e:
             print(f"[relay] promote failed (non-fatal): {e}")
 
@@ -361,6 +345,66 @@ def _capture_frame() -> Optional[str]:
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="JPEG", quality=RELAY_FRAME_QUALITY)
     return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _collect_catalog() -> Optional[dict]:
+    """Gather the agent's local catalog for the coordinator to cache.
+
+    Returns a dict with routines, workflows, and task_graphs — or None if
+    collection fails (non-fatal; the agent still works without catalog push).
+    """
+    catalog: dict = {}
+    try:
+        from engine.routines import load_routines, get_routine
+        routine_ids = load_routines()
+        routines_out = []
+        for rid in routine_ids:
+            try:
+                r = get_routine(rid)
+                name = (r.description or rid).split(" — ")[0].split(" – ")[0].strip()
+                routines_out.append({
+                    "id": r.routine_id, "name": name,
+                    "description": r.description or "",
+                    "mode": r.mode, "stepCount": len(r.steps),
+                    "version": 1,
+                })
+            except Exception:
+                pass
+        catalog["routines"] = routines_out
+    except Exception:
+        catalog["routines"] = []
+
+    try:
+        from engine.workflow_store import WorkflowStore
+        catalog["workflows"] = [
+            {"id": w.id, "name": w.name, "description": getattr(w, "description", None),
+             "version": w.version, "intent_patterns": w.intent_patterns,
+             "params": w.params, "nodes": len(w.nodes),
+             "updated_at": w.updated_at}
+            for w in WorkflowStore().list()
+        ]
+    except Exception:
+        catalog["workflows"] = []
+
+    try:
+        from engine.task_graph import TaskGraphStore
+        raw = TaskGraphStore().all_graphs()
+        catalog["task_graphs"] = [
+            {"task_key": key, "routine_id": g.get("routine_id"),
+             "run_count": g.get("run_count", 0),
+             "node_count": len(g.get("nodes", [])),
+             "edge_count": len(g.get("edges", [])),
+             "updated_at": g.get("updated_at", 0),
+             "intents": g.get("intents", []),
+             "labels": [n.get("label") for n in g.get("nodes", [])]}
+            for key, g in raw.items()
+        ]
+    except Exception:
+        catalog["task_graphs"] = []
+
+    if not catalog["routines"] and not catalog["workflows"] and not catalog["task_graphs"]:
+        return None
+    return catalog
 
 
 def _json(obj: dict) -> str:

@@ -13,10 +13,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shepherd_types import (
-    Intent, TaskGraph, TaskGraphNode, TaskGraphEdge, Conditional, Workflow,
+    Intent, TaskGraph, TaskGraphNode, TaskGraphEdge, Workflow,
 )
 from engine import llm
-from engine import workflow_store as WS
 from engine.workflow_store import WorkflowStore
 from engine.workflow_executor import WorkflowExecutor, LLMWorker, options_for
 from tests.mock_job_app import (
