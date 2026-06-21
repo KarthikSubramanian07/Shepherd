@@ -16,7 +16,7 @@ import threading
 
 from config import (
     FEATURES, EXECUTION_MODE, DASHBOARD_PORT,
-    AUTONOMOUS_ON_UNMATCHED, EXIT_WHEN_DONE,
+    AUTONOMOUS_ON_UNMATCHED, EXIT_WHEN_DONE, BACKEND_URL,
 )
 from shepherd_types import Intent, ResolvedRoutine
 from router.router import ShepherdIntentRouter
@@ -191,13 +191,24 @@ def main() -> None:
     engine    = ShepherdExecutionEngine(coords=coords, telemetry=telemetry, mode=mode, evolution=evolution)
     remote_intents: "queue.Queue[str]" = queue.Queue()
 
-    # ── Start dashboard ───────────────────────────────────────────────────────
-    try:
-        from dashboard.server import start_dashboard
-        threading.Thread(target=start_dashboard, daemon=True).start()
-        print(f"[dashboard] Control Hub → http://localhost:{DASHBOARD_PORT}\n")
-    except Exception as e:
-        print(f"[dashboard] Could not start: {e}")
+    # ── Dashboard backend ───────────────────────────────────────────────────────
+    # If BACKEND_URL is set, a separate persistent backend owns the dashboard/API;
+    # stream events to it (and don't bind the port here). Otherwise run the
+    # all-in-one in-process dashboard as before.
+    if BACKEND_URL:
+        try:
+            from dashboard.forwarder import start_forwarding
+            start_forwarding(BACKEND_URL)
+            print(f"[backend] streaming to persistent backend at {BACKEND_URL}\n")
+        except Exception as e:
+            print(f"[backend] Could not start forwarder: {e}")
+    else:
+        try:
+            from dashboard.server import start_dashboard
+            threading.Thread(target=start_dashboard, daemon=True).start()
+            print(f"[dashboard] Control Hub → http://localhost:{DASHBOARD_PORT}\n")
+        except Exception as e:
+            print(f"[dashboard] Could not start: {e}")
 
     # ── Start the coordinator relay (outbound; never blocks engine) ───────────
     if FEATURES["remote"]:

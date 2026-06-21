@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # ── Dashboard ──────────────────────────────────────────────────────────
     dashboard_port: int = 8765
     events_db_path: str = "data/events.db"
+    # When set (e.g. "http://localhost:8765"), the agent does NOT start its own
+    # in-process dashboard; instead it streams events to this separate, persistent
+    # backend. Leave empty for the all-in-one (in-process dashboard) behavior.
+    backend_url: str = ""
 
     # ── Crystallization LLM layer (modular) ────────────────────────────────
     # Provider for milestone segmentation / coalescing (NOT the hot path).
@@ -157,6 +161,7 @@ EXIT_WHEN_DONE = settings.exit_when_done
 
 DASHBOARD_PORT = settings.dashboard_port
 EVENTS_DB_PATH = settings.events_db_path
+BACKEND_URL    = settings.backend_url
 
 LLM_PROVIDER        = settings.llm_provider
 GEMINI_API_KEY      = settings.gemini_api_key

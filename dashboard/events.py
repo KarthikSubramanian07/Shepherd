@@ -32,9 +32,19 @@ class EventBus:
             self._subs = [s for s in self._subs if s is not fn]
 
     def emit(self, event_type: str, data: dict) -> None:
-        """Thread-safe emit. Delivers to async subscribers via the dashboard event loop."""
+        """Thread-safe emit. Synchronous subscribers run inline (no event loop
+        required — e.g. an agent process forwarding events to a separate backend);
+        coroutine subscribers (the WebSocket broadcaster) run on the dashboard loop."""
         message = {"type": event_type, "data": data}
         self._history.append(message)
+        with self._lock:
+            subs = list(self._subs)
+        for fn in subs:
+            if not asyncio.iscoroutinefunction(fn):
+                try:
+                    fn(message)
+                except Exception:
+                    pass
         if self._loop and not self._loop.is_closed():
             asyncio.run_coroutine_threadsafe(self._broadcast(message), self._loop)
 
@@ -42,13 +52,11 @@ class EventBus:
         with self._lock:
             subs = list(self._subs)
         for fn in subs:
-            try:
-                if asyncio.iscoroutinefunction(fn):
+            if asyncio.iscoroutinefunction(fn):
+                try:
                     await fn(message)
-                else:
-                    fn(message)
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
     def get_history(self) -> list[dict]:
         return list(self._history)
