@@ -114,6 +114,96 @@ def stop_listener() -> None:
     _stop_listener.set()
 
 
+# ── Voice oversight: the agent speaks, the human answers by voice ────────────
+
+def speak_and_play(text: str, *, api_key: Optional[str] = None, voice: Optional[str] = None) -> bool:
+    """Synthesize `text` with Deepgram Aura TTS and play it on the local speakers.
+    Returns True if it spoke. Additive (the GUI/keyboard gate always works), so a
+    failure here is non-fatal: no audio, oversight continues on screen."""
+    key = api_key or settings.deepgram_api_key
+    if not key:
+        return False
+    try:
+        import os
+        import tempfile
+
+        from deepgram import DeepgramClient, SpeakOptions
+
+        client = DeepgramClient(api_key=key)
+        opts = SpeakOptions(
+            model=voice or settings.deepgram_tts_voice,
+            encoding="linear16",
+            container="wav",
+        )
+        path = os.path.join(tempfile.gettempdir(), f"shepherd_tts_{os.getpid()}.wav")
+        client.speak.v("1").save(path, {"text": text}, opts)
+        _play_wav(path)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return True
+    except Exception as e:
+        print(f"[deepgram] TTS non-fatal: {e}")
+        return False
+
+
+def _play_wav(path: str) -> None:
+    import shutil
+    import subprocess
+
+    # macOS afplay first (the demo machine); fall back to ffplay / aplay; else
+    # skip silently — playback is additive, never load-bearing.
+    for player in ("afplay", "ffplay", "aplay"):
+        exe = shutil.which(player)
+        if not exe:
+            continue
+        args = [exe, "-nodisp", "-autoexit", path] if player == "ffplay" else [exe, path]
+        subprocess.run(args, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+
+
+_APPROVE_WORDS = ("approve", "approved", "yes", "go ahead", "proceed", "continue", "confirm", "looks good")
+_HALT_WORDS = ("stop", "halt", "cancel", "abort", "no", "don't", "do not", "deny", "block", "nope")
+
+# Word-boundary match so a short word ("no") is not found inside another ("not").
+import re as _re
+
+_APPROVE_RE = _re.compile(r"\b(" + "|".join(_re.escape(w) for w in _APPROVE_WORDS) + r")\b")
+_HALT_RE = _re.compile(r"\b(" + "|".join(_re.escape(w) for w in _HALT_WORDS) + r")\b")
+
+
+def classify_decision(text: str) -> Optional[str]:
+    """Map a spoken reply to 'approve' | 'halt' | None. Halt words win over
+    approve words (safety-first): 'no, stop' resolves to halt."""
+    t = (text or "").lower()
+    if _HALT_RE.search(t):
+        return "halt"
+    if _APPROVE_RE.search(t):
+        return "approve"
+    return None
+
+
+def voice_gate(reason: str, *, listen_seconds: float = 5.0) -> Optional[str]:
+    """Speak a flagged high-stakes action out loud and ask for a spoken decision.
+
+    Returns 'approve' | 'halt', or None when it couldn't get a clear answer (the
+    on-screen approval gate then decides as usual — voice never overrides it,
+    it races alongside it). Hands-free oversight: the agent asks, you answer.
+    """
+    question = f"Heads up. {reason}. Approve, or stop?"
+    if not speak_and_play(question):
+        return None
+    try:
+        answer = listen_and_transcribe(duration_seconds=listen_seconds)
+    except Exception as e:
+        print(f"[deepgram] voice gate listen non-fatal: {e}")
+        return None
+    decision = classify_decision(answer)
+    print(f"[deepgram] voice gate heard {answer!r} -> {decision}")
+    return decision
+
+
 def _record_mic(duration: float) -> bytes:
     """Record from default mic. Returns WAV bytes."""
     try:

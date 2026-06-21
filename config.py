@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     # ── Deepgram STT tuning ────────────────────────────────────────────────
     deepgram_model: str = "nova-2"
     deepgram_language: str = "en-US"
+    # Voice oversight: the agent speaks the high-stakes gate question via Aura TTS
+    # and takes a spoken approve/stop answer. Additive to the on-screen gate.
+    deepgram_tts_voice: str = "aura-asteria-en"
+    voice_oversight: bool = True
 
     # ── Engine ─────────────────────────────────────────────────────────────
     # The front door for every intent. The old three-mode EXECUTION_MODE enum
@@ -227,6 +231,8 @@ BROWSERBASE_PROJECT_ID     = settings.browserbase_project_id
 DEEPGRAM_API_KEY           = settings.deepgram_api_key
 DEEPGRAM_MODEL             = settings.deepgram_model
 DEEPGRAM_LANGUAGE          = settings.deepgram_language
+DEEPGRAM_TTS_VOICE         = settings.deepgram_tts_voice
+VOICE_OVERSIGHT            = settings.voice_oversight
 BAND_ENABLED               = settings.band_enabled
 BAND_ROOM_ID               = settings.band_room_id
 BAND_ENGINE_API_KEY        = settings.band_engine_api_key

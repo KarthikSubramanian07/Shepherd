@@ -1866,8 +1866,31 @@ class ShepherdExecutionEngine:
             "history_note":       history_note,
         })
 
+        # Voice oversight (additive): the agent speaks the flagged action and takes
+        # a spoken approve/stop, racing alongside the on-screen gate. It never
+        # overrides the gate — whichever channel answers first wins via set_decision.
+        if FEATURES["deepgram"] and getattr(_cfg, "VOICE_OVERSIGHT", False):
+            def _voice_gate(_reason=reason):
+                try:
+                    from services.deepgram_input import voice_gate as _vg
+                    from engine.approvals import set_decision
+                    d = _vg(_reason)
+                    if d in ("approve", "halt"):
+                        set_decision(d)
+                except Exception as e:
+                    print(f"[voice] gate non-fatal: {e}")
+            threading.Thread(target=_voice_gate, daemon=True).start()
+
         default   = "approve" if verdict == "flag" else "halt"
         decision  = request_approval(index, reason, timeout=30.0, default=default)
+
+        # Speak the outcome so a hands-free operator hears the result (best-effort).
+        if FEATURES["deepgram"] and getattr(_cfg, "VOICE_OVERSIGHT", False):
+            _spoken = "Halted. The action was not taken." if decision == "halt" else "Approved. Continuing."
+            threading.Thread(
+                target=lambda: __import__("services.deepgram_input", fromlist=["speak_and_play"]).speak_and_play(_spoken),
+                daemon=True,
+            ).start()
 
         event_bus.emit("monitor.decision", {
             "run_id": run_id, "step_index": index, "decision": decision,
