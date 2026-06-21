@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # or if the chained planner is unavailable.
     autonomous_chain: bool = True
     autonomous_chain_max: int = 6   # max actions to plan in one request
+    # Print every workflow event (routing, planning, steps, monitor, graph, halts)
+    # to stdout. Comprehensive terminal logging; turn off for a quiet console.
+    console_log: bool = True
     # Exit after one task instead of staying up for more goals. Off by default:
     # the agent is a persistent server taking goals from the CLI and/or frontend.
     # Set true for one-shot use. Ignored in remote/--listen mode.
@@ -178,6 +181,7 @@ AUTONOMOUS_MAX_STEPS = settings.autonomous_max_steps
 AUTONOMOUS_CHAIN = settings.autonomous_chain
 AUTONOMOUS_CHAIN_MAX = settings.autonomous_chain_max
 EXIT_WHEN_DONE = settings.exit_when_done
+CONSOLE_LOG    = settings.console_log
 AUTONOMOUS_PLAN_FIRST = settings.autonomous_plan_first
 AUTONOMOUS_PLAN_MAX_STEPS = settings.autonomous_plan_max_steps
 PLANNER_ENGINE_TYPE = settings.planner_engine_type

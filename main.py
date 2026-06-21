@@ -16,7 +16,7 @@ import threading
 
 from config import (
     FEATURES, EXECUTION_MODE, DASHBOARD_PORT,
-    AUTONOMOUS_ON_UNMATCHED, EXIT_WHEN_DONE, BACKEND_URL,
+    AUTONOMOUS_ON_UNMATCHED, EXIT_WHEN_DONE, BACKEND_URL, CONSOLE_LOG,
 )
 from shepherd_types import Intent, ResolvedRoutine
 from router.router import ShepherdIntentRouter
@@ -166,6 +166,10 @@ def main() -> None:
 
     # ── Init ──────────────────────────────────────────────────────────────────
     init_sentry()
+    # Comprehensive stdout logging — one subscriber prints every workflow event.
+    if CONSOLE_LOG:
+        from telemetry.console_log import start_console_logging
+        start_console_logging()
     # Warn loudly if Screen Recording isn't granted — otherwise Agent S is blind
     # (screenshots show only desktop + menu bar) and silently spins on every task.
     from engine.permissions import preflight as _perm_preflight
