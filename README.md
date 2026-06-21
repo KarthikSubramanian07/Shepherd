@@ -41,6 +41,13 @@ office, a benefits desk) is not capability. It is that a black box touching a
 real machine is a liability nobody can sign off on. Shepherd is the missing
 control plane: the thing that turns "impressive demo" into "approved in prod."
 
+There is going to be a layer like this. Every agent that touches a real machine
+will eventually run behind one, the same way every packet eventually ran behind a
+firewall. We are building that layer to be the obvious one: local-first, model-
+agnostic, fast enough to be invisible, and honest enough that you can hand the
+audit log to a regulator. The agents get the headlines. The layer that lets them
+into production is the business.
+
 ---
 
 ## The demo in 90 seconds
@@ -229,10 +236,12 @@ Shepherd runs an agent on a machine across the country as easily as on your own.
 The operated agent dials out to a coordinator relay (one outbound connection, no
 inbound ports, no VPN), and a remote Command Center watches its **live screen
 over WebRTC peer-to-peer** beside the workflow graph it builds in real time. You
-dispatch ad-hoc tasks and see exactly how the vector router resolved them, steer
-or teach mid-run, and deploy the relay anywhere with a one-command Cloudflare
-Tunnel. The full remote-operation and theoretical peering model is in
-`docs/PEERING.md`.
+dispatch ad-hoc tasks and see exactly how the vector router resolved them, and you
+are never a spectator: **steer, suspend, and resume an autonomous run mid-flight**,
+inject a new instruction between steps, pause it cold, then let it pick up where it
+left off, or teach it a better move that bakes into the workflow. Deploy the relay
+anywhere with a one-command Cloudflare Tunnel. The full remote-operation and
+theoretical peering model is in `docs/PEERING.md`.
 
 ### 5. Built on real agent infrastructure, not glue
 
@@ -258,7 +267,7 @@ or _Build-time_ (used to write the code, nothing runs at runtime).
 
 | Sponsor | Status | How Shepherd actually uses it |
 |---|---|---|
-| **Simular (Agent S + SimuLang)** | Core | The execution engine, the only code that actuates. Real `gui-agents` AgentS3 (`engine/agent_s_adapter.py`): it plans each LIVE and autonomous action from a screenshot and drives the desktop via pyautogui. The cursor moving on its own is Agent S. Two Simular products composed in their intended shape: once a task is **learned**, Shepherd **graduates it into a deterministic SimuLang script** (`services/simulang_runner.py`) that replays off the accessibility tree with **zero LLM tokens per run** (`simulang run`), with Agent S vision as the explorer and the fallback. Agent S learns; SimuLang replays cheaply and auditably. Nothing else here clicks. |
+| **Simular (Agent S + SimuLang)** | Core | The execution engine, the only code that actuates. Real `gui-agents` AgentS3 (`engine/agent_s_adapter.py`): it plans each LIVE and autonomous action from a screenshot and drives the desktop via pyautogui. The cursor moving on its own is Agent S. Two Simular products composed in their intended shape: once a task is **learned**, Shepherd **graduates it into a deterministic SimuLang script** (`services/simulang_runner.py`) that replays off the accessibility tree with **zero LLM tokens per run** (compiled `.ts`, run with `npx tsx` against the real `@simular-ai/simulang-js` native runtime), with Agent S vision as the explorer and the fallback. Agent S learns; SimuLang replays cheaply and auditably. Nothing else here clicks. |
 | **Anthropic / Claude** | Core | The cognitive layer. Claude is the independent **verifier** (`services/verifier.py`) and the autonomous **routine planner** (`engine/routine_planner.py`), and the model behind the **Agentspan researcher**. It can also drive milestone segmentation and the Agent S planner, but those are provider-configurable (Gemini is the default segmenter to conserve budget; the Agent S provider is set per-config). The deployability thesis (agents in health, public services, finance) rests on this oversight. |
 | **Arize Phoenix** | On by default | Not just observability, a **closed loop that improves the agent**. The base layer is real OpenTelemetry: spans on every run, plan, action, and workflow node (`routine.run → agent_s.plan → action.N`) with OpenInference I/O on LLM/TOOL spans. On top, `services/phoenix_evals.py` runs an **LLM-as-judge** over each oversight decision, **writes the score back onto the Phoenix span** (the Annotations panel), and feeds it into adaptive risk: steps the judge repeatedly calls genuine risks get **auto-promoted into the monitored set**, so Phoenix evaluation data literally changes which steps require human approval next run. `scripts/phoenix_experiment.py` produces the before/after "oversight precision" table. Off the click path; degrades to no-op spans if Phoenix is down. `./scripts/serve_phoenix.sh` → http://localhost:6006 |
 | **Redis** | On if running | Redis is the agent's **memory**, well beyond caching, all on Redis 8 vector sets (`VADD`/`VSIM`): (1) **cross-run semantic recall** (`services/run_memory.py`) embeds every finished run and, when a new goal arrives, recalls the most similar *successful* prior run **by meaning** so a reworded goal ("submit my Acme application" vs "apply to the Acme job") reuses a proven milestone chain instead of planning from scratch; (2) vector search for intent routing; (3) a semantic LLM cache that skips repeat milestone segmentation by meaning; plus agent replay memory and the adaptive-risk signal. Three distinct AI uses of the same primitive. Off the click path; every one degrades gracefully (keyword routing, fresh planning, heuristics) so the system runs fine without Redis. |
@@ -403,8 +412,26 @@ data/              routines.json, policy.yaml, workflows, demo target pages
 
 ---
 
+## The bet
+
+Every wave of computing got a control plane once it touched things that mattered.
+Networks got the firewall. Cloud got IAM. Code got CI and code review. Agents that
+click around real machines are the next wave, and right now they have nothing: no
+gate, no record, no proof, just a cursor moving and a shrug. That absence is the
+single biggest thing keeping capable agents out of the rooms where they would be
+worth the most.
+
+Shepherd is the control plane for that wave. We did not build a safer agent. We
+built the layer that makes **any** agent safe enough to deploy, and we built it
+local-first, model-agnostic, and fast enough to disappear, so it wins on the one
+axis that compounds: the more agents the world ships, the more they all need this.
+Every piece in this repo runs today. We exercised every integration live, signed
+every action into a hash chain, and put the whole thing behind one console a
+non-engineer could operate. This is not a prototype of the idea. It is the idea,
+working.
+
 <div align="center">
 
-The cursor moving is the hook. The audit trail beside it is the product.
+**The cursor moving is the hook. The audit trail beside it is the product.**
 
 </div>
