@@ -87,9 +87,13 @@ def select(intent_text: str, candidates: list[CandidateInfo]) -> Optional[str]:
     if "NONE" in answer.upper():
         return None
 
-    # Try to find the id in the answer (model may wrap it in quotes or extra text)
+    # Try to find the id in the answer (model may wrap it in quotes or extra text).
+    # Require a word-boundary match so a short id is not matched as an incidental
+    # substring of an unrelated word (ex. "send" inside "sender").
+    import re
+
     for cid in sorted(valid_ids, key=len, reverse=True):
-        if cid in answer:
+        if re.search(rf"\b{re.escape(cid)}\b", answer):
             return cid
 
     return None
