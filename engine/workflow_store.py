@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
+import threading
 import time
 from typing import Optional
 
@@ -24,6 +26,10 @@ from engine.task_graph import (
 )
 
 _PATH = os.path.join(os.path.dirname(__file__), "..", "data", "workflows.json")
+
+# Serializes concurrent writers (e.g. several async workflow_describe tasks
+# finishing at once) so they can't race on the temp file / clobber each other.
+_SAVE_LOCK = threading.Lock()
 
 
 def derive_start_key(nodes: list[TaskGraphNode], edges: list[TaskGraphEdge]) -> str:
@@ -71,11 +77,23 @@ class WorkflowStore:
             return {}
 
     def _save_all(self, data: dict) -> None:
-        os.makedirs(os.path.dirname(self._path), exist_ok=True)
-        tmp = self._path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp, self._path)
+        # Atomic + concurrency-safe: write to a UNIQUE temp file in the same dir,
+        # then os.replace. A shared "<path>.tmp" name races when several writers
+        # run at once (one's replace consumes the temp before another's), which is
+        # the "No such file or directory: workflows.json.tmp" error. The lock
+        # also prevents last-writer-wins clobbering of concurrent updates.
+        d = os.path.dirname(self._path)
+        os.makedirs(d, exist_ok=True)
+        with _SAVE_LOCK:
+            fd, tmp = tempfile.mkstemp(dir=d, prefix=".workflows.", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(data, f, indent=2)
+                os.replace(tmp, self._path)
+            except Exception:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+                raise
 
     def list(self) -> list[Workflow]:
         return [_deserialize(raw) for raw in self._load_all().values()]

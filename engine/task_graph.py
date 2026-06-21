@@ -17,12 +17,17 @@ never inside the click sequence.
 """
 import json
 import os
+import tempfile
+import threading
 import time
 from typing import Optional
 
 from shepherd_types import TaskGraph, TaskGraphNode, TaskGraphEdge, Conditional
 
 _PATH = os.path.join(os.path.dirname(__file__), "..", "data", "task_graphs.json")
+
+# Serializes concurrent writers so they can't race on the temp file.
+_SAVE_LOCK = threading.Lock()
 
 # Action types that are sub-actions of whatever milestone is in progress — they
 # never start a milestone of their own (mouse moves, field tabbing, dismissals).
@@ -210,10 +215,20 @@ class TaskGraphStore:
             return {}
 
     def _save_all(self, data: dict) -> None:
-        tmp = self._path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp, self._path)  # atomic — never leaves a half-written graph
+        # Atomic + concurrency-safe: unique temp file per write (a shared
+        # "<path>.tmp" races when writers overlap), then os.replace.
+        d = os.path.dirname(self._path)
+        os.makedirs(d, exist_ok=True)
+        with _SAVE_LOCK:
+            fd, tmp = tempfile.mkstemp(dir=d, prefix=".task_graphs.", suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(data, f, indent=2)
+                os.replace(tmp, self._path)  # atomic — never a half-written graph
+            except Exception:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+                raise
 
     # ── lookup ─────────────────────────────────────────────────────────────────
     def task_key(self, routine_id: str, variables: dict) -> str:

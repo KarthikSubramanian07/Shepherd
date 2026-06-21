@@ -1,0 +1,1476 @@
+{
+  "WF_ROUTINE_FORM_FILL": {
+    "id": "WF_ROUTINE_FORM_FILL",
+    "name": "routine form fill",
+    "description": "",
+    "intent_patterns": [
+      "routine form fill"
+    ],
+    "params": [
+      "APPLICANT_EMAIL",
+      "APPLICANT_EXPERIENCE",
+      "APPLICANT_LASTNAME",
+      "APPLICANT_LINKEDIN",
+      "APPLICANT_NAME",
+      "APPLICANT_PHONE",
+      "APPLICANT_SALARY"
+    ],
+    "version": 1,
+    "from_graph": "ROUTINE_FORM_FILL",
+    "start_key": "open::Google Chrome::Open Google Chrome",
+    "created_at": 1782046024.117354,
+    "updated_at": 1782046024.117354,
+    "nodes": [
+      {
+        "key": "open::Google Chrome::Open Google Chrome",
+        "kind": "open",
+        "label": "Open Google Chrome",
+        "value": "Google Chrome",
+        "detail": "",
+        "times_seen": 5,
+        "last_status": "aborted",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "79a1aff0",
+        "last_run_id": "fb2ebd86",
+        "instruction": "Open Google Chrome",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "scan::::Scan results",
+        "kind": "scan",
+        "label": "Scan results",
+        "value": null,
+        "detail": "",
+        "times_seen": 5,
+        "last_status": "aborted",
+        "fine_steps": 2,
+        "mistakes": [],
+        "first_run_id": "79a1aff0",
+        "last_run_id": "fb2ebd86",
+        "instruction": "Scan results",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "interact::::fill applicant form fields",
+        "kind": "interact",
+        "label": "fill applicant form fields",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "aborted",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "fb2ebd86",
+        "last_run_id": "fb2ebd86",
+        "instruction": "fill applicant form fields",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": []
+  },
+  "WF_ROUTINE_BROWSER_SHOWPIECE": {
+    "id": "WF_ROUTINE_BROWSER_SHOWPIECE",
+    "name": "routine browser showpiece",
+    "description": "",
+    "intent_patterns": [
+      "routine browser showpiece"
+    ],
+    "params": [
+      "SEARCH_QUERY"
+    ],
+    "version": 1,
+    "from_graph": "ROUTINE_BROWSER_SHOWPIECE",
+    "start_key": "navigate::www.google.com::Navigate to www.google.com",
+    "created_at": 1782046024.120415,
+    "updated_at": 1782046024.120415,
+    "nodes": [
+      {
+        "key": "navigate::www.google.com::Navigate to www.google.com",
+        "kind": "navigate",
+        "label": "Navigate to www.google.com",
+        "value": "www.google.com",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "8364a0e2",
+        "last_run_id": "8364a0e2",
+        "instruction": "Navigate to www.google.com",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "scan::::Scan results",
+        "kind": "scan",
+        "label": "Scan results",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "8364a0e2",
+        "last_run_id": "8364a0e2",
+        "instruction": "Scan results",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": []
+  },
+  "WF_AUTONOMOUS": {
+    "id": "WF_AUTONOMOUS",
+    "name": "autonomous",
+    "description": "",
+    "intent_patterns": [
+      "autonomous"
+    ],
+    "params": [
+      "GOAL"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS",
+    "start_key": "open::Google Chrome::Open Google Chrome",
+    "created_at": 1782046024.121069,
+    "updated_at": 1782046024.121069,
+    "nodes": [
+      {
+        "key": "open::Google Chrome::Open Google Chrome",
+        "kind": "open",
+        "label": "Open Google Chrome",
+        "value": "Google Chrome",
+        "detail": "",
+        "times_seen": 8,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "de30015c",
+        "last_run_id": "9ebcfcbc",
+        "instruction": "Open Google Chrome",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "scan::::Scan results",
+        "kind": "scan",
+        "label": "Scan results",
+        "value": null,
+        "detail": "",
+        "times_seen": 12,
+        "last_status": "completed",
+        "fine_steps": 4,
+        "mistakes": [],
+        "first_run_id": "de30015c",
+        "last_run_id": "4ffb690a",
+        "instruction": "Scan results",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "navigate::rohanbayya99@gmail.com::Navigate to rohanbayya99@gmail.com",
+        "kind": "navigate",
+        "label": "Navigate to rohanbayya99@gmail.com",
+        "value": "rohanbayya99@gmail.com",
+        "detail": "",
+        "times_seen": 2,
+        "last_status": "completed",
+        "fine_steps": 2,
+        "mistakes": [],
+        "first_run_id": "de30015c",
+        "last_run_id": "9ebcfcbc",
+        "instruction": "Navigate to rohanbayya99@gmail.com",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "fill::::Enter details",
+        "kind": "fill",
+        "label": "Enter details",
+        "value": null,
+        "detail": "",
+        "times_seen": 3,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "de30015c",
+        "last_run_id": "38df0b74",
+        "instruction": "Enter details",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "submit::::Submit",
+        "kind": "submit",
+        "label": "Submit",
+        "value": null,
+        "detail": "",
+        "times_seen": 8,
+        "last_status": "completed",
+        "fine_steps": 2,
+        "mistakes": [],
+        "first_run_id": "de30015c",
+        "last_run_id": "9ebcfcbc",
+        "instruction": "Submit",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "search::crazy frog::Search: crazy frog",
+        "kind": "search",
+        "label": "Search: crazy frog",
+        "value": "crazy frog",
+        "detail": "",
+        "times_seen": 3,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "850461ee",
+        "last_run_id": "a750b4a6",
+        "instruction": "Search: crazy frog",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "search::despacito::Search: despacito",
+        "kind": "search",
+        "label": "Search: despacito",
+        "value": "despacito",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "28bebd86",
+        "last_run_id": "28bebd86",
+        "instruction": "Search: despacito",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "search::Despacito::Search: Despacito",
+        "kind": "search",
+        "label": "Search: Despacito",
+        "value": "Despacito",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "becf409f",
+        "last_run_id": "becf409f",
+        "instruction": "Search: Despacito",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "search::Crazy Frog::Search: Crazy Frog",
+        "kind": "search",
+        "label": "Search: Crazy Frog",
+        "value": "Crazy Frog",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "f781eaec",
+        "last_run_id": "f781eaec",
+        "instruction": "Search: Crazy Frog",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "open::Notes::Open Notes",
+        "kind": "open",
+        "label": "Open Notes",
+        "value": "Notes",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 3,
+        "mistakes": [],
+        "first_run_id": "38df0b74",
+        "last_run_id": "38df0b74",
+        "instruction": "Open Notes",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "interact::::Interact",
+        "kind": "interact",
+        "label": "Interact",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "0c417eed",
+        "last_run_id": "0c417eed",
+        "instruction": "Interact",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "open::Photo Booth::Open Photo Booth",
+        "kind": "open",
+        "label": "Open Photo Booth",
+        "value": "Photo Booth",
+        "detail": "",
+        "times_seen": 2,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "f94ab4de",
+        "last_run_id": "ba216567",
+        "instruction": "Open Photo Booth",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "open::Photos::Open Photos",
+        "to": "scan::::Scan results",
+        "times_seen": 2,
+        "last_run_id": "4ffb690a",
+        "condition": null
+      },
+      {
+        "from": "open::Photo Booth::Open Photo Booth",
+        "to": "scan::::Scan results",
+        "times_seen": 2,
+        "last_run_id": "ba216567",
+        "condition": null
+      }
+    ]
+  },
+  "WF_TAKE_A_SELFIE_IN_PHOTO_BOOTH": {
+    "id": "WF_TAKE_A_SELFIE_IN_PHOTO_BOOTH",
+    "name": "take a selfie in photo booth",
+    "description": "",
+    "intent_patterns": [
+      "take a selfie in photo booth"
+    ],
+    "params": [
+      "GOAL"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS::take_my_selfie_in_photo_booth",
+    "start_key": "open::Photo Booth::Open Photo Booth",
+    "created_at": 1782061636.490216,
+    "updated_at": 1782061636.490216,
+    "nodes": [
+      {
+        "key": "open::Photo Booth::Open Photo Booth",
+        "kind": "open",
+        "label": "Open Photo Booth",
+        "value": "Photo Booth",
+        "detail": "",
+        "times_seen": 2,
+        "last_status": "completed",
+        "fine_steps": 5,
+        "mistakes": [],
+        "first_run_id": "d0597431",
+        "last_run_id": "e29ed3c3",
+        "instruction": "Open Photo Booth",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "scan::::Scan results",
+        "kind": "scan",
+        "label": "Scan results",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 6,
+        "mistakes": [],
+        "first_run_id": "d0597431",
+        "last_run_id": "d0597431",
+        "instruction": "Scan results",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "open::Photo Booth::Open Photo Booth",
+        "to": "scan::::Scan results",
+        "times_seen": 1,
+        "last_run_id": "d0597431",
+        "condition": null
+      }
+    ]
+  },
+  "WF_SEND_AN_EMAIL": {
+    "id": "WF_SEND_AN_EMAIL",
+    "name": "send an email",
+    "description": "",
+    "intent_patterns": [
+      "send an email"
+    ],
+    "params": [
+      "GOAL",
+      "RECIPIENT_EMAIL"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS::send_a_email_to_rohanbayya99_gmail_com_from_chro",
+    "start_key": "open::Google Chrome::Open Google Chrome",
+    "created_at": 1782061636.497437,
+    "updated_at": 1782061636.497437,
+    "nodes": [
+      {
+        "key": "open::Google Chrome::Open Google Chrome",
+        "kind": "open",
+        "label": "Open Google Chrome",
+        "value": "Google Chrome",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "6e355d92",
+        "last_run_id": "6e355d92",
+        "instruction": "Open Google Chrome",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "scan::::Scan results",
+        "kind": "scan",
+        "label": "Scan results",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 3,
+        "mistakes": [],
+        "first_run_id": "6e355d92",
+        "last_run_id": "6e355d92",
+        "instruction": "Scan results",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "fill::::Enter details",
+        "kind": "fill",
+        "label": "Enter details",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 5,
+        "mistakes": [],
+        "first_run_id": "6e355d92",
+        "last_run_id": "6e355d92",
+        "instruction": "Enter details",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "submit::::Submit",
+        "kind": "submit",
+        "label": "Submit",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 2,
+        "mistakes": [],
+        "first_run_id": "6e355d92",
+        "last_run_id": "6e355d92",
+        "instruction": "Submit",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "open::Google Chrome::Open Google Chrome",
+        "to": "scan::::Scan results",
+        "times_seen": 1,
+        "last_run_id": "6e355d92",
+        "condition": null
+      },
+      {
+        "from": "scan::::Scan results",
+        "to": "fill::::Enter details",
+        "times_seen": 1,
+        "last_run_id": "6e355d92",
+        "condition": null
+      },
+      {
+        "from": "fill::::Enter details",
+        "to": "submit::::Submit",
+        "times_seen": 1,
+        "last_run_id": "6e355d92",
+        "condition": null
+      }
+    ]
+  },
+  "WF_PLAY_A_SONG_ON_YOUTUBE": {
+    "id": "WF_PLAY_A_SONG_ON_YOUTUBE",
+    "name": "Play a song on YouTube",
+    "description": "Search for and play a specific song on YouTube using a web browser.",
+    "intent_patterns": [
+      "play a song on youtube",
+      "search for a music video and play it",
+      "find and play music on youtube",
+      "look up a song on youtube and play it",
+      "play music video on youtube"
+    ],
+    "params": [
+      "GOAL"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS::play_crazy_frog_on_youtube",
+    "start_key": "open::Google Chrome::Open Google Chrome",
+    "created_at": 1782061636.499329,
+    "updated_at": 1782061637.7651641,
+    "nodes": [
+      {
+        "key": "open::Google Chrome::Open Google Chrome",
+        "kind": "open",
+        "label": "Open Google Chrome",
+        "value": "Google Chrome",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "d19c442c",
+        "last_run_id": "d19c442c",
+        "instruction": "Open Google Chrome",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "scan::::Scan results",
+        "kind": "scan",
+        "label": "Scan results",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 6,
+        "mistakes": [],
+        "first_run_id": "d19c442c",
+        "last_run_id": "d19c442c",
+        "instruction": "Scan results",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "search::crazy frog::Search: crazy frog",
+        "kind": "search",
+        "label": "Search: crazy frog",
+        "value": "crazy frog",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "d19c442c",
+        "last_run_id": "d19c442c",
+        "instruction": "Search: crazy frog",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "submit::::Submit",
+        "kind": "submit",
+        "label": "Submit",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "d19c442c",
+        "last_run_id": "d19c442c",
+        "instruction": "Submit",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "interact::::[sees] vs code is open showing a python project with .env.example file. terminal panel shows planner output about playing crazy frog, but this is just development logs. no browser is open yet.\nfirst turn - need to open google chrome to access youtube. will use spotlight (cmd+space) to launch chrome, then wait for it to open.",
+        "kind": "interact",
+        "label": "[sees] vs code is open showing a python project with .env.example file. terminal panel shows planner output about playing crazy frog, but this is just development logs. no browser is open yet.\nfirst turn - need to open google chrome to access youtube. will use spotlight (cmd+space) to launch chrome, then wait for it to open.",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "aborted",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "e9b75af3",
+        "last_run_id": "e9b75af3",
+        "instruction": "[sees] vs code is open showing a python project with .env.example file. terminal panel shows planner output about playing crazy frog, but this is just development logs. no browser is open yet.\nfirst turn - need to open google chrome to access youtube. will use spotlight (cmd+space) to launch chrome, then wait for it to open.",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "open::Google Chrome::Open Google Chrome",
+        "to": "scan::::Scan results",
+        "times_seen": 1,
+        "last_run_id": "d19c442c",
+        "condition": null
+      },
+      {
+        "from": "scan::::Scan results",
+        "to": "search::crazy frog::Search: crazy frog",
+        "times_seen": 1,
+        "last_run_id": "d19c442c",
+        "condition": null
+      },
+      {
+        "from": "search::crazy frog::Search: crazy frog",
+        "to": "submit::::Submit",
+        "times_seen": 1,
+        "last_run_id": "d19c442c",
+        "condition": null
+      },
+      {
+        "from": "submit::::Submit",
+        "to": "scan::::Scan results",
+        "times_seen": 1,
+        "last_run_id": "d19c442c",
+        "condition": null
+      }
+    ]
+  },
+  "WF_RESEARCH_ITALIAN_RESTAURANTS_IN_BERKELEY": {
+    "id": "WF_RESEARCH_ITALIAN_RESTAURANTS_IN_BERKELEY",
+    "name": "research italian restaurants in berkeley",
+    "description": "",
+    "intent_patterns": [
+      "research italian restaurants in berkeley"
+    ],
+    "params": [
+      "GOAL",
+      "RESEARCH_NOTES"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS::research_italian_restraunts_in_berkley_and_add_t",
+    "start_key": "search::::Search",
+    "created_at": 1782061636.502678,
+    "updated_at": 1782061636.502678,
+    "nodes": [
+      {
+        "key": "search::::Search",
+        "kind": "search",
+        "label": "Search",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 2,
+        "mistakes": [],
+        "first_run_id": "08ae35f7",
+        "last_run_id": "08ae35f7",
+        "instruction": "Search",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "open::Notes::Open Notes",
+        "kind": "open",
+        "label": "Open Notes",
+        "value": "Notes",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "08ae35f7",
+        "last_run_id": "08ae35f7",
+        "instruction": "Open Notes",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "scan::::Scan results",
+        "kind": "scan",
+        "label": "Scan results",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 2,
+        "mistakes": [],
+        "first_run_id": "08ae35f7",
+        "last_run_id": "08ae35f7",
+        "instruction": "Scan results",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "search::Italian Restaurants in Berkeley\n\n{ITALIAN_RESTAURANTS}::Search: Italian Restaurants in Berkeley\n\n{ITALIAN_RESTAURANTS}",
+        "kind": "search",
+        "label": "Search: Italian Restaurants in Berkeley\n\n{ITALIAN_RESTAURANTS}",
+        "value": "Italian Restaurants in Berkeley\n\n{ITALIAN_RESTAURANTS}",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "08ae35f7",
+        "last_run_id": "08ae35f7",
+        "instruction": "Search: Italian Restaurants in Berkeley\n\n{ITALIAN_RESTAURANTS}",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "submit::::Submit",
+        "kind": "submit",
+        "label": "Submit",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "08ae35f7",
+        "last_run_id": "08ae35f7",
+        "instruction": "Submit",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "search::::Search",
+        "to": "o"08ae35f7",
+        "instruction": "Submit",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "search::::Search",
+        "to": "open::Notes::Open Notes",
+        "times_seen": 1,
+        "last_run_id": "08ae35f7",
+        "condition": null
+      },
+      {
+        "from": "open::Notes::Open Notes",
+        "to": "scan::::Scan results",
+        "times_seen": 1,
+        "last_run_id": "08ae35f7",
+        "condition": null
+      },
+      {
+        "from": "scan::::Scan results",
+        "to": "search::Italian Restaurants in Berkeley\n\n{ITALIAN_RESTAURANTS}::Search: Italian Restaurants in Berkeley\n\n{ITALIAN_RESTAURANTS}",
+        "times_seen": 1,
+        "last_run_id": "08ae35f7",
+        "condition": null
+      },
+      {
+        "from": "search::Italian Restaurants in Berkeley\n\n{ITALIAN_RESTAURANTS}::Search: Italian Restaurants in Berkeley\n\n{ITALIAN_RESTAURANTS}",
+        "to": "submit::::Submit",
+        "times_seen": 1,
+        "last_run_id": "08ae35f7",
+        "condition": null
+      }
+    ]
+  },
+  "WF_RESEARCH_RESTAURANTS_IN_A_LOCATION": {
+    "id": "WF_RESEARCH_RESTAURANTS_IN_A_LOCATION",
+    "name": "research restaurants in a location",
+    "description": "",
+    "intent_patterns": [
+      "research restaurants in a location"
+    ],
+    "params": [
+      "GOAL",
+      "RESEARCH_NOTES"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS::research_italian_restraunts_in_berkley_and_summa",
+    "start_key": "search::::Search",
+    "created_at": 1782061636.5127838,
+    "updated_at": 1782061636.5127838,
+    "nodes": [
+      {
+        "key": "search::::Search",
+        "kind": "search",
+        "label": "Search",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "acca894a",
+        "last_run_id": "acca894a",
+        "instruction": "Search",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "navigate::www.google.com::Navigate to www.google.com",
+        "kind": "navigate",
+        "label": "Navigate to www.google.com",
+        "value": "www.google.com",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "acca894a",
+        "last_run_id": "acca894a",
+        "instruction": "Navigate to www.google.com",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "open::TextEdit::Open TextEdit",
+        "kind": "open",
+        "label": "Open TextEdit",
+        "value": "TextEdit",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 3,
+        "mistakes": [],
+        "first_run_id": "acca894a",
+        "last_run_id": "acca894a",
+        "instruction": "Open TextEdit",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "fill::::Enter details",
+        "kind": "fill",
+        "label": "Enter details",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "acca894a",
+        "last_run_id": "acca894a",
+        "instruction": "Enter details",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "submit::::Submit",
+        "kind": "submit",
+        "label": "Submit",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "acca894a",
+        "last_run_id": "acca894a",
+        "instruction": "Submit",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "search::::Search",
+        "to": "navigate::www.google.com::Navigate to www.google.com",
+        "times_seen": 1,
+        "last_run_id": "acca894a",
+        "condition": null
+      },
+      {
+        "from": "navigate::www.google.com::Navigate to www.google.com",
+        "to": "open::TextEdit::Open TextEdit",
+        "times_seen": 1,
+        "last_run_id": "acca894a",
+        "condition": null
+      },
+      {
+        "from": "open::TextEdit::Open TextEdit",
+        "to": "fill::::Enter details",
+        "times_seen": 1,
+        "last_run_id": "acca894a",
+        "condition": null
+      },
+      {
+        "from": "fill::::Enter details",
+        "to": "submit::::Submit",
+        "times_seen": 1,
+        "last_run_id": "acca894a",
+        "condition": null
+      }
+    ]
+  },
+  "WF_PLAY_A_VIDEO_ON_YOUTUBE": {
+    "id": "WF_PLAY_A_VIDEO_ON_YOUTUBE",
+    "name": "play a video on youtube",
+    "description": "",
+    "intent_patterns": [
+      "run despacito on youtube",
+      "play mr bean on youtube",
+      "play concalma on youtube"
+    ],
+    "params": [
+      "GOAL",
+      "SEARCH_QUERY"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS::play_one_dance_on_youtube",
+    "start_key": "open::Google Chrome::Open Google Chrome",
+    "created_at": 1782061636.518604,
+    "updated_at": 1782061636.518604,
+    "nodes": [
+      {
+        "key": "open::Google Chrome::Open Google Chrome",
+        "kind": "open",
+        "label": "Open Google Chrome",
+        "value": "Google Chrome",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "9c47ae6e",
+        "last_run_id": "9c47ae6e",
+        "instruction": "Open Google Chrome",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "scan::::Scan results",
+        "kind": "scan",
+        "label": "Scan results",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 5,
+        "mistakes": [],
+        "first_run_id": "9c47ae6e",
+        "last_run_id": "9c47ae6e",
+        "instruction": "Scan results",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "search::{SEARCH_QUERY}::Search: {SEARCH_QUERY}",
+        "kind": "search",
+        "label": "Search: {SEARCH_QUERY}",
+        "value": "{SEARCH_QUERY}",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "9c47ae6e",
+        "last_run_id": "9c47ae6e",
+        "instruction": "Search: {SEARCH_QUERY}",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "submit::::Submit",
+        "kind": "submit",
+        "label": "Submit",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "9c47ae6e",
+        "last_run_id": "9c47ae6e",
+        "instruction": "Submit",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "open::Google Chrome::Open Google Chrome",
+        "to": "scan::::Scan results",
+        "times_seen": 1,
+        "last_run_id": "9c47ae6e",
+        "condition": null
+      },
+      {
+        "from": "scan::::Scan results",
+        "to": "search::{SEARCH"last_run_id": "9c47ae6e",
+        "condit"times_seen": 1,
+        "last_run_id": "9c47ae6e",
+        "condition": null
+      },
+      {
+        "from": "search::{SEARCH_QUERY}::Search: {SEARCH_QUERY}",
+        "to": "submit::::Submit",
+        "times_seen": 1,
+        "last_run_id": "9c47ae6e",
+        "condition": null
+      },
+      {
+        "from": "submit::::Submit",
+        "to": "scan::::Scan results",
+        "times_seen": 1,
+        "last_run_id": "9c47ae6e",
+        "condition": null
+      }
+    ]
+  },
+  "WF_WRITE_TO_MY_NOTES": {
+    "id": "WF_WRITE_TO_MY_NOTES",
+    "name": "write to my notes",
+    "description": "",
+    "intent_patterns": [
+      "write \"hello\" to my notes"
+    ],
+    "params": [
+      "GOAL"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS::write",
+    "start_key": "open::Notes::Open Notes",
+    "created_at": 1782061636.529153,
+    "updated_at": 1782061636.529153,
+    "nodes": [
+      {
+        "key": "open::Notes::Open Notes",
+        "kind": "open",
+        "label": "Open Notes",
+        "value": "Notes",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 3,
+        "mistakes": [],
+        "first_run_id": "2d396451",
+        "last_run_id": "2d396451",
+        "instruction": "Open Notes",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "fill::::Enter details",
+        "kind": "fill",
+        "label": "Enter details",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "2d396451",
+        "last_run_id": "2d396451",
+        "instruction": "Enter details",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "submit::::Submit",
+        "kind": "submit",
+        "label": "Submit",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "2d396451",
+        "last_run_id": "2d396451",
+        "instruction": "Submit",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "open::Notes::Open Notes",
+        "to": "fill::::Enter details",
+        "times_seen": 1,
+        "last_run_id": "2d396451",
+        "condition": null
+      },
+      {
+        "from": "fill::::Enter details",
+        "to": "submit::::Submit",
+        "times_seen": 1,
+        "last_run_id": "2d396451",
+        "condition": null
+      }
+    ]
+  },
+  "WF_PLAN_A_TRIP_AND_ADD_IT_TO_NOTES": {
+    "id": "WF_PLAN_A_TRIP_AND_ADD_IT_TO_NOTES",
+    "name": "plan a trip and add it to notes",
+    "description": "",
+    "intent_patterns": [
+      "plan a trip to thailand and add it to notes"
+    ],
+    "params": [
+      "GOAL",
+      "TRIP_PLAN"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS::plan_a_trip_to_thailand_and_add_it_to_notes",
+    "start_key": "open::Notes::Open Notes",
+    "created_at": 1782061636.5349948,
+    "updated_at": 1782061636.5349948,
+    "nodes": [
+      {
+        "key": "open::Notes::Open Notes",
+        "kind": "open",
+        "label": "Open Notes",
+        "value": "Notes",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 3,
+        "mistakes": [],
+        "first_run_id": "00a911d2",
+        "last_run_id": "00a911d2",
+        "instruction": "Open Notes",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "fill::::Enter details",
+        "kind": "fill",
+        "label": "Enter details",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "00a911d2",
+        "last_run_id": "00a911d2",
+        "instruction": "Enter details",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "submit::::Submit",
+        "kind": "submit",
+        "label": "Submit",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "00a911d2",
+        "last_run_id": "00a911d2",
+        "instruction": "Submit",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "open::Notes::Open Notes",
+        "to": "fill::::Enter details",
+        "times_seen": 1,
+        "last_run_id": "00a911d2",
+        "condition": null
+      },
+      {
+        "from": "fill::::Enter details",
+        "to": "submit::::Submit",
+        "times_seen": 1,
+        "last_run_id": "00a911d2",
+        "condition": null
+      }
+    ]
+  },
+  "WF_PLAY_A_SONG_IN_YOUTUBE": {
+    "id": "WF_PLAY_A_SONG_IN_YOUTUBE",
+    "name": "play a song in youtube",
+    "description": "",
+    "intent_patterns": [
+      "play billie jean mj in youtube"
+    ],
+    "params": [
+      "GOAL",
+      "SEARCH_QUERY"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS::play_billie_jean_mj_in_youtube",
+    "start_key": "open::Google Chrome::Open Google Chrome",
+    "created_at": 1782061636.5464509,
+    "updated_at": 1782061636.5464509,
+    "nodes": [
+      {
+        "key": "open::Google Chrome::Open Google Chrome",
+        "kind": "open",
+        "label": "Open Google Chrome",
+        "value": "Google Chrome",
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 2,
+        "mistakes": [],
+        "first_run_id": "f45655ba",
+        "last_run_id": "f45655ba",
+        "instruction": "Open Google Chrome",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      },
+      {
+        "key": "scan::::Scan results",
+        "kind": "scan",
+        "label": "Scan results",
+        "value": null,
+        "detail": "",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "f45655ba",
+        "last_run_id": "f45655ba",
+        "instruction": "Scan results",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "open::Google Chrome::Open Google Chrome",
+        "to": "scan::::Scan results",
+        "times_seen": 1,
+        "last_run_id": "f45655ba",
+        "condition": null
+      }
+    ]
+  },
+  "WF_CLICK_ON_A_VIDEO_ON_YOUTUBE": {
+    "id": "WF_CLICK_ON_A_VIDEO_ON_YOUTUBE",
+    "name": "click on a video on youtube",
+    "description": "",
+    "intent_patterns": [
+      "Click on Kalma on YouTube."
+    ],
+    "params": [
+      "GOAL",
+      "SEARCH_QUERY"
+    ],
+    "version": 1,
+    "from_graph": "AUTONOMOUS::click_on_a_video_on_youtube",
+    "start_key": "open::Kalma::Open YouTube search",
+    "created_at": 1782061636.551927,
+    "updated_at": 1782061636.551927,
+    "nodes": [
+      {
+        "key": "open::Kalma::Open YouTube search",
+        "kind": "open",
+        "label": "Open YouTube search",
+        "value": "Kalma",
+        "detail": "opened Chrome and navigated to YouTube search results for 'Kalma'",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "0175415c",
+        "last_run_id": "0175415c",
+        "instruction": "Open YouTube search",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "obse"interact::Kalma::Click first video re"interact::Kalma::Click first video result",
+        "kind": "interact",
+        "label": "Click first video result",
+        "value": "Kalma",
+        "detail": "clicked on the first video result containing 'Kalma' in the title",
+        "times_seen": 1,
+        "last_status": "completed",
+        "fine_steps": 1,
+        "mistakes": [],
+        "first_run_id": "0175415c",
+        "last_run_id": "0175415c",
+        "instruction": "Click first video result",
+        "requires": [],
+        "conditionals": [],
+        "procedure": null,
+        "optional": false,
+        "source": "observed"
+      }
+    ],
+    "edges": [
+      {
+        "from": "open::Kalma::Open YouTube search",
+        "to": "interact::Kalma::Click first video result",
+        "times_seen": 1,
+        "last_run_id": "0175415c",
+        "condition": null
+      }
+    ]
+  }
+}null
+      }
+    ]
+  }
+}

@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shepherd Overlay</title>
+    <style>
+      :root {
+        --bg: rgba(11, 14, 20, 0.72);
+        --bd: rgba(255, 255, 255, 0.10);
+        --fg: #e6edf3;
+        --muted: #8b98a5;
+        --accent: #2f81f7;
+        --ok: #3fb950;
+        --warn: #d29922;
+        --err: #f85149;
+        --think: #a371f7;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; height: 100%;
+        font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-weight: 600;
+        color: var(--fg);
+        background: transparent;
+        user-select: none;
+      }
+      #app {
+        display: flex; flex-direction: column;
+        height: 100vh;
+        background: var(--bg);
+        backdrop-filter: blur(18px) saturate(140%);
+        -webkit-backdrop-filter: blur(18px) saturate(140%);
+        border: 2px solid var(--accent);
+        border-radius: 14px;
+        overflow: hidden;
+        animation: borderFlash 1.4s ease-in-out infinite;
+      }
+      @keyframes borderFlash {
+        0%, 100% {
+          border-color: var(--accent);
+          box-shadow: 0 0 0 0 rgba(47, 129, 247, 0.0),
+                      inset 0 0 0 1px rgba(47, 129, 247, 0.15);
+        }
+        50% {
+          border-color: #79c0ff;
+          box-shadow: 0 0 18px 2px rgba(47, 129, 247, 0.65),
+                      inset 0 0 0 1px rgba(121, 192, 255, 0.45);
+        }
+      }
+      /* Title bar — draggable */
+      header {
+        -webkit-app-region: drag;
+        display: flex; align-items: center; gap: 8px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--bd);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      header .dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--err); box-shadow: 0 0 8px var(--err);
+      }
+      header .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+      header .title { font-weight: 600; letter-spacing: 0.4px; }
+      header .title b { color: var(--accent); }
+      header .spacer { flex: 1; }
+      header .btns { -webkit-app-region: no-drag; display: flex; gap: 6px; }
+      header button {
+        -webkit-app-region: no-drag;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--muted);
+        border: 1px solid var(--bd);
+        border-radius: 6px;
+        padding: 2px 7px; font-size: 11px; cursor: pointer;
+      }
+      header button:hover { color: var(--fg); }
+      header button.active { color: var(--accent); border-color: var(--accent); }
+
+      #log {
+        flex: 1; overflow-y: auto; padding: 10px 12px;
+        user-select: text;
+      }
+      #log::-webkit-scrollbar { width: 8px; }
+      #log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+      .row { margin: 0 0 5px; white-space: pre-wrap; word-break: break-word; }
+      .row .t { color: var(--muted); margin-right: 6px; }
+      .row .tag { font-weight: 600; margin-right: 6px; }
+      .goal   .tag { color: var(--accent); }
+      .plan   .tag { color: var(--muted); }
+      .step   .tag { color: var(--fg); }
+      .think  { color: var(--think); }
+      .think  .tag { color: var(--think); }
+      .ok     .tag { color: var(--ok); }
+      .err    { color: var(--err); }
+      .err    .tag { color: var(--err); }
+      .done   .tag { color: var(--ok); }
+
+      .status {
+        padding: 6px 12px; border-top: 1px solid var(--bd);
+        color: var(--muted); font-size: 11px; min-height: 26px;
+        display: flex; align-items: center; gap: 6px;
+      }
+      .status .spin { color: var(--accent); }
+
+      footer {
+        display: flex; gap: 8px; padding: 10px 12px;
+        border-top: 1px solid var(--bd);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      footer input {
+        -webkit-app-region: no-drag;
+        flex: 1; background: rgba(0,0,0,0.35);
+        border: 1px solid var(--bd); border-radius: 8px;
+        color: var(--fg); padding: 8px 10px; font: inherit; outline: none;
+      }
+      footer input:focus { border-color: var(--accent); }
+      footer button {
+        -webkit-app-region: no-drag;
+        border: 1px solid var(--bd); border-radius: 8px;
+        padding: 0 14px; font: inherit; font-weight: 600; cursor: pointer;
+      }
+      #send { background: var(--accent); color: white; border-color: var(--accent); }
+      #stop { background: rgba(248,81,73,0.14); color: var(--err); border-color: rgba(248,81,73,0.4); }
+      button:active { transform: translateY(1px); }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <span class="dot" id="conn"></span>
+        <span class="title">THE <b>SHEPHERD</b> · overlay</span>
+        <span class="spacer"></span>
+        <div class="btns">
+          <button id="clickthru" title="Toggle click-through (⌘⇧C)">click-through</button>
+          <button id="clear" title="Clear log">clear</button>
+          <button id="quit" title="Quit overlay">✕</button>
+        </div>
+      </header>
+      <div id="log"></div>
+      <div class="status" id="status">idle</div>
+      <footer>
+        <input id="goal" placeholder="Type a goal and press Enter…" autofocus />
+        <button id="send">Run</button>
+        <button id="stop">Stop</button>
+      </footer>
+    </div>
+
+    <script>
+      // ── Resolve backend URL (passed by main via ?shepherd=) ──────────────
+      const params = new URLSearchParams(location.search);
+      const HTTP = (params.get("shepherd") || "http://localhost:8765").replace(/\/$/, "");
+      const WS = HTTP.replace(/^http/, "ws") + "/ws";
+
+      const $ = (id) => document.getElementById(id);
+      const logEl = $("log"), statusEl = $("status"), connEl = $("conn");
+
+      function now() {
+        return new Date().toLocaleTimeString([], { hour12: false });
+      }
+      function add(cls, tag, text) {
+        if (text == null || text === "") return;
+        const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+        const row = document.createElement("div");
+        row.className = "row " + cls;
+        row.innerHTML =
+          '<span class="t"></span><span class="tag"></span><span class="msg"></span>';
+        row.querySelector(".t").textContent = now();
+        row.querySelector(".tag").textContent = tag;
+        row.querySelector(".msg").textContent = text;
+        logEl.appendChild(row);
+        while (logEl.childNodes.length > 250) logEl.removeChild(logEl.firstChild);
+        if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+      }
+      function setStatus(text, spinning) {
+        statusEl.innerHTML = "";
+        if (spinning) {
+          const s = document.createElement("span");
+          s.className = "spin"; s.textContent = "● ";
+          statusEl.appendChild(s);
+        }
+        statusEl.appendChild(document.createTextNode(text || "idle"));
+      }
+
+      // ── Map a Shepherd event to a HUD line ───────────────────────────────
+      function render(type, d) {
+        switch (type) {
+          case "intent.received":
+          case "remote.intent":
+            add("goal", "▶ goal", d.text || d.raw_text || "");
+            setStatus("planning…", true);
+            break;
+          case "plan.resolved":
+            add("plan", "plan", `${d.kind || "?"} → ${d.target || "(none)"}  conf=${d.confidence ?? "?"} (${d.source || ""})`);
+            break;
+          case "execution.start":
+            setStatus(`running: ${d.goal || d.routine_id || ""}`, true);
+            break;
+          case "step.start":
+            add("step", "•", `[${d.action || "?"}] ${d.description || ""}`.trim());
+            break;
+          case "agent.reasoning":
+            if (d.reasoning) add("think", "✦", d.reasoning.replace(/\s*\n\s*/g, " "));
+            break;
+          case "step.error":
+            add("err", "✗", d.error || "error");
+            break;
+          case "execution.halted":
+          case "execution.suspended":
+            add("err", "■", `${type.split(".")[1]}${d.error ? ": " + d.error : ""}`);
+            setStatus("stopped", false);
+            break;
+          case "execution.complete": {
+            const ok = d.status === "completed";
+            add(ok ? "done" : "err", ok ? "✓ done" : "✗ failed", d.response || d.status || "");
+            setStatus(ok ? "completed" : "failed", false);
+            break;
+          }
+          case "workflow.start":
+            add("goal", "▶ workflow", d.workflow_id || "");
+            setStatus("running workflow…", true);
+            break;
+          case "workflow.node.enter":
+            add("step", "•", d.node_key || "");
+            break;
+          case "workflow.done":
+            setStatus("workflow done", false);
+            break;
+          default:
+            break; // ignore the noisy long tail
+        }
+      }
+
+      // ── WebSocket with auto-reconnect ────────────────────────────────────
+      let ws = null;
+      function connect() {
+        try { ws = new WebSocket(WS); } catch { setTimeout(connect, 2000); return; }
+        ws.onopen = () => { connEl.classList.add("on"); };
+        ws.onclose = () => { connEl.classList.remove("on"); setTimeout(connect, 2000); };
+        ws.onerror = () => ws.close();
+        ws.onmessage = (e) => {
+          let msg; try { msg = JSON.parse(e.data); } catch { return; }
+          if (msg && msg.type) render(msg.type, msg.data || {});
+        };
+      }
+      connect();
+
+      // ── Controls ─────────────────────────────────────────────────────────
+      async function post(path, body) {
+        try {
+          const r = await fetch(HTTP + path, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body || {}),
+          });
+          return await r.json().catch(() => ({}));
+        } catch (err) {
+          add("err", "✗", "request failed: " + err);
+          return null;
+        }
+      }
+      function run() {
+        const v = $("goal").value.trim();
+        if (!v) return;
+        $("goal").value = "";
+        post("/api/intent", { text: v });
+      }
+      $("send").onclick = run;
+      $("goal").addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
+      $("stop").onclick = () => { post("/api/halt"); setStatus("stopping…", false); };
+      $("clear").onclick = () => { logEl.innerHTML = ""; };
+      $("quit").onclick = () => window.overlay && window.overlay.quit();
+
+      // Click-through toggle (also bound to ⌘⇧C globally).
+      let ct = false;
+      function applyCT(on) {
+        ct = on;
+        $("clickthru").classList.toggle("active", on);
+        if (window.overlay) window.overlay.setClickThrough(on);
+      }
+      $("clickthru").onclick = () => applyCT(!ct);
+      if (window.overlay && window.overlay.onClickThroughChanged) {
+        window.overlay.onClickThroughChanged((v) => {
+          ct = v; $("clickthru").classList.toggle("active", v);
+        });
+      }
+    </script>
+  </body>
+</html>

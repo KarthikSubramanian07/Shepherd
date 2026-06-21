@@ -116,7 +116,7 @@ class Settings(BaseSettings):
     # needed. Only graphs with >= auto_promote_min_nodes are promoted (skips empty
     # / degenerate single-step graphs), and re-promotion is skipped when the graph
     # hasn't grown (no version churn on repeat runs).
-    auto_promote_workflows: bool = True
+    auto_promote_workflows: bool = False
     auto_promote_min_nodes: int = 2
     # Legacy override: when set in .env, this LIVE/LOCKED/AUTONOMOUS string wins over
     # the use_router/routine_replay knobs. Empty = derive from them (preferred).

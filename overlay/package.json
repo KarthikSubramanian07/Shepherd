@@ -1,0 +1,13 @@
+{
+  "name": "shepherd-overlay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Translucent, always-on-top, content-protected HUD that streams Shepherd's live agent activity over it screen-share-invisible.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  }
+}
