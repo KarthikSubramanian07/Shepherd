@@ -220,9 +220,11 @@ def test_locked_no_autonomous_fallback(tmp_path):
 # ── Test 5: Relay `mode` command with AUTONOMOUS ──────────────────────────────
 
 def test_relay_mode_command_autonomous():
-    """relay_client _apply_command('mode', {mode: 'AUTONOMOUS'}) sets runtime mode."""
+    """RelayClient._apply_command('mode', ...) accepts AUTONOMOUS: sets runtime mode + emits."""
+    import queue as _queue
     import config as _cfg
     from dashboard.events import event_bus
+    from services.relay_client import RelayClient
 
     # Save original state
     original_mode = _cfg._runtime_mode
@@ -235,11 +237,9 @@ def test_relay_mode_command_autonomous():
     event_bus.subscribe(capture_event)
 
     try:
-        # Simulate what relay_client._apply_command does for the mode command
-        mode = "AUTONOMOUS"
-        if mode in ("LIVE", "LOCKED", "AUTONOMOUS"):
-            _cfg._runtime_mode = mode
-            event_bus.emit("mode.changed", {"mode": mode})
+        # Exercise the real relay handler (lowercase input → normalized to AUTONOMOUS).
+        client = RelayClient(engine=MagicMock(), remote_intents=_queue.Queue())
+        client._apply_command("mode", {"mode": "autonomous"})
 
         assert _cfg._runtime_mode == "AUTONOMOUS"
         assert len(emitted_events) == 1

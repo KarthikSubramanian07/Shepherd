@@ -300,8 +300,7 @@ def main() -> None:
                         result = engine.execute_workflow(
                             workflow, goal=intent.raw_text, params=plan.params
                         )
-                        telemetry.record(result, engine.last_step_records)
-                        print(f"[shepherd] {result.status.upper()} — {result.steps_completed} milestones in {result.duration_ms}ms\n")
+                        _after_run(engine, telemetry, memory, result, confidence=plan.confidence)
                         if _should_end_session():
                             print("[shepherd] Task complete — ending session.\n")
                             break
@@ -349,8 +348,7 @@ def main() -> None:
                     result = engine.execute_workflow(
                         workflow, goal=intent.raw_text, params=plan.params
                     )
-                    telemetry.record(result, engine.last_step_records)
-                    print(f"[shepherd] {result.status.upper()} — {result.steps_completed} milestones in {result.duration_ms}ms\n")
+                    _after_run(engine, telemetry, memory, result, confidence=plan.confidence)
                     continue
 
             if plan.kind != "ROUTINE":
