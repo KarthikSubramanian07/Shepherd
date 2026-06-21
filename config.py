@@ -41,6 +41,7 @@ class Settings(BaseSettings):
 
     # ── External service keys ──────────────────────────────────────────────
     browserbase_api_key: str = ""
+    browserbase_project_id: str = ""   # required to create a real cloud session
     deepgram_api_key: str = ""
     orkes_server_url: str = ""
     orkes_api_key: str = ""
@@ -201,6 +202,7 @@ PHOENIX_PROJECT_SLUG       = settings.phoenix_project_slug
 SENTRY_DSN                 = settings.sentry_dsn
 REDIS_URL                  = settings.redis_url
 BROWSERBASE_API_KEY        = settings.browserbase_api_key
+BROWSERBASE_PROJECT_ID     = settings.browserbase_project_id
 DEEPGRAM_API_KEY           = settings.deepgram_api_key
 DEEPGRAM_MODEL             = settings.deepgram_model
 DEEPGRAM_LANGUAGE          = settings.deepgram_language
