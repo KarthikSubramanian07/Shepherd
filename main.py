@@ -19,6 +19,7 @@ import queue
 import sys
 import time
 import threading
+from types import SimpleNamespace
 
 from config import (
     FEATURES, EXECUTION_MODE, DASHBOARD_PORT, USE_ROUTER, ROUTINE_REPLAY,
@@ -363,11 +364,16 @@ def main() -> None:
                     workflow = router._workflows.get(plan.target)
                     if workflow is not None:
                         print(f"[router] → WORKFLOW {plan.target}  confidence={plan.confidence} ({plan.source})")
+                        if FEATURES["band"]:
+                            threading.Thread(
+                                target=_band_start,
+                                args=(SimpleNamespace(routine_id=plan.target, confidence=plan.confidence),),
+                                daemon=True,
+                            ).start()
                         result = engine.execute_workflow(
                             workflow, goal=intent.raw_text, params=plan.params
                         )
-                        telemetry.record(result, engine.last_step_records)
-                        print(f"[shepherd] {result.status.upper()} — {result.steps_completed} milestones in {result.duration_ms}ms\n")
+                        _after_run(engine, telemetry, memory, result, confidence=plan.confidence)
                         if _should_end_session():
                             print("[shepherd] Task complete — ending session.\n")
                             break
@@ -412,11 +418,19 @@ def main() -> None:
                 workflow = router._workflows.get(plan.target)
                 if workflow is not None:
                     print(f"[router] → WORKFLOW {plan.target}  confidence={plan.confidence} ({plan.source})")
+                    if FEATURES["band"]:
+                        threading.Thread(
+                            target=_band_start,
+                            args=(SimpleNamespace(routine_id=plan.target, confidence=plan.confidence),),
+                            daemon=True,
+                        ).start()
                     result = engine.execute_workflow(
                         workflow, goal=intent.raw_text, params=plan.params
                     )
-                    telemetry.record(result, engine.last_step_records)
-                    print(f"[shepherd] {result.status.upper()} — {result.steps_completed} milestones in {result.duration_ms}ms\n")
+                    _after_run(engine, telemetry, memory, result, confidence=plan.confidence)
+                    if _should_end_session():
+                        print("[shepherd] Task complete — ending session.\n")
+                        break
                     continue
 
             if plan.kind != "ROUTINE":
