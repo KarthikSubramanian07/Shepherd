@@ -74,28 +74,13 @@ triggers:
 # ── Containment — limits on what the agent may open or visit ─────────────────
 containment:
   # Which macOS apps the agent may launch via open_app. Case-sensitive.
-  allowed_apps:
-    - "Google Chrome"
-    - "Safari"
-    - "Firefox"
-    - "Mail"
-    - "TextEdit"
-    - "Notes"
-    - "Photos"
-    - "Photo Booth"
+  # EMPTY = allow any app (containment disabled for now). Add entries to restrict.
+  allowed_apps: []
 
   # URL domain/host allowlist for browser and open_app URL steps.
   # Partial match: "localhost" matches http://localhost:8765/demo-form.
-  # An empty list disables domain enforcement.
-  allowed_domains:
-    - "localhost"
-    - "127.0.0.1"
-    - "workbridge.internal"
-    - "demo.workbridge.io"
-    - "workbridge.com"
-    - "github.com"          # the research digression reads a candidate's GitHub
-    - "google.com"          # Gmail / Google sign-in (covers mail.google.com, accounts.google.com)
-    - "gmail.com"
+  # EMPTY = allow any domain (containment disabled for now). Add entries to restrict.
+  allowed_domains: []
 
   # Hard ceiling on actions-per-minute across a single run (0 = unlimited).
   max_actions_per_minute: 60
