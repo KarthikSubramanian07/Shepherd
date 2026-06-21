@@ -216,7 +216,7 @@ export function TaskGraphView({ graph }: { graph: TaskGraph }) {
     const nodes: Node[] = graph.nodes.map((n, i) => ({
       id: n.key,
       type: "milestone",
-      position: a.pos.get(n.key) ?? { x: i * 300, y: 0 },
+      position: a.pos.get(n.key) ?? { x: i * 380, y: 0 },
       data: {
         label: n.label,
         kind: n.kind,
@@ -270,6 +270,7 @@ export function TaskGraphView({ graph }: { graph: TaskGraph }) {
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
+        fitViewOptions={{ padding: 0.2 }}
         minZoom={0.15}
         proOptions={{ hideAttribution: true }}
       >

@@ -100,7 +100,7 @@ export function TraceGraph({ trace, nodeShots }: TraceGraphProps) {
     const nodes: Node<TraceNodeData>[] = order.map((n, i) => ({
       id: String(n.index),
       type: "trace",
-      position: { x: i * 280, y: (i % 2) * 80 },
+      position: { x: i * 360, y: (i % 2) * 120 },
       data: {
         label: n.description ?? n.thinking ?? "",
         action: n.action,
@@ -140,6 +140,7 @@ export function TraceGraph({ trace, nodeShots }: TraceGraphProps) {
         edges={edges}
         nodeTypes={traceNodeTypes}
         fitView
+        fitViewOptions={{ padding: 0.2 }}
         minZoom={0.15}
         proOptions={{ hideAttribution: true }}
       >

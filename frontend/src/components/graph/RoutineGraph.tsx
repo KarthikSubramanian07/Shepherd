@@ -41,7 +41,7 @@ export function RoutineGraph({ routine, run, agents = [] }: RoutineGraphProps) {
       return {
         id: s.id,
         type: "step",
-        position: s.position ?? { x: i * 320, y: (i % 2) * 70 },
+        position: s.position ?? { x: i * 380, y: (i % 2) * 120 },
         data: {
           index: s.index,
           action: s.action,
@@ -82,6 +82,7 @@ export function RoutineGraph({ routine, run, agents = [] }: RoutineGraphProps) {
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
+        fitViewOptions={{ padding: 0.2 }}
         minZoom={0.15}
         proOptions={{ hideAttribution: true }}
       >

@@ -30,8 +30,8 @@
  */
 import type { TaskGraph } from "./types";
 
-export const COL_GAP = 300;
-export const ROW_GAP = 150;
+export const COL_GAP = 380;
+export const ROW_GAP = 160;
 
 export interface LayoutPos {
   x: number;
