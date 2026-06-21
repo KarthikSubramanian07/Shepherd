@@ -450,7 +450,7 @@ async def agent_ws(ws: WebSocket) -> None:
                 conn.host = msg.get("host", conn.host)
                 conn.mode = msg.get("mode", conn.mode)
                 client_version = msg.get("protocol_version")
-                if client_version and client_version > PROTOCOL_VERSION:
+                if isinstance(client_version, int) and client_version > PROTOCOL_VERSION:
                     print(f"[coordinator] warning: agent '{agent_id}' speaks "
                           f"protocol v{client_version}, we only support v{PROTOCOL_VERSION}")
                 await hub.push_roster()

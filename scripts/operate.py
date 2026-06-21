@@ -156,9 +156,8 @@ def main() -> None:
     engine_stub = SimpleNamespace(_mode="LIVE", request_halt=lambda: None)
     relay = start_relay_client(engine_stub, remote_intents)
 
-    code = os.environ.get("AGENT_PAIRING_CODE", AGENT_PAIRING_CODE)
     print(f"[operate] Connecting to coordinator: {coordinator_url}")
-    print(f"[operate] Agent ID: {AGENT_ID} | Pairing code: {code}")
+    print(f"[operate] Agent ID: {AGENT_ID} | Pairing code: {AGENT_PAIRING_CODE}")
     time.sleep(2.0)  # Let relay establish connection.
 
     # Open target URL in Chrome if specified.
@@ -212,7 +211,7 @@ def main() -> None:
             print(f"[operate] Workflow execution error: {e}")
 
     # Keep alive: stream screen + handle remote intents until Ctrl-C.
-    print(f"\n[operate] Agent is live on the coordinator (code={code}).")
+    print(f"\n[operate] Agent is live on the coordinator (code={AGENT_PAIRING_CODE}).")
     print("[operate] The operator can now connect to the Command Center and drive this machine.")
     print("[operate] Press Ctrl-C to disconnect.\n")
     try:
