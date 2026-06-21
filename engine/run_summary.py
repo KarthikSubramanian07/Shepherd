@@ -36,7 +36,9 @@ _SYSTEM = (
 def summarize_run(goal: str, status: str, trail: list[str], *, error: str = "") -> str:
     """Return the answer (for a question) or a completion note (for a task)."""
     goal = (goal or "").strip()
-    steps = [s for s in (trail or []) if s]
+    # Coerce defensively so a caller that passes records (not strings) can never
+    # make this raise — the docstring promises it never does.
+    steps = [str(s) for s in (trail or []) if s]
     if llm.available():
         try:
             trail_txt = "\n".join(f"- {s}" for s in steps[-25:]) or "(no actions recorded)"

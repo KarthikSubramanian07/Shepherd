@@ -1292,7 +1292,7 @@ class ShepherdExecutionEngine:
         ended_at = time.time()
         status = {"completed": "completed", "blocked": "aborted"}.get(wf_run.status, "aborted")
         response = summarize_run(
-            goal or workflow.name, status, list(wf_run.path),
+            goal or workflow.name, status, [r.label for r in wf_run.path],
             error=(wf_run.blocked_on or "") if status != "completed" else "")
         result = ExecutionResult(
             routine_id=workflow.id,
