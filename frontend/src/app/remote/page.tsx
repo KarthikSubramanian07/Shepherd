@@ -12,10 +12,13 @@ import {
   Monitor,
   Pause,
   Play,
+  Copy,
   Radio,
+  Save,
   Send,
   ShieldCheck,
   Sparkles,
+  Trash2,
   WifiOff,
   Workflow as WorkflowIcon,
 } from "lucide-react";
@@ -23,6 +26,7 @@ import {
   type RemoteAgent,
   type RemoteEvent,
   type RemoteOption,
+  type WorkflowFinalizePayload,
   type WorkflowIntervenePayload,
   useCoordinator,
 } from "@/lib/coordinator";
@@ -72,6 +76,21 @@ export default function RemoteCommandCenterPage() {
       setToast(
         `Sent steer to ${c.selected?.name}${payload.remember ? " (remembered for future runs)" : ""}`,
       );
+    },
+    [c],
+  );
+
+  const finalize = useCallback(
+    (payload: WorkflowFinalizePayload) => {
+      if (!c.selectedId) return;
+      c.sendCommand(c.selectedId, "workflow.finalize", { ...payload });
+      const verb =
+        payload.decision === "discard"
+          ? "Discarded"
+          : payload.decision === "save_as_new"
+            ? "Saved as new workflow"
+            : "Persisted into the workflow";
+      setToast(`${verb} for ${c.selected?.name}`);
     },
     [c],
   );
@@ -198,6 +217,14 @@ export default function RemoteCommandCenterPage() {
                     }
                   />
                 ) : null}
+
+                {/* End-of-run persist gate */}
+                {wf?.finalize && (
+                  <FinalizePanel
+                    finalize={wf.finalize}
+                    onFinalize={finalize}
+                  />
+                )}
 
                 {/* Live screen + live workflow graph, side by side */}
                 <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
@@ -469,6 +496,10 @@ function describeEvent(e: RemoteEvent): string {
       return `steer: ${(d.instruction as string) ?? (d.decision as string)}`;
     case "workflow.baked":
       return `crystallized ${(d.ops as unknown[])?.length ?? ""} edit(s)`;
+    case "workflow.finalize":
+      return `awaiting persist choice (${(d.ops as unknown[])?.length ?? 0} judgment call(s))`;
+    case "workflow.finalized":
+      return `${d.action as string} → ${d.workflow_id as string} v${d.version as number}`;
     case "workflow.done":
       return `${d.status as string} · ${d.steps as number} steps`;
     case "remote.intent":
@@ -482,6 +513,121 @@ function describeEvent(e: RemoteEvent): string {
         return "";
       }
   }
+}
+
+function FinalizePanel({
+  finalize,
+  onFinalize,
+}: {
+  finalize: NonNullable<RemoteAgent["workflow"]>["finalize"];
+  onFinalize: (payload: WorkflowFinalizePayload) => void;
+}) {
+  const [saveAsNew, setSaveAsNew] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newId, setNewId] = useState("");
+  const [done, setDone] = useState<string | null>(null);
+  const f = finalize!;
+  const ops = f.ops ?? [];
+
+  if (done) {
+    return (
+      <Card className="border-ok/40 bg-ok/5 p-4">
+        <div className="flex items-center gap-2 text-sm text-ok">
+          <ShieldCheck size={16} /> {done}
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-accent/50 bg-accent/5 p-4">
+      <div className="mb-2 flex items-center gap-2 text-accent">
+        <Sparkles size={16} />
+        <span className="text-sm font-semibold">
+          Run captured {ops.length} judgment call{ops.length === 1 ? "" : "s"} — persist them?
+        </span>
+      </div>
+      <p className="mb-3 text-[13px] text-muted">
+        {f.name ?? f.workflow_id} would go from v{f.current_version} → v{f.proposed_version} so future
+        agents inherit these decisions. Persist into the workflow (default), save as a new workflow,
+        or discard.
+      </p>
+
+      {ops.length > 0 && (
+        <ul className="mb-3 space-y-1.5">
+          {ops.map((o, i) => (
+            <li key={i} className="flex items-start gap-2 text-[13px] leading-snug">
+              <GitBranch size={13} className="mt-0.5 shrink-0 text-accent" />
+              <span>
+                <span className="font-mono text-[11px] text-muted">{o.node}</span>: if{" "}
+                <span className="text-accent">{o.when}</span> → {o.do}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {saveAsNew && (
+        <div className="mb-3 space-y-2">
+          <Input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="New workflow name (e.g. Apply to a job — taught)"
+          />
+          <Input
+            value={newId}
+            onChange={(e) => setNewId(e.target.value)}
+            placeholder="New workflow id (optional — auto-generated if blank)"
+          />
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {!saveAsNew ? (
+          <>
+            <Button
+              onClick={() => {
+                onFinalize({ decision: "persist" });
+                setDone(`Persisted → v${f.proposed_version}`);
+              }}
+            >
+              <Save size={15} /> Persist (v{f.proposed_version})
+            </Button>
+            <Button variant="outline" onClick={() => setSaveAsNew(true)}>
+              <Copy size={15} /> Save as new…
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                onFinalize({ decision: "discard" });
+                setDone("Discarded — workflow unchanged");
+              }}
+            >
+              <Trash2 size={15} /> Discard
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              onClick={() => {
+                onFinalize({
+                  decision: "save_as_new",
+                  name: newName.trim(),
+                  new_id: newId.trim(),
+                });
+                setDone("Saved as a new workflow");
+              }}
+            >
+              <Copy size={15} /> Save as new workflow
+            </Button>
+            <Button variant="outline" onClick={() => setSaveAsNew(false)}>
+              Back
+            </Button>
+          </>
+        )}
+      </div>
+    </Card>
+  );
 }
 
 function WorkflowIntervenePanel({

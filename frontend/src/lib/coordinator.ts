@@ -79,6 +79,28 @@ export interface RemoteWorkflowEdge {
   when?: string | null;
 }
 
+export interface WorkflowBakeOp {
+  op?: string;
+  node?: string;
+  when?: string;
+  do?: string;
+  goto?: string | null;
+}
+
+export interface RemoteWorkflowFinalize {
+  workflow_id: string | null;
+  name: string | null;
+  current_version: number | null;
+  proposed_version: number | null;
+  ops: WorkflowBakeOp[];
+}
+
+export interface RemoteWorkflowFinalized {
+  action: "persisted" | "saved_as_new" | "discarded" | string;
+  workflow_id: string | null;
+  version: number | null;
+}
+
 export interface RemoteWorkflow {
   id: string | null;
   name: string | null;
@@ -87,6 +109,11 @@ export interface RemoteWorkflow {
   nodes: RemoteWorkflowNode[];
   edges: RemoteWorkflowEdge[];
   status?: string;
+  baked?: WorkflowBakeOp[] | null;
+  /** Set at run end when baked judgment calls await the operator's persist choice. */
+  finalize?: RemoteWorkflowFinalize | null;
+  /** Set once the operator resolves the persist gate. */
+  finalized?: RemoteWorkflowFinalized | null;
 }
 
 export interface RemoteAgent {
@@ -122,6 +149,12 @@ export interface WorkflowIntervenePayload {
   target_node?: string;
 }
 
+export interface WorkflowFinalizePayload {
+  decision: "persist" | "save_as_new" | "discard";
+  new_id?: string;
+  name?: string;
+}
+
 export type RemoteCommand =
   | "intent"
   | "approve"
@@ -130,7 +163,8 @@ export type RemoteCommand =
   | "mode"
   | "workflow.pause"
   | "workflow.resume"
-  | "workflow.intervene";
+  | "workflow.intervene"
+  | "workflow.finalize";
 
 export type ConnState = "connecting" | "open" | "closed";
 

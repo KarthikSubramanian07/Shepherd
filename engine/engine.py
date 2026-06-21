@@ -870,7 +870,6 @@ class ShepherdExecutionEngine:
         stays sacred — actuation goes through the same restricted exec helper."""
         from engine.workflow_executor import WorkflowExecutor, AgentSWorker
         from engine import workflow_control
-        from engine.workflow_store import WorkflowStore
 
         self._halt_flag.clear()
         self._agent_s.reset()
@@ -898,12 +897,11 @@ class ShepherdExecutionEngine:
         try:
             applied = workflow_control.bake(workflow, wf_run.interventions, run_id)
             if applied:
-                store = WorkflowStore()
-                workflow.version += 1
-                store.save(workflow)
+                decision = workflow_control.await_finalize(workflow, applied)
+                outcome = workflow_control.persist_baked(workflow, applied, decision)
                 event_bus.emit("workflow.baked", {
                     "workflow_id": workflow.id, "version": workflow.version,
-                    "ops": applied,
+                    "ops": applied, **outcome,
                 })
         except Exception as exc:  # noqa: BLE001
             print(f"[execute_workflow] bake failed (non-fatal): {exc}")

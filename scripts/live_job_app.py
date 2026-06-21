@@ -39,7 +39,6 @@ from engine.agent_s_adapter import AgentSAdapter
 from engine.workflow_executor import (
     WorkflowExecutor, WorkerResult, WorkerTurn, END,
 )
-from engine.workflow_store import WorkflowStore
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FORM_URL = "file://" + os.path.join(ROOT, "data", "live_job_app.html")
@@ -289,10 +288,8 @@ def run_traversal(workflow: Workflow, worker, params: dict, label: str) -> None:
     # teaching loop: bake any remembered steers into the workflow + persist
     applied = workflow_control.bake(workflow, run.interventions, run_id=f"live-{int(time.time())}")
     if applied:
-        store = WorkflowStore()
-        workflow.version += 1
-        store.save(workflow)
-        print(f"  ✎ BAKED {len(applied)} op(s) into workflow → v{workflow.version}: {applied}")
+        outcome = workflow_control.persist_baked(workflow, applied, {"decision": "persist"})
+        print(f"  ✎ BAKED {len(applied)} op(s) → {outcome['workflow_id']} v{outcome['version']}: {applied}")
     return run
 
 
