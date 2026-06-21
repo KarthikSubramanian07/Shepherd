@@ -1,16 +1,19 @@
 """
-Best-effort async title generation for fleet session summaries.
+Fleet session title generation.
 
-Generates a short human-readable label (e.g. "Applying to Acme SWE role") from
-the run's goal or first step description. Called at most ONCE per run; the result
-is cached on the AgentConn. Uses the existing engine/llm layer and never blocks
-event processing (runs in a thread executor). Falls back to a truncated goal
-string if the LLM call fails or is rate-limited.
+By default (TITLE_GEN_LLM=false), the title is simply the raw intent/goal text
+truncated to display length — instant, zero-cost, and rate-limit-proof. When
+TITLE_GEN_LLM is enabled, an LLM rewrites the goal into a short polished label
+(e.g. "Applying to Acme SWE role") via a fire-and-forget async task.
+
+Either way the title is generated at most ONCE per run, cached on AgentConn, and
+never blocks event processing.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -18,8 +21,13 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# Strong references to in-flight tasks so they aren't GC'd on Python 3.12+.
+_background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
+
+# Toggle: when false (default), title = raw intent text. When true, LLM rewrites it.
+TITLE_GEN_LLM = os.environ.get("TITLE_GEN_LLM", "").lower() in ("1", "true", "yes")
+
 _MAX_TITLE_LEN = 60
-_FALLBACK_TRUNC = 50
 
 _SYSTEM_PROMPT = (
     "You generate extremely short titles (5-8 words max) summarizing what a "
@@ -30,11 +38,11 @@ _SYSTEM_PROMPT = (
 
 
 def _truncate_goal(goal: str) -> str:
-    """Produce a fallback title by truncating the raw goal string."""
+    """Produce a title by truncating the raw goal/intent string."""
     goal = goal.strip()
-    if len(goal) <= _FALLBACK_TRUNC:
+    if len(goal) <= _MAX_TITLE_LEN:
         return goal
-    return goal[:_FALLBACK_TRUNC].rsplit(" ", 1)[0] + "…"
+    return goal[:_MAX_TITLE_LEN].rsplit(" ", 1)[0] + "…"
 
 
 def _generate_title_sync(goal: str) -> str:
@@ -61,10 +69,14 @@ def _generate_title_sync(goal: str) -> str:
 
 
 def generate_title_async(conn: "AgentConn", goal: str) -> None:
-    """Fire-and-forget title generation. Writes result to conn.title."""
+    """Set the run title on conn. Immediate if LLM is off, async otherwise."""
+    if not TITLE_GEN_LLM:
+        # Default path: use the raw intent/goal text directly (instant).
+        conn.title = _truncate_goal(goal)
+        return
+
+    # LLM path: fire-and-forget async rewrite.
     loop = asyncio.get_running_loop()
-    # Capture the current run_id so a late-finishing task from a prior run
-    # doesn't overwrite a newer run's (reset) title.
     snapshot_run_id = conn.run_id
 
     async def _run() -> None:
@@ -76,4 +88,6 @@ def generate_title_async(conn: "AgentConn", goal: str) -> None:
             if conn.run_id == snapshot_run_id:
                 conn.title = _truncate_goal(goal)
 
-    loop.create_task(_run())
+    task = loop.create_task(_run())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)

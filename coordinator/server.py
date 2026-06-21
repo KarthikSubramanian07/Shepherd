@@ -279,7 +279,8 @@ class Hub:
             conn.title = None
             conn._title_requested = False
             conn.recent_steps = []
-            conn._goal_text = None
+            # Only overwrite _goal_text if execution.start carries an explicit
+            # goal; otherwise preserve intent text from intent.received.
             if d.get("goal"):
                 conn._goal_text = d.get("goal")
             # Attempt title generation on execution start if we have goal text.
