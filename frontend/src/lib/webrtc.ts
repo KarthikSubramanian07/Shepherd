@@ -80,9 +80,10 @@ export function useWebRTC(
     }
   }, []);
 
-  // Reset when the watched agent changes.
+  // Reset when the watched agent changes or component unmounts.
   useEffect(() => {
     close();
+    return () => { close(); };
   }, [agentId, close]);
 
   const handleSignal = useCallback(

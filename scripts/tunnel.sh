@@ -34,7 +34,7 @@ echo ""
 cleanup() {
     # Kill the cloudflared pipeline (CF_PID is the tee, but killing it
     # breaks the pipe causing cloudflared to receive SIGPIPE).
-    [ -n "${CF_PID:-}" ] && kill "$CF_PID" 2>/dev/null
+    [ -n "${CF_PID:-}" ] && kill "$CF_PID" 2>/dev/null || true
     # Also kill any child cloudflared processes directly.
     pkill -P $$ 2>/dev/null || true
     rm -f "$URL_FILE"
