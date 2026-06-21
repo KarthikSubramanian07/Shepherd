@@ -734,8 +734,14 @@ class ShepherdExecutionEngine:
             apply_chain_span(span, input_text=goal, output_text=chain_out)
 
         ended_at = time.time()
+        # Trail = planned steps + what the agent actually SAW each turn. The
+        # observations carry the answer for a question-type goal (e.g. the weather
+        # value), so run_summary can report it instead of a bare "Completed.".
+        obs_trail = [f"read: {o}" for o in self._agent_s.observation_trail()]
         response = summarize_run(
-            goal, status, [s.description for s in executed], error=error or "")
+            goal, status,
+            [s.description for s in executed] + obs_trail,
+            error=error or "")
         result = ExecutionResult(
             routine_id=AUTONOMOUS_ROUTINE_ID,
             status=status,

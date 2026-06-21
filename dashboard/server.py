@@ -1133,6 +1133,26 @@ async def new_task(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "action": "new_task", "text": text})
 
 
+@app.post("/api/halt")
+async def halt_task() -> JSONResponse:
+    """Stop the current run — used by the overlay HUD's Stop button. Halts the
+    in-process engine (and the whole fleet if the orchestrator is running)."""
+    halted = False
+    if _engine_ref is not None:
+        try:
+            _engine_ref.request_halt()
+            halted = True
+        except Exception:
+            pass
+    if _orchestrator is not None:
+        try:
+            _orchestrator.halt_all()
+            halted = True
+        except Exception:
+            pass
+    return JSONResponse({"ok": halted})
+
+
 def start_dashboard() -> None:
     """Run the FastAPI backend. Used both as a daemon thread (in-process, from
     main.py) and as a standalone persistent server (python -m dashboard.server)."""

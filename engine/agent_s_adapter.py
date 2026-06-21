@@ -108,6 +108,10 @@ class AgentSAdapter:
         # Running memory of the chained planner so it knows what it already did
         # (each direct vision call is otherwise stateless → it repeats itself).
         self._chain_history: list[str] = []
+        # Per-turn screen observations ("what I see now") from the current run.
+        # This is the raw material run_summary uses to ANSWER a question-type goal
+        # (e.g. "how's the weather in SF") instead of just reporting "Completed.".
+        self.observations: list[str] = []
         self._grounding_agent = None
         self._geom = None
         try:
@@ -215,6 +219,7 @@ class AgentSAdapter:
     def reset_autonomous(self) -> None:
         """Reset the free-form goal state (long-trajectory agent + chain memory)."""
         self._chain_history = []
+        self.observations = []
         if self._autonomous_agent is None:
             return
         try:
@@ -433,6 +438,11 @@ class AgentSAdapter:
             # Surface what the model actually saw so the screenshot grounding is visible
             # in the logs (not just a forward narrative from history).
             self.last_reasoning = f"[sees] {observation}\n{reasoning}" if observation else reasoning
+            # Record the observation BEFORE the done/fail/wait early-returns so the
+            # final answer-bearing screen read (e.g. the weather value) is captured
+            # for run_summary to answer a question-type goal.
+            if observation:
+                self.observations.append(observation)
             status = (plan.get("status") or "continue").lower()
             actions = [_flatten_action(a) for a in (plan.get("actions") or [])
                        if isinstance(a, str) and a.strip()]
@@ -464,6 +474,11 @@ class AgentSAdapter:
         except Exception as e:
             print(f"[agent_s] chained planning step {step_index} failed (falling back): {e}")
             return None
+
+    def observation_trail(self) -> list[str]:
+        """Per-turn screen observations from the latest autonomous run — the raw
+        material run_summary uses to answer a QUESTION-type goal."""
+        return list(self.observations)
 
     def predict_autonomous(
         self, goal: str, step_index: int, memory_hint: str = "", plan_hint: str = "",
