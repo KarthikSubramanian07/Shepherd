@@ -95,10 +95,22 @@ AUTONOMOUS_ROUTINE_ID = "AUTONOMOUS"
 
 @dataclass
 class AutonomousStepResult:
-    """One Agent S turn in AUTONOMOUS mode."""
+    """One Agent S turn in AUTONOMOUS mode.
+
+    When the turn is part of a dispatched workflow, the same reply also carries the
+    single-message advance (design §0.2): `next` is the milestone the agent chose to
+    move to ("SAME" to stay, "END" to finish), `completed` lists the milestones it
+    fully finished THIS turn when it batched across several at once (so a workflow run
+    costs no more LLM calls than the same goal with no workflow), `branch` names the
+    conditional `when` it matched (if any), and `extracted` is any KB it learned for
+    later milestones. These are unused/None for a plain autonomous turn."""
     outcome: str  # "action" | "done" | "fail" | "wait" | "unavailable"
     code: Optional[str] = None
     raw: Optional[str] = None
+    next: Optional[str] = None         # workflow advance: target node key | "SAME" | "END"
+    branch: Optional[str] = None       # the conditional `when` the agent matched, if any
+    extracted: dict[str, str] = field(default_factory=dict)
+    completed: list[str] = field(default_factory=list)  # milestones finished in this batched turn
 
 
 @dataclass

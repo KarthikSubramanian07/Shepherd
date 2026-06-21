@@ -863,12 +863,12 @@ class ShepherdExecutionEngine:
         params: Optional[dict] = None,
         profile: Optional[dict] = None,
     ) -> ExecutionResult:
-        """Execute a dispatched Workflow by traversing its milestone graph rather
-        than replaying recorded clicks. Agent S grounds + actuates each milestone;
-        the executor's single-message advance picks the next node / conditional
-        branch from the previewed options (no extra round-trip). The click path
-        stays sacred — actuation goes through the same restricted exec helper."""
-        from engine.workflow_executor import WorkflowExecutor, AgentSWorker
+        """Execute a dispatched Workflow by running it **through the pre-existing
+        agentic loop** (design §0.1) — NOT a separate per-milestone executor. The
+        workflow supplies background intent (current milestone + next + conditionals);
+        Agent S plans a batch of UI actions and self-routes in the SAME reply
+        (single-message advance, §0.2). The click path stays sacred — actuation goes
+        through the same restricted exec helper. Tracing/teaching are side-channel."""
         from engine import workflow_control
 
         self._halt_flag.clear()
@@ -876,18 +876,13 @@ class ShepherdExecutionEngine:
         run_id = str(uuid.uuid4())[:8]
         started_at = time.time()
 
-        worker = AgentSWorker(self._agent_s, self._exec_agent_code)
-        executor = WorkflowExecutor(
-            worker, event_emit=event_bus.emit, gate=workflow_control.review,
-            telemetry=self._telemetry,
-        )
         # Parent span so Arize Phoenix traces THROUGH the workflow: each milestone's
         # workflow.node span nests under this workflow.execute span.
         with self._telemetry.span("workflow.execute") as _wspan:
             _wspan.set_attribute("workflow.id", workflow.id)
             _wspan.set_attribute("workflow.name", workflow.name or "")
             _wspan.set_attribute("workflow.goal", goal)
-            wf_run = executor.run(workflow, goal=goal, params=params, profile=profile)
+            wf_run = self._run_workflow_agentic(workflow, goal=goal, params=params, profile=profile)
             _wspan.set_attribute("workflow.status", wf_run.status)
             _wspan.set_attribute("workflow.steps", len(wf_run.path))
 
@@ -920,6 +915,383 @@ class ShepherdExecutionEngine:
             run_id=run_id,
         )
         return result
+
+    def _run_workflow_agentic(self, workflow, goal="", params=None, profile=None):
+        """Walk a dispatched workflow's milestone graph **through the batched agentic
+        loop** (design §0). For each milestone the agent is handed the milestone
+        instruction + the next milestone + the outgoing edges/conditionals as
+        background intent, then in ONE call plans a batch of UI actions AND returns
+        the milestone to advance to ("SAME" to stay) — no extra routing round-trip.
+
+        Reuses the workflow's data helpers (`options_for`, `WS`, `WorkerTurn`) and the
+        Control Hub gate / `InterventionEvent` so observability + teaching are
+        unchanged; emits the same `workflow.*` event stream the executor did so the
+        live trace graph and tests keep working. Returns a `WorkflowRun`."""
+        from engine.workflow_executor import (
+            WorkflowRun, WorkflowStepRecord, WorkerTurn, options_for, WorkflowExecutor,
+        )
+        from engine import workflow_store as WS
+        from engine import workflow_control
+
+        started = time.time()
+        kb: dict[str, str] = {**(params or {}), **(profile or {})}
+        path: list[WorkflowStepRecord] = []
+        interventions: list = []
+
+        start_key = workflow.start_key or WS.derive_start_key(workflow.nodes, workflow.edges)
+        cur = WS.node_by_key(workflow, start_key)
+        if cur is None:
+            return WorkflowRun(workflow.id, "aborted", path, kb, blocked_on="no start node",
+                               started_at=started, ended_at=time.time())
+
+        event_bus.emit("workflow.start", {
+            "workflow_id": workflow.id, "name": workflow.name,
+            "start": start_key, "goal": goal,
+        })
+
+        status = "completed"
+        blocked_on: Optional[str] = None
+        visits: dict[str, int] = {}
+        done_keys: set[str] = set()   # milestones already emitted as done (dedup replay)
+        MAX_NODES = 50
+        MAX_TURNS_PER_NODE = 15
+        global_turn = 0
+        seq = 0                      # monotonic step_no across milestones (incl. batched)
+        self._agent_s.reset_autonomous()
+
+        def _emit_passed(node) -> None:
+            """A milestone the agent completed *within another milestone's batch*
+            (single-message advance jumped over it). Re-emit its node.enter +
+            workflow.step(done) so the live graph + trace stay complete — pure
+            side-channel events, zero LLM calls."""
+            nonlocal seq
+            opts = options_for(workflow, node)
+            payload = [{"key": o.key, "label": o.label, "via": o.via, "when": o.when}
+                       for o in opts]
+            event_bus.emit("workflow.node.enter", {
+                "workflow_id": workflow.id, "step_no": seq,
+                "node_key": node.key, "label": node.label, "kind": node.kind,
+                "instruction": node.instruction or node.label, "missing": [],
+                "conditionals": [{"when": c.when, "do": c.do, "goto": c.goto}
+                                 for c in node.conditionals],
+                "options": payload,
+            })
+            path.append(WorkflowStepRecord(
+                step_no=seq, node_key=node.key, label=node.label, status="done",
+                did="(batched with the previous milestone)", branch=None,
+                chose_next="", extracted={},
+            ))
+            event_bus.emit("workflow.step", {
+                "workflow_id": workflow.id, "step_no": seq,
+                "node_key": node.key, "label": node.label, "kind": node.kind,
+                "status": "done", "did": "(batched with the previous milestone)",
+                "branch": None, "next": "", "extracted": [], "options": payload,
+            })
+            visits[node.key] = visits.get(node.key, 0) + 1
+            done_keys.add(node.key)
+            seq += 1
+
+        def _replay_batched(skip: str = "") -> None:
+            """Emit done events for the extra milestones the agent finished in this
+            batched turn (it reported them in `completed`), in order — except `skip`
+            (the node we're about to make the cursor) and any already recorded."""
+            for pk in result_completed:
+                if pk == cur.key or pk == skip or pk in done_keys:
+                    continue
+                node = WS.node_by_key(workflow, pk)
+                if node is not None:
+                    _emit_passed(node)
+
+        for _guard in range(MAX_NODES):
+            if self._halt_flag.is_set():
+                status, blocked_on = "aborted", "halt_requested"
+                break
+
+            step_no = seq
+            visits[cur.key] = visits.get(cur.key, 0) + 1
+            resolved = {k: kb[k] for k in cur.requires if k in kb}
+            missing = [k for k in cur.requires if k not in kb]
+            options = options_for(workflow, cur)
+            opt_payload = [{"key": o.key, "label": o.label, "via": o.via, "when": o.when}
+                           for o in options]
+            turn = WorkerTurn(goal=goal, step_no=step_no, node=cur,
+                              resolved=resolved, missing=missing,
+                              options=options, profile=dict(kb))
+
+            # Announce the milestone + its forward preview BEFORE acting so the
+            # Control Hub can highlight it and the human can pause / steer here.
+            event_bus.emit("workflow.node.enter", {
+                "workflow_id": workflow.id, "step_no": step_no,
+                "node_key": cur.key, "label": cur.label, "kind": cur.kind,
+                "instruction": turn.instruction, "missing": missing,
+                "conditionals": [{"when": c.when, "do": c.do, "goto": c.goto}
+                                 for c in cur.conditionals],
+                "options": opt_payload,
+            })
+
+            # ── human gate: steer / pause / teach from the Control Hub ─────────
+            iv = workflow_control.review(turn)
+            forced, iv_event = self._wf_apply_intervention(iv, turn, options, cur, step_no)
+            if iv_event is not None:
+                interventions.append(iv_event)
+                event_bus.emit("workflow.intervention", {
+                    "workflow_id": workflow.id, "step_no": step_no,
+                    "node_key": cur.key, "decision": iv_event.decision,
+                    "instruction": iv_event.instruction, "scenario": iv_event.scenario,
+                    "flag": iv_event.flag,
+                })
+
+            result_branch: Optional[str] = None
+            extracted: dict[str, str] = {}
+            result_completed: list[str] = []   # extra milestones the agent batched this turn
+
+            if forced is not None:
+                # Human fully steered this milestone (halt or forced branch) — no
+                # agent turn needed; apply the chosen action/route directly.
+                result_did = forced["did"]
+                result_status = forced["status"]
+                result_next = forced["next"]
+                result_branch = forced["branch"]
+                extracted = dict(forced["extracted"])
+                if extracted:
+                    kb.update(extracted)
+                if result_status == "blocked" and not blocked_on:
+                    blocked_on = "human halt"
+            else:
+                # ── batched agentic turns until the agent advances the milestone ──
+                # The agent gets the WHOLE remaining milestone chain as background
+                # intent and batches across as many as it can per screenshot, so a
+                # workflow run costs no more LLM calls than the same goal with no
+                # workflow (it then names the furthest milestone it reached in `next`).
+                instruction = turn.instruction
+                forward = self._wf_forward_chain(workflow, cur, options_for, WS)
+                if forward:
+                    # honour a human instruction override (Control Hub) — keep the
+                    # plan's CURRENT milestone text in sync with what the planner sees.
+                    forward[0]["instruction"] = instruction
+                did_parts: list[str] = []
+                result_status, result_next = "done", "SAME"
+                node_turns = 0
+                with self._telemetry.span("workflow.node") as nspan:
+                    nspan.set_attribute("workflow.node.key", cur.key)
+                    nspan.set_attribute("workflow.node.label", cur.label)
+                    nspan.set_attribute("workflow.node.kind", cur.kind)
+                    nspan.set_attribute("workflow.step_no", step_no)
+                    while True:
+                        if self._halt_flag.is_set():
+                            result_status, result_next = "blocked", "END"
+                            blocked_on = "halt_requested"
+                            break
+                        if global_turn >= AUTONOMOUS_MAX_STEPS:
+                            result_status, result_next = "blocked", "END"
+                            blocked_on = "turn budget exhausted"
+                            break
+                        if node_turns >= MAX_TURNS_PER_NODE:
+                            # Couldn't finish grounding this milestone — advance along
+                            # the default option rather than spin forever.
+                            result_next = options[0].key if options else "END"
+                            break
+
+                        plan = self._agent_s.plan_workflow_chain(
+                            goal=goal, step_no=step_no, instruction=instruction,
+                            forward=forward,
+                            options=[{"key": o.key, "label": o.label, "via": o.via,
+                                      "when": o.when, "do": o.do} for o in options],
+                            resolved=resolved, missing=missing,
+                        )
+                        global_turn += 1
+                        node_turns += 1
+                        if plan.branch:
+                            result_branch = plan.branch
+                        if plan.completed:
+                            result_completed.extend(plan.completed)
+                        if plan.extracted:
+                            extracted.update(plan.extracted)
+                            kb.update(plan.extracted)
+
+                        if plan.outcome == "action" and plan.code:
+                            try:
+                                self._exec_agent_code(plan.code)
+                            except Exception as exc:  # noqa: BLE001
+                                result_status, result_next = "blocked", "END"
+                                blocked_on = str(exc)
+                                print(f"[execute_workflow] node {cur.key} action failed: {exc}")
+                                break
+                            if self._agent_s.last_reasoning:
+                                did_parts.append(self._agent_s.last_reasoning)
+                            nxt = (plan.next or "SAME").strip()
+                            if nxt.upper() == "SAME":
+                                continue          # more turns on this milestone
+                            result_next = nxt
+                            break
+                        if plan.outcome == "done":
+                            result_next = plan.next or "END"
+                            break
+                        if plan.outcome == "fail":
+                            result_status, result_next = "blocked", "END"
+                            blocked_on = plan.raw or "agent reported failure"
+                            break
+                        if plan.outcome == "wait":
+                            nxt = (plan.next or "SAME").strip()
+                            if nxt.upper() != "SAME":
+                                result_next = nxt
+                                break
+                            continue
+                        # unavailable — no API key / planner error → cannot proceed
+                        result_status, result_next = "blocked", "END"
+                        blocked_on = "agent unavailable"
+                        break
+                    nspan.set_attribute("workflow.node.status", result_status)
+                    if result_branch:
+                        nspan.set_attribute("workflow.node.branch", result_branch)
+                result_did = " | ".join(did_parts) or "acted"
+
+            rec_status = "blocked" if result_status == "blocked" else "done"
+            rec = WorkflowStepRecord(
+                step_no=step_no, node_key=cur.key, label=cur.label,
+                status=rec_status, did=result_did, branch=result_branch,
+                chose_next=result_next, extracted=dict(extracted),
+            )
+            path.append(rec)
+            event_bus.emit("workflow.step", {
+                "workflow_id": workflow.id, "step_no": step_no,
+                "node_key": cur.key, "label": cur.label, "kind": cur.kind,
+                "status": rec_status, "did": result_did,
+                "branch": result_branch, "next": result_next,
+                "extracted": list(extracted.keys()),
+                "options": opt_payload,
+            })
+            done_keys.add(cur.key)
+            seq += 1
+
+            if rec_status == "blocked":
+                status = "blocked"
+                break
+
+            # ── advance: with single-message advance the agent both acts AND names
+            # where to go (`next`), reporting any extra milestones it finished in the
+            # same batch (`completed`). Replay those as done so the graph stays whole,
+            # then move the cursor — zero extra LLM calls.
+            nxt = (result_next or "END").strip()
+            if nxt.upper() == "END" or not options:
+                _replay_batched()
+                break
+            chosen = WorkflowExecutor._resolve_next(nxt, options)
+            if chosen is None:
+                # Not a previewed option, but allow routing to any REAL milestone
+                # (a taught/forced branch may target a node that isn't yet an edge).
+                # A truly unknown ref falls back to the common path so the run never
+                # strands on a fuzzy answer.
+                chosen = nxt if WS.node_by_key(workflow, nxt) is not None else options[0].key
+            _replay_batched(skip=chosen)
+            if visits.get(chosen, 0) >= 3:
+                status, blocked_on = "aborted", f"loop at {chosen}"
+                break
+            cur = WS.node_by_key(workflow, chosen)
+            if cur is None:
+                break
+        else:
+            status, blocked_on = "aborted", "max steps exceeded"
+
+        event_bus.emit("workflow.done", {
+            "workflow_id": workflow.id, "status": status,
+            "steps": len(path), "blocked_on": blocked_on,
+            "taught": sum(1 for iv in interventions if iv.flag == "save_as_rule"),
+        })
+        return WorkflowRun(workflow.id, status, path, kb, blocked_on,
+                           interventions=interventions,
+                           started_at=started, ended_at=time.time())
+
+    def _wf_apply_intervention(self, iv, turn, options, node, step_no):
+        """Turn a human Intervention from the Control Hub into
+        (forced_result|None, InterventionEvent|None) for the agentic workflow loop.
+
+        Mirrors the executor's gate semantics: a `halt` or a forced-branch fully
+        steers the milestone (returns a result dict, no agent turn); a pure
+        instruction injection just layers the human's text onto the milestone and
+        lets the agent act (returns None). The InterventionEvent carries the teaching
+        flag so a `remember` directive is baked into the workflow after the run."""
+        if iv is None:
+            return None, None
+        from shepherd_types import InterventionEvent
+        from engine.workflow_executor import WorkflowExecutor
+
+        flag = "save_as_rule" if iv.remember else "one_off"
+        scenario = iv.scenario or (turn.missing and f"missing {turn.missing}") or node.label
+        ev = InterventionEvent(
+            step_index=step_no, trigger="human", decision=iv.decision,
+            instruction=iv.instruction, flag=flag, node_key=node.key,
+            scenario=scenario, ts=time.time(),
+        )
+
+        if iv.decision == "halt":
+            return ({"did": "[human] halted", "status": "blocked", "next": "END",
+                     "branch": None, "extracted": {}}, ev)
+
+        if not iv.next:
+            # Pure instruction injection: augment the milestone, agent still acts.
+            if iv.instruction:
+                turn.override_instruction = (
+                    f"{turn.node.instruction or turn.node.label}\n"
+                    f"[human] {iv.instruction}"
+                )
+            return None, ev
+
+        # Forced branch — the human triggers a specific next milestone in one message.
+        chosen = WorkflowExecutor._resolve_next(iv.next, options) or iv.next
+        ev.goto = chosen
+        return ({"did": f"[human] {iv.instruction or 'steered to ' + chosen}",
+                 "status": "done", "next": chosen, "branch": scenario,
+                 "extracted": dict(iv.extracted)}, ev)
+
+    @staticmethod
+    def _wf_node_dict(node) -> dict:
+        """A milestone rendered for the planner's background-intent plan."""
+        return {
+            "key": node.key, "label": node.label,
+            "instruction": node.instruction or node.label,
+            "conditionals": [{"when": c.when, "do": c.do, "goto": c.goto}
+                             for c in node.conditionals],
+        }
+
+    @staticmethod
+    def _wf_default_path(workflow, node, options_for, WS, depth: int = 12) -> list[str]:
+        """The linear chain of milestone keys reachable from `node` by following the
+        single unconditional (default) edge at each step — the fast/common path the
+        agent batches across in one turn. Stops AT (and includes) the first decision
+        node (one carrying taught conditionals) so a branch gets evaluated with that
+        node as the cursor; also stops at a fork (>1 plain edge), a cycle, or `depth`.
+        Excludes `node` itself."""
+        keys: list[str] = []
+        seen = {node.key}
+        cur = node
+        if cur.conditionals:        # cur is itself a decision point — don't batch past it
+            return keys
+        while len(keys) < depth:
+            plain = [o for o in options_for(workflow, cur) if o.via == "edge"]
+            if len(plain) != 1:
+                break
+            nxt = WS.node_by_key(workflow, plain[0].key)
+            if nxt is None or nxt.key in seen:
+                break
+            keys.append(nxt.key)
+            seen.add(nxt.key)
+            if nxt.conditionals:    # include the decision node, then stop
+                break
+            cur = nxt
+        return keys
+
+    def _wf_forward_chain(self, workflow, node, options_for, WS, depth: int = 12) -> list[dict]:
+        """`node` + its default-path successors (up to the next decision point) as the
+        remaining milestone plan the agent batches across (design §0.2). Conditional
+        successors are NOT walked into — they ride along as guards on each node so the
+        agent can divert if a `when` fires, but the linear plan stays the fast path."""
+        chain = [self._wf_node_dict(node)]
+        for k in self._wf_default_path(workflow, node, options_for, WS, depth):
+            nxt = WS.node_by_key(workflow, k)
+            if nxt is not None:
+                chain.append(self._wf_node_dict(nxt))
+        return chain
 
     # ── step dispatcher — SYNCHRONOUS, no async, no network ─────────────────
 

@@ -430,6 +430,206 @@ class AgentSAdapter:
             print(f"[agent_s] predict_autonomous step {step_index} failed: {e}")
             return AutonomousStepResult(outcome="unavailable")
 
+    def plan_workflow_chain(
+        self,
+        goal: str,
+        step_no: int,
+        instruction: str,
+        forward: Optional[list[dict]] = None,
+        options: Optional[list[dict]] = None,
+        resolved: Optional[dict[str, str]] = None,
+        missing: Optional[list[str]] = None,
+    ) -> AutonomousStepResult:
+        """One turn of a **dispatched workflow**, run through the same batched agentic
+        loop a plain goal uses (design §0.1) — NOT a separate per-milestone grounding.
+
+        The workflow is handed in as *background intent*: the remaining milestone
+        chain (`forward`) plus the current node's outgoing edges / taught conditionals
+        as NL clauses. So the agent can fill a whole simple form in one turn exactly
+        like the workflow-less run — it batches across as MANY milestones as it safely
+        can per screenshot, then names the FIRST milestone it has not yet completed in
+        `next` (or "END"). In that SAME reply it also returns `branch` (a conditional
+        `when` it matched) and any `extracted` KB — so a workflow run costs no more LLM
+        calls than the same goal with no workflow (design §0.2). Returns an
+        AutonomousStepResult carrying code + next/branch/extracted, or
+        outcome="unavailable" when no API key (caller decides fallback)."""
+        forward = forward or []
+        options = options or []
+        resolved = resolved or {}
+        missing = missing or []
+        try:
+            import base64
+            import json
+            from anthropic import Anthropic
+            from config import AGENT_S_MODEL, ANTHROPIC_API_KEY, AUTONOMOUS_CHAIN_MAX
+
+            if not ANTHROPIC_API_KEY:
+                return AutonomousStepResult(outcome="unavailable")
+
+            if self._chain_history:
+                history = (
+                    "Actions you have ALREADY performed in previous turns (do NOT "
+                    "repeat them — they are done):\n"
+                    + "\n".join(f"  turn {n}: {h}" for n, h in enumerate(self._chain_history))
+                    + "\n\n"
+                )
+            else:
+                history = "This is your first turn; nothing has been done yet.\n\n"
+
+            # Remaining milestone chain as the background plan: the agent does as many
+            # as it can THIS turn (like pursuing the goal directly), then reports the
+            # first one it has NOT finished in `next`. Each milestone lists its own
+            # taught conditionals so a guard mid-chain can still divert the route.
+            plan_lines = []
+            for i, m in enumerate(forward):
+                key = m.get("key", "")
+                mins = m.get("instruction") or m.get("label") or key
+                marker = "→ CURRENT" if i == 0 else ""
+                plan_lines.append(f'  {i + 1}. {mins}  [key: "{key}"] {marker}'.rstrip())
+                for c in (m.get("conditionals") or []):
+                    when, do, goto = c.get("when"), c.get("do"), c.get("goto")
+                    do_txt = f" (do: {do})" if do else ""
+                    plan_lines.append(f'        · when {when} → goto "{goto}"{do_txt}')
+            plan_block = (
+                "Remaining workflow plan (high-level milestones, in order). Do as many "
+                "as you safely can THIS turn — treat it like pursuing the goal directly, "
+                "not one rigid step at a time:\n" + "\n".join(plan_lines) + "\n\n"
+                if plan_lines else
+                'This is the last milestone — return `next`: "END" when done.\n\n'
+            )
+
+            # Immediate outgoing edges of the current node (for branch routing).
+            opt_lines = []
+            for o in options:
+                key = o.get("key", "")
+                label = o.get("label", "") or key
+                when = o.get("when")
+                do = o.get("do")
+                if when:
+                    do_txt = f" (do: {do})" if do else ""
+                    opt_lines.append(f'  - when {when} → next "{key}" — {label}{do_txt}')
+                else:
+                    opt_lines.append(f'  - (default) → next "{key}" — {label}')
+            options_block = (
+                "Conditional/branch edges out of the CURRENT milestone — evaluate each "
+                "`when` against what you SEE; if one is true, set `next` to its target "
+                "and put the guard text in `branch`:\n" + "\n".join(opt_lines) + "\n\n"
+                if opt_lines else ""
+            )
+
+            resolved_block = (
+                "Inputs available to you: "
+                + ", ".join(f"{k}={v}" for k, v in resolved.items()) + "\n"
+                if resolved else ""
+            )
+            missing_block = (
+                f"Inputs you could NOT fill from memory (you may need to find them): "
+                f"{missing}\n" if missing else ""
+            )
+
+            # The current milestone instruction, surfaced explicitly so a human
+            # instruction override (Control Hub) is never silently dropped — it may
+            # differ from forward[0]'s default text when steered.
+            current_block = (
+                f"Your CURRENT milestone right now:\n  {instruction}\n\n"
+                if instruction else ""
+            )
+
+            b64 = base64.standard_b64encode(self._capture()).decode()
+            prompt = (
+                "You are an autonomous desktop agent executing a saved WORKFLOW on "
+                f"macOS. Overall goal:\n  {goal}\n\n"
+                f"{resolved_block}{missing_block}\n"
+                f"{current_block}"
+                f"{plan_block}"
+                f"{options_block}"
+                f"{history}"
+                f"The screenshot is {SCREEN_WIDTH}x{SCREEN_HEIGHT}px (use absolute "
+                "pixel coordinates from it). Chain as many UI actions across as many of "
+                "the milestones above as you safely can in one go — a simple form should "
+                "be filled and submitted in a single turn — THEN report where you are.\n\n"
+                "Rules:\n"
+                f"- Emit up to {AUTONOMOUS_CHAIN_MAX} actions. Chain actions that DON'T "
+                "depend on a screen change you can't predict (typing, Tab between "
+                "fields, hotkeys, pressing Enter, short waits).\n"
+                "- STOP the batch before any action whose target only appears after a "
+                "previous action — you'll get a fresh screenshot next turn.\n"
+                "- Prefer the keyboard (hotkeys, Tab, typing, the address bar) over "
+                "clicking; it's far more reliable than pixel coordinates.\n"
+                "- IGNORE any code editor, terminal, or console window in the screenshot "
+                "— that is NOT part of your task.\n"
+                "- ROUTING: set `next` to the key of the FIRST milestone above you have "
+                'NOT yet completed this turn; "END" if you finished them all; "SAME" if '
+                "you could not even finish the CURRENT one and need another screenshot. "
+                "If a conditional `when` is true, set `next` to its goto target and put "
+                "the guard text in `branch`.\n"
+                "- In `completed` list the keys of EVERY milestone you fully finished "
+                "this turn, in order (so a batched form fill records each milestone it "
+                "covered). Leave it empty if you only worked the current one.\n"
+                "- If you learned a value later milestones need (e.g. a projects "
+                'summary), return it under "extracted" as {name: value}.\n\n'
+                'Return ONLY JSON: {"reasoning": "...", "status": "continue|done|fail", '
+                '"actions": ["<python line>", ...], "next": "<node key|SAME|END>", '
+                '"completed": ["<node key>", ...], "branch": "<guard text or null>", '
+                '"extracted": {}}\n'
+                'Use status "done" only when the WHOLE workflow goal is achieved, '
+                '"fail" if it cannot be done.'
+            )
+
+            client = Anthropic(api_key=ANTHROPIC_API_KEY)
+            msg = client.messages.create(
+                model=AGENT_S_MODEL,
+                max_tokens=1024,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "source": {
+                            "type": "base64", "media_type": "image/png", "data": b64,
+                        }},
+                        {"type": "text", "text": prompt},
+                    ],
+                }],
+            )
+
+            raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+            start, end = raw.find("{"), raw.rfind("}")
+            if start == -1 or end == -1 or end < start:
+                return AutonomousStepResult(outcome="unavailable")
+            plan = json.loads(raw[start:end + 1])
+
+            self.last_reasoning = (plan.get("reasoning") or "").strip()
+            status = (plan.get("status") or "continue").lower()
+            actions = [a for a in (plan.get("actions") or []) if isinstance(a, str) and a.strip()]
+            nxt = (plan.get("next") or "SAME").strip()
+            branch = plan.get("branch") or None
+            extracted = {k: str(v) for k, v in (plan.get("extracted") or {}).items()
+                         if isinstance(k, str)}
+            completed = [str(k) for k in (plan.get("completed") or []) if isinstance(k, str)]
+
+            if actions:
+                summary = self.last_reasoning or "; ".join(actions)
+                self._chain_history.append(summary[:200])
+                print(f"[agent_s] workflow step {step_no}: chained {len(actions)} "
+                      f"actions, completed={completed}, next={nxt}")
+                code = "\n".join(actions)
+                return AutonomousStepResult(outcome="action", code=code, raw=code,
+                                            next=nxt, branch=branch, extracted=extracted,
+                                            completed=completed)
+
+            if status == "fail":
+                return AutonomousStepResult(outcome="fail", raw=plan.get("reasoning") or "FAIL",
+                                            next="END", branch=branch, extracted=extracted,
+                                            completed=completed)
+            # No actions this turn (milestone already satisfied) → just route.
+            outcome = "done" if status == "done" else "wait"
+            return AutonomousStepResult(outcome=outcome, raw=self.last_reasoning or None,
+                                        next=nxt, branch=branch, extracted=extracted,
+                                        completed=completed)
+
+        except Exception as e:
+            print(f"[agent_s] workflow planning step {step_no} failed: {e}")
+            return AutonomousStepResult(outcome="unavailable")
+
     def plan_batch_action(
         self,
         fields: list,
