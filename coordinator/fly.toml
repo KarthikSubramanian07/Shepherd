@@ -1,0 +1,55 @@
+# OPTIONAL: Fly.io deployment for the Shepherd Coordinator relay.
+#
+# This is ONE paid option among many (Railway, Render, any VPS). See DEMO.md for
+# the full provider-agnostic guide. Tailscale (free, private mesh) is recommended
+# for most users who don't need public internet exposure.
+#
+# Deploy:
+#   cd coordinator/
+#   fly launch --copy-config --no-deploy   # first time: creates the app
+#   fly secrets set COORDINATOR_TOKEN=<your-secret>
+#   fly deploy --dockerfile Dockerfile --build-arg .. --remote-only
+#
+# Or from repo root:
+#   fly deploy -c coordinator/fly.toml --dockerfile coordinator/Dockerfile --remote-only
+#
+# The coordinator is stateless — a single shared-cpu-1x machine (256 MB) is
+# sufficient for moderate fleet sizes. Scale up if you have many agents streaming
+# frames simultaneously.
+
+app = "shepherd-coordinator"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+  # Build context is the repo root (so COPY config.py / compat.py / coordinator/ work).
+  # When deploying from coordinator/, pass `--build-arg ..` or use the repo-root command above.
+
+[env]
+  COORDINATOR_PORT = "8770"
+  RELAY_FPS = "3.0"
+  RELAY_FRAME_WIDTH = "1024"
+  RELAY_FRAME_QUALITY = "55"
+
+[http_service]
+  internal_port = 8770
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 250
+    soft_limit = 200
+
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "15s"
+  method = "GET"
+  path = "/api/health"
+  timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

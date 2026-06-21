@@ -32,6 +32,7 @@ from config import (
     AGENT_PAIRING_CODE,
     COORDINATOR_TOKEN,
     COORDINATOR_URL,
+    PROTOCOL_VERSION,
     RELAY_FPS,
     RELAY_FRAME_QUALITY,
     RELAY_FRAME_WIDTH,
@@ -108,7 +109,8 @@ class RelayClient:
         async with websockets.connect(url, max_size=None, ping_interval=20) as ws:
             print(f"[relay] connected to coordinator as '{AGENT_ID}'")
             await ws.send(_json({"type": "hello", "name": AGENT_NAME,
-                                 "host": AGENT_HOST, "mode": self._engine._mode}))
+                                 "host": AGENT_HOST, "mode": self._engine._mode,
+                                 "protocol_version": PROTOCOL_VERSION}))
             await asyncio.gather(
                 self._pump_events(ws),
                 self._pump_frames(ws),
