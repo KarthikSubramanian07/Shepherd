@@ -40,10 +40,19 @@ class Settings(BaseSettings):
     # ── External service keys ──────────────────────────────────────────────
     browserbase_api_key: str = ""
     deepgram_api_key: str = ""
-    band_api_key: str = ""
-    band_room_key: str = ""
     orkes_server_url: str = ""
     orkes_api_key: str = ""
+
+    # ── Band (band.ai / Thenvoi agentic mesh) — multi-agent oversight ───────
+    # Two agents collaborate over a Band room: the engine peer posts a flagged
+    # high-stakes action, the independent verifier peer replies with a verdict.
+    # Free Agent API tier. Register both agents at app.band.ai/agents.
+    band_enabled: bool = False
+    band_room_id: str = ""              # the Band oversight room id
+    band_engine_api_key: str = ""       # the shepherd-monitor (engine) agent's Band API key
+    band_verifier_agent_id: str = ""    # the shepherd-verifier agent's UUID (for @mention)
+    band_verifier_handle: str = "shepherd-verifier"
+    band_api_base: str = "https://app.band.ai/api/v1/agent"
 
     # ── Deepgram STT tuning ────────────────────────────────────────────────
     deepgram_model: str = "nova-2"
@@ -155,7 +164,8 @@ class Settings(BaseSettings):
             "sentry":      bool(self.sentry_dsn),
             "redis":       True,
             "browserbase": bool(self.browserbase_api_key),
-            "band":        bool(self.band_api_key and self.band_room_key),
+            "band":        bool(self.band_enabled and self.band_room_id
+                                 and self.band_engine_api_key and self.band_verifier_agent_id),
             "orkes":       bool(self.orkes_server_url and self.orkes_api_key),
             "agentspan":   bool(self.agentspan_enabled and self.anthropic_api_key),
             "agent_s":     True,
@@ -176,8 +186,12 @@ BROWSERBASE_API_KEY        = settings.browserbase_api_key
 DEEPGRAM_API_KEY           = settings.deepgram_api_key
 DEEPGRAM_MODEL             = settings.deepgram_model
 DEEPGRAM_LANGUAGE          = settings.deepgram_language
-BAND_API_KEY               = settings.band_api_key
-BAND_ROOM_KEY              = settings.band_room_key
+BAND_ENABLED               = settings.band_enabled
+BAND_ROOM_ID               = settings.band_room_id
+BAND_ENGINE_API_KEY        = settings.band_engine_api_key
+BAND_VERIFIER_AGENT_ID     = settings.band_verifier_agent_id
+BAND_VERIFIER_HANDLE       = settings.band_verifier_handle
+BAND_API_BASE              = settings.band_api_base
 ORKES_SERVER_URL           = settings.orkes_server_url
 ORKES_API_KEY              = settings.orkes_api_key
 AGENTSPAN_SERVER_URL       = settings.agentspan_server_url
