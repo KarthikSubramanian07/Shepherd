@@ -216,22 +216,30 @@ def _agent_ws_base() -> str:
     return url
 
 
+_cdp_pw = None    # cached Playwright server handle (prevents subprocess leak)
 _cdp_page = None  # cached Playwright CDP page for frame capture fallback
 
 
 def _get_cdp_page():
     """Lazily connect to Chrome via CDP and cache the page reference."""
-    global _cdp_page
+    global _cdp_pw, _cdp_page
     if _cdp_page is not None:
         try:
             _cdp_page.url  # verify connection is still alive
             return _cdp_page
         except Exception:
             _cdp_page = None
+    # Stop previous Playwright server if it exists (prevents subprocess leak).
+    if _cdp_pw is not None:
+        try:
+            _cdp_pw.stop()
+        except Exception:
+            pass
+        _cdp_pw = None
     try:
         from playwright.sync_api import sync_playwright
-        pw = sync_playwright().start()
-        browser = pw.chromium.connect_over_cdp("http://localhost:29229")
+        _cdp_pw = sync_playwright().start()
+        browser = _cdp_pw.chromium.connect_over_cdp("http://localhost:29229")
         ctx = browser.contexts[0] if browser.contexts else None
         _cdp_page = ctx.pages[0] if ctx and ctx.pages else None
         return _cdp_page
@@ -245,7 +253,10 @@ def _capture_frame() -> Optional[str]:
     Tries pyautogui first (full desktop), falls back to Playwright CDP screenshot
     (browser viewport only) if pyautogui fails (e.g. no DISPLAY auth on headless VMs).
     """
-    from PIL import Image
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
 
     img = None
     # Primary: pyautogui full-screen capture.
@@ -261,7 +272,12 @@ def _capture_frame() -> Optional[str]:
             page = _get_cdp_page()
             if page:
                 raw = page.screenshot(type="jpeg", quality=RELAY_FRAME_QUALITY)
+                # Skip PIL decode if no resize needed — avoids double JPEG encoding.
+                if not RELAY_FRAME_WIDTH:
+                    return base64.b64encode(raw).decode("ascii")
                 img = Image.open(io.BytesIO(raw))
+                if img.width <= RELAY_FRAME_WIDTH:
+                    return base64.b64encode(raw).decode("ascii")
         except Exception:
             pass
 

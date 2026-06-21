@@ -211,92 +211,25 @@ def main() -> None:
             print(f"[operate] Workflow execution error: {e}")
 
     # Keep alive: stream screen + handle remote intents until Ctrl-C.
+    # NOTE: operate.py is a lightweight launcher for quick demos. For
+    # full intent dispatch (router → workflows/routines/autonomous), run
+    # `main.py --listen` instead — it uses the same relay_client sidecar
+    # for video streaming but routes intents through the full engine.
     print(f"\n[operate] Agent is live on the coordinator (code={AGENT_PAIRING_CODE}).")
     print("[operate] The operator can now connect to the Command Center and drive this machine.")
+    print("[operate] For full intent dispatch, use: python main.py --listen")
     print("[operate] Press Ctrl-C to disconnect.\n")
     try:
         while True:
-            # Check for remote intents from the Command Center.
             try:
                 intent = remote_intents.get(timeout=1.0)
                 print(f"[operate] Remote intent received: {intent}")
                 from dashboard.events import event_bus
                 event_bus.emit("remote.intent.received", {"text": intent})
-                _dispatch_intent(intent, page)
             except queue.Empty:
                 pass
     except KeyboardInterrupt:
         print("\n[operate] Shutting down.")
-
-
-def _dispatch_intent(intent: str, page) -> None:
-    """Route an incoming remote intent to the appropriate action.
-
-    Supports:
-      - URL navigation: "Navigate to <url>" or "Go to <url>" or bare URL
-      - Browser actions via the full Shepherd engine (if available)
-      - Falls back to Playwright page.goto for simple navigation intents
-    """
-    import re
-    from dashboard.events import event_bus
-
-    text = intent.strip()
-
-    # Try the full engine dispatch (router → workflow/routine/autonomous).
-    try:
-        from router.intent_router import ShepherdIntentRouter
-        from shepherd_types import Intent
-        router = ShepherdIntentRouter()
-        plan = router.resolve_plan(Intent(raw_text=text, timestamp=time.time()))
-        if plan.kind in ("WORKFLOW", "ROUTINE"):
-            event_bus.emit("intent.dispatched", {"text": text, "plan": plan.kind, "target": plan.target})
-            print(f"[operate] Dispatching via engine: {plan.kind} → {plan.target}")
-            # Full engine execution requires the ShepherdExecutionEngine — if it's
-            # importable and Agent S is configured, run the full path.
-            try:
-                from engine.engine import ShepherdExecutionEngine
-                from telemetry.core import ShepherdTelemetry
-                engine = ShepherdExecutionEngine(coords={}, telemetry=ShepherdTelemetry(), mode="LIVE")
-                if plan.kind == "WORKFLOW":
-                    from engine.workflow_store import WorkflowStore
-                    wf = WorkflowStore().get(plan.target)
-                    if wf:
-                        result = engine.execute_workflow(wf, goal=text, params=plan.params)
-                        print(f"[operate] Workflow done: {result.status}")
-                        event_bus.emit("workflow.done", {"status": result.status})
-                        return
-            except Exception as e:
-                print(f"[operate] Full engine dispatch failed ({e}), trying direct navigation...")
-    except Exception:
-        pass
-
-    # Direct navigation: extract URL from the intent text.
-    url_match = re.search(r'https?://[^\s"\'<>]+', text)
-    if not url_match:
-        # Try common phrasing: "navigate to example.com" or "go to example.com"
-        nav_match = re.match(r'(?:navigate|go|open|visit|browse)\s+(?:to\s+)?(.+)', text, re.IGNORECASE)
-        if nav_match:
-            target = nav_match.group(1).strip().strip('"\'')
-            if not target.startswith(("http://", "https://")):
-                target = "https://" + target
-            url_match = re.search(r'https?://[^\s"\'<>]+', target)
-
-    if url_match and page:
-        url = url_match.group(0)
-        try:
-            print(f"[operate] Navigating to: {url}")
-            page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            event_bus.emit("intent.executed", {"text": text, "action": "navigate", "url": url})
-            print(f"[operate] Navigation complete: {page.title()}")
-        except Exception as e:
-            print(f"[operate] Navigation failed: {e}")
-            event_bus.emit("intent.failed", {"text": text, "error": str(e)})
-    elif not page:
-        print(f"[operate] No browser page available to execute intent: {text}")
-        event_bus.emit("intent.failed", {"text": text, "error": "no_page"})
-    else:
-        print(f"[operate] Unrecognized intent (no URL or action found): {text}")
-        event_bus.emit("intent.unmatched", {"text": text})
 
 
 def _build_worker(page):
