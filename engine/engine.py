@@ -2241,10 +2241,6 @@ class ShepherdExecutionEngine:
                 if tabs:
                     ws_url = tabs[0].get("webSocketDebuggerUrl")
                     if ws_url:
-                        # Use the devtools URL to run JS via the /json/evaluate endpoint
-                        tab_id = tabs[0]["id"]
-                        eval_url = f"http://localhost:9222/json/evaluate?{tab_id}"
-                        # Simpler: use the REST endpoint directly
                         pass
                 # Fallback: use xdotool to run JS via address bar
                 activate_app("Google Chrome")
