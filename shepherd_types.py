@@ -104,7 +104,7 @@ class AutonomousStepResult:
     costs no more LLM calls than the same goal with no workflow), `branch` names the
     conditional `when` it matched (if any), and `extracted` is any KB it learned for
     later milestones. These are unused/None for a plain autonomous turn."""
-    outcome: str  # "action" | "done" | "fail" | "wait" | "unavailable"
+    outcome: str  # "action" | "done" | "fail" | "wait" | "help" | "unavailable"
     code: Optional[str] = None
     raw: Optional[str] = None
     next: Optional[str] = None         # workflow advance: target node key | "SAME" | "END"

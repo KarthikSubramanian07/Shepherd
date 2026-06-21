@@ -44,6 +44,8 @@ export interface RemoteBlock {
   nodeKey?: string | null;
   label?: string | null;
   options?: RemoteOption[];
+  /** Set when the agent proactively requested help (reason = "agent_requested_help"). */
+  helpMessage?: string | null;
 }
 
 export interface RemoteWorkflowConditional {

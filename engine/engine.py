@@ -602,6 +602,35 @@ class ShepherdExecutionEngine:
                         })
                         break
 
+                    if result.outcome == "help":
+                        help_msg = result.raw or "Agent needs human assistance"
+                        dur_ms = int((time.time() - step_t0) * 1000)
+                        self.last_step_records.append(StepRecord(
+                            index=i, action="agent_s", target=None,
+                            status="blocked", started_at=step_t0, duration_ms=dur_ms,
+                            error=help_msg,
+                        ))
+                        event_bus.emit("step.help_requested", {
+                            "run_id": run_id, "index": i, "help_message": help_msg,
+                        })
+                        self._suspended_task = SuspendedTask(
+                            run_id=run_id, task_key=task_key, goal=goal,
+                            plan_hint=plan_hint, memory_hint=memory_hint,
+                            step_index=i, variables=variables,
+                            executed=list(executed),
+                            chain_history=list(self._agent_s._chain_history),
+                            interventions=list(self._interventions),
+                            graph=graph, halted_at=time.time(),
+                            steps_done=steps_done,
+                        )
+                        status = "suspended"
+                        event_bus.emit("execution.suspended", {
+                            "run_id": run_id, "step_index": i,
+                            "goal": goal, "reason": "agent_requested_help",
+                            "help_message": help_msg,
+                        })
+                        break
+
                     if result.outcome == "wait":
                         dur_ms = int((time.time() - step_t0) * 1000)
                         self.last_step_records.append(StepRecord(
@@ -1589,6 +1618,14 @@ class ShepherdExecutionEngine:
                         if plan.outcome == "fail":
                             result_status, result_next = "blocked", "END"
                             blocked_on = plan.raw or "agent reported failure"
+                            break
+                        if plan.outcome == "help":
+                            result_status, result_next = "blocked", "SAME"
+                            blocked_on = plan.raw or "agent needs human assistance"
+                            event_bus.emit("step.help_requested", {
+                                "node_key": cur.key,
+                                "help_message": plan.raw or "agent needs help",
+                            })
                             break
                         if plan.outcome == "wait":
                             nxt = (plan.next or "SAME").strip()

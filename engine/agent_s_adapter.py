@@ -46,7 +46,7 @@ from engine.agent_s_grounding import (
     screen_geometry,
 )
 
-_TERMINAL_TOKENS = {"DONE", "FAIL", "FAILED", "WAIT"}
+_TERMINAL_TOKENS = {"DONE", "FAIL", "FAILED", "WAIT", "HELP"}
 
 
 def _flatten_action(action: str) -> str:
@@ -93,6 +93,8 @@ def _terminal_outcome(code: str) -> Optional[str]:
         return "fail"
     if upper == "WAIT":
         return "wait"
+    if upper == "HELP":
+        return "help"
     if _is_actionable(code):
         return "action"
     return "unavailable"
@@ -405,11 +407,19 @@ class AgentSAdapter:
                 "type_text('Hello there'); "
                 "pyautogui.press('enter'); time.sleep(1); pyautogui.click(840, 220)).\n\n"
                 'Return ONLY JSON: {"observation": "what I actually see on screen now", '
-                '"reasoning": "...", "status": "continue|done|fail", '
+                '"reasoning": "...", "status": "continue|done|fail|help", '
                 '"actions": ["<python line>", ...]}\n'
                 'Use status "done" ONLY when the on-screen result matches the goal\'s '
                 'specifics; "fail" if it cannot be done. When unsure whether the content '
-                'truly matches, keep going ("continue") rather than declaring done.'
+                'truly matches, keep going ("continue") rather than declaring done.\n'
+                'Use status "help" when you are BLOCKED and need human assistance — '
+                "e.g. you see a CAPTCHA, a login/2FA wall you can't bypass, a field "
+                "that requires information you don't have (credentials, account numbers, "
+                "personal details), or you genuinely don't know what value to enter. "
+                'Put a clear explanation in "reasoning" of WHAT you need and WHY you '
+                "are stuck, so the operator knows exactly how to help. Do NOT use "
+                '"help" for recoverable issues — try alternative approaches first '
+                '(different navigation, keyboard shortcuts, etc.).'
             )
 
             client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -451,6 +461,8 @@ class AgentSAdapter:
                 return AutonomousStepResult(outcome="done", raw="DONE")
             if status == "fail":
                 return AutonomousStepResult(outcome="fail", raw=plan.get("reasoning") or "FAIL")
+            if status == "help":
+                return AutonomousStepResult(outcome="help", raw=plan.get("reasoning") or "HELP")
             if not actions:
                 # continue but nothing to do → treat as a wait so the loop re-observes
                 return AutonomousStepResult(outcome="wait", raw="WAIT")
@@ -669,14 +681,18 @@ class AgentSAdapter:
                 "covered). Leave it empty if you only worked the current one.\n"
                 "- If you learned a value later milestones need (e.g. a projects "
                 'summary), return it under "extracted" as {name: value}.\n\n'
-                'Return ONLY JSON: {"reasoning": "...", "status": "continue|done|fail", '
+                'Return ONLY JSON: {"reasoning": "...", "status": "continue|done|fail|help", '
                 '"actions": ["<python line>", ...], "next": "<node key|SAME|END>", '
                 '"completed": ["<node key>", ...], "branch": "<guard text or null>", '
                 '"extracted": {}}\n'
                 'Use status "done" only when the WHOLE workflow goal is achieved and '
                 "the on-screen content matches the goal's specifics (not merely that a "
                 "draft/form exists, and not leftover content from a previous task); "
-                '"fail" if it cannot be done.'
+                '"fail" if it cannot be done.\n'
+                'Use status "help" when you are BLOCKED and need human assistance — '
+                "e.g. a CAPTCHA, a login/2FA wall, a field requiring information you "
+                "don't have (credentials, account numbers, personal details), or you "
+                'genuinely don\'t know what to enter. Explain WHAT you need in "reasoning".'
             )
 
             client = Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -730,6 +746,10 @@ class AgentSAdapter:
             if status == "fail":
                 return AutonomousStepResult(outcome="fail", raw=plan.get("reasoning") or "FAIL",
                                             next="END", branch=branch, extracted=extracted,
+                                            completed=completed)
+            if status == "help":
+                return AutonomousStepResult(outcome="help", raw=plan.get("reasoning") or "HELP",
+                                            next="SAME", branch=branch, extracted=extracted,
                                             completed=completed)
             # No actions this turn (milestone already satisfied) → just route.
             outcome = "done" if status == "done" else "wait"
