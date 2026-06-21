@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# Strong references to in-flight tasks so they aren't GC'd on Python 3.12+.
+_background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
+
 _MAX_TITLE_LEN = 60
 _FALLBACK_TRUNC = 50
 
@@ -76,4 +79,6 @@ def generate_title_async(conn: "AgentConn", goal: str) -> None:
             if conn.run_id == snapshot_run_id:
                 conn.title = _truncate_goal(goal)
 
-    loop.create_task(_run())
+    task = loop.create_task(_run())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
