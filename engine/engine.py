@@ -107,7 +107,7 @@ def activate_app(name: str, settle: float = 1.2) -> None:
                         check=False, timeout=5,
                     )
                 except FileNotFoundError:
-                    print(f"[engine] activate_app: no wmctrl/xdotool on Linux (non-fatal)")
+                    print("[engine] activate_app: no wmctrl/xdotool on Linux (non-fatal)")
     except Exception as e:  # never let focus-setting abort the run
         print(f"[engine] activate_app({name!r}) failed (non-fatal): {e}")
     time.sleep(settle)
