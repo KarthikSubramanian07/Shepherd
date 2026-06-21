@@ -30,6 +30,7 @@ import {
   type RemoteRouting,
   type WorkflowFinalizePayload,
   type WorkflowIntervenePayload,
+  fetchAgentCatalog,
   useCoordinator,
 } from "@/lib/coordinator";
 import { agentStatusStyle } from "@/lib/status";
@@ -359,6 +360,9 @@ export default function RemoteCommandCenterPage() {
                   </p>
                   {c.selected.routing && <RoutingBanner routing={c.selected.routing} />}
                 </Card>
+
+                {/* Agent catalog (routines, workflows, task graphs) */}
+                {c.selectedId && <CatalogPanel agentId={c.selectedId} />}
 
                 {/* Raw activity (collapsible secondary pane) */}
                 <Card className="p-0">
@@ -1135,6 +1139,94 @@ function InterventionBanner({
           Override
         </Button>
       </div>
+    </Card>
+  );
+}
+
+// ── Catalog panel — agent's routines, workflows, task-graphs ─────────────────
+
+function CatalogPanel({ agentId }: { agentId: string }) {
+  const [open, setOpen] = useState(false);
+  const [catalog, setCatalog] = useState<{
+    routines: { id: string; name: string; description: string; mode: string; stepCount: number; version: number }[];
+    workflows: { id: string; name: string; description?: string | null; version: number; nodes: number }[];
+    task_graphs: { task_key: string; routine_id: string | null; run_count: number; node_count: number; labels: string[] }[];
+    version: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setCatalog(null);
+    let cancelled = false;
+    fetchAgentCatalog(agentId).then((c) => { if (!cancelled) setCatalog(c); });
+    return () => { cancelled = true; };
+  }, [agentId, open]);
+
+  const total = catalog
+    ? catalog.routines.length + catalog.workflows.length + catalog.task_graphs.length
+    : 0;
+
+  return (
+    <Card className="p-0">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-sm font-medium text-muted hover:text-ink"
+      >
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        Agent catalog
+        <span className="ml-auto text-[11px] text-muted">
+          {catalog ? `${total} items · v${catalog.version}` : "…"}
+        </span>
+      </button>
+      {open && catalog && (
+        <div className="space-y-3 border-t border-edge px-3 py-2 text-xs">
+          {catalog.workflows.length > 0 && (
+            <div>
+              <h4 className="mb-1 font-semibold text-muted">Workflows ({catalog.workflows.length})</h4>
+              <ul className="space-y-1">
+                {catalog.workflows.map((w) => (
+                  <li key={w.id} className="flex items-center gap-2 rounded border border-edge px-2 py-1">
+                    <WorkflowIcon size={12} className="text-accent" />
+                    <span className="font-medium text-ink">{w.name}</span>
+                    <span className="ml-auto text-muted">v{w.version} · {w.nodes} nodes</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {catalog.routines.length > 0 && (
+            <div>
+              <h4 className="mb-1 font-semibold text-muted">Routines ({catalog.routines.length})</h4>
+              <ul className="space-y-1">
+                {catalog.routines.map((r) => (
+                  <li key={r.id} className="flex items-center gap-2 rounded border border-edge px-2 py-1">
+                    <GitBranch size={12} className="text-accent" />
+                    <span className="font-medium text-ink">{r.name}</span>
+                    <span className="ml-auto text-muted">{r.mode} · {r.stepCount} steps</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {catalog.task_graphs.length > 0 && (
+            <div>
+              <h4 className="mb-1 font-semibold text-muted">Task Graphs ({catalog.task_graphs.length})</h4>
+              <ul className="space-y-1">
+                {catalog.task_graphs.map((g) => (
+                  <li key={g.task_key} className="flex items-center gap-2 rounded border border-edge px-2 py-1">
+                    <ListTree size={12} className="text-accent" />
+                    <span className="font-medium text-ink">{g.task_key}</span>
+                    <span className="ml-auto text-muted">{g.run_count} runs · {g.node_count} nodes</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {total === 0 && (
+            <p className="text-muted">No routines, workflows, or task graphs on this agent yet.</p>
+          )}
+        </div>
+      )}
     </Card>
   );
 }

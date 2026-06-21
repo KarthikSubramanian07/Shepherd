@@ -226,6 +226,23 @@ const TOKEN = process.env.NEXT_PUBLIC_COORDINATOR_TOKEN ?? "";
 
 export const coordinatorHttpBase = HTTP_BASE;
 
+/** Fetch the cached catalog (routines, workflows, task_graphs) for an agent. */
+export async function fetchAgentCatalog(agentId: string): Promise<{
+  routines: { id: string; name: string; description: string; mode: string; stepCount: number; version: number }[];
+  workflows: { id: string; name: string; description?: string | null; version: number; intent_patterns: string[]; params: string[]; nodes: number; updated_at: number }[];
+  task_graphs: { task_key: string; routine_id: string | null; run_count: number; node_count: number; edge_count: number; updated_at: number; intents: string[]; labels: string[] }[];
+  version: number;
+}> {
+  const url = `${HTTP_BASE}/api/agents/${encodeURIComponent(agentId)}/catalog${TOKEN ? `?token=${encodeURIComponent(TOKEN)}` : ""}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return { routines: [], workflows: [], task_graphs: [], version: 0 };
+    return await res.json();
+  } catch {
+    return { routines: [], workflows: [], task_graphs: [], version: 0 };
+  }
+}
+
 function wsUrl(path: string, code: string): string {
   let base = HTTP_BASE.replace(/\/$/, "");
   if (base.startsWith("https://")) base = "wss://" + base.slice("https://".length);

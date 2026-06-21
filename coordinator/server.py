@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -66,6 +66,8 @@ class AgentConn:
     last_activity: float = field(default_factory=time.time)
     last_frame: Optional[str] = None        # base64 JPEG
     last_frame_ts: float = 0.0
+    catalog: Optional[dict] = None         # cached routines/workflows/task-graphs
+    catalog_version: int = 0               # incremented on each catalog push
     history: deque = field(default_factory=lambda: deque(maxlen=_AGENT_EVENT_HISTORY))
     # Live workflow traversal state, built on the fly from workflow.* events so the
     # Command Center can render the milestone graph for this agent.
@@ -591,6 +593,22 @@ def _authorized(ws: WebSocket) -> bool:
     return ws.query_params.get("token") == COORDINATOR_TOKEN
 
 
+def _check_http_token(request) -> Optional[JSONResponse]:
+    """Return a 401 JSONResponse if COORDINATOR_TOKEN is set and the request
+    doesn't supply it (via ?token= query param or Authorization: Bearer header).
+    Returns None if access is allowed."""
+    if not COORDINATOR_TOKEN:
+        return None
+    token = request.query_params.get("token")
+    if not token:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            token = auth[7:]
+    if token == COORDINATOR_TOKEN:
+        return None
+    return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+
 # ── HTTP ──────────────────────────────────────────────────────────────────────
 
 
@@ -628,6 +646,57 @@ async def agent_screen(agent_id: str) -> JSONResponse:
     if not conn or not conn.last_frame:
         return JSONResponse({"error": "no frame"}, status_code=404)
     return JSONResponse({"data": conn.last_frame, "ts": conn.last_frame_ts})
+
+
+# ── Catalog endpoints (proxied from agent on connect) ─────────────────────────
+
+
+@app.get("/api/agents/{agent_id}/catalog")
+async def agent_catalog(agent_id: str, request: Request) -> JSONResponse:
+    """Full cached catalog for an agent (routines, workflows, task_graphs)."""
+    denied = _check_http_token(request)
+    if denied:
+        return denied
+    conn = hub.agents.get(agent_id)
+    if not conn:
+        return JSONResponse({"error": "agent not found"}, status_code=404)
+    if not conn.catalog:
+        return JSONResponse({"routines": [], "workflows": [], "task_graphs": [],
+                             "version": 0})
+    return JSONResponse({**conn.catalog, "version": conn.catalog_version})
+
+
+@app.get("/api/agents/{agent_id}/routines")
+async def agent_routines(agent_id: str, request: Request) -> JSONResponse:
+    denied = _check_http_token(request)
+    if denied:
+        return denied
+    conn = hub.agents.get(agent_id)
+    if not conn:
+        return JSONResponse({"error": "agent not found"}, status_code=404)
+    return JSONResponse(conn.catalog.get("routines", []) if conn.catalog else [])
+
+
+@app.get("/api/agents/{agent_id}/workflows")
+async def agent_workflows(agent_id: str, request: Request) -> JSONResponse:
+    denied = _check_http_token(request)
+    if denied:
+        return denied
+    conn = hub.agents.get(agent_id)
+    if not conn:
+        return JSONResponse({"error": "agent not found"}, status_code=404)
+    return JSONResponse(conn.catalog.get("workflows", []) if conn.catalog else [])
+
+
+@app.get("/api/agents/{agent_id}/task-graphs")
+async def agent_task_graphs(agent_id: str, request: Request) -> JSONResponse:
+    denied = _check_http_token(request)
+    if denied:
+        return denied
+    conn = hub.agents.get(agent_id)
+    if not conn:
+        return JSONResponse({"error": "agent not found"}, status_code=404)
+    return JSONResponse(conn.catalog.get("task_graphs", []) if conn.catalog else [])
 
 
 # ── Agent socket ──────────────────────────────────────────────────────────────
@@ -691,6 +760,9 @@ async def agent_ws(ws: WebSocket) -> None:
                     print(f"[coordinator] warning: agent '{agent_id}' speaks "
                           f"protocol v{client_version}, we only support v{PROTOCOL_VERSION}")
                 await hub.push_roster()
+            elif mtype == "catalog":
+                conn.catalog = msg.get("catalog")
+                conn.catalog_version += 1
             elif mtype in ("webrtc.offer", "webrtc.answer", "webrtc.ice"):
                 # WebRTC signaling: relay to the watching UI(s) for this agent.
                 await hub.broadcast_session(
