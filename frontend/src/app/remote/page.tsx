@@ -64,6 +64,7 @@ export default function RemoteCommandCenterPage() {
   const [showActivity, setShowActivity] = useState(false);
   const [pickedNode, setPickedNode] = useState<string | null>(null);
   const [halting, setHalting] = useState(false);
+  const haltEvtBase = useRef(0);
   const [bakeToggle, setBakeToggle] = useState(true);
   const [rosterOpen, setRosterOpen] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -88,7 +89,7 @@ export default function RemoteCommandCenterPage() {
   const eventsLen = events.length;
   useEffect(() => {
     if (!halting) return;
-    for (let i = events.length - 1; i >= 0; i--) {
+    for (let i = haltEvtBase.current; i < events.length; i++) {
       if (events[i].type === "execution.halted") {
         const stepIdx = events[i].data?.step_index as number | undefined;
         setToast(`Agent halted at step ${stepIdx ?? "?"}`);
@@ -431,6 +432,7 @@ export default function RemoteCommandCenterPage() {
                       variant="danger"
                       disabled={halting}
                       onClick={() => {
+                        haltEvtBase.current = c.events.length;
                         setHalting(true);
                         setToast("Halt requested \u2014 agent will stop at next step boundary");
                         c.sendCommand(c.selected!.id, "halt");
