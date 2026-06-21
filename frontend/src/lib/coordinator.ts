@@ -116,6 +116,30 @@ export interface RemoteWorkflow {
   finalized?: RemoteWorkflowFinalized | null;
 }
 
+export interface RemoteTraceNode {
+  index: number;
+  action?: string;
+  description?: string;
+  thinking?: string;
+  status?: "pending" | "running" | "completed" | "failed" | "error";
+  durationMs?: number;
+  error?: string;
+  note?: string;
+  /** Coordinator timestamp of the frame captured when this step completed. */
+  frameTs?: number;
+}
+
+export interface RemoteTrace {
+  runId: string | null;
+  routineId: string | null;
+  kind?: string | null;
+  /** false → no prior task graph existed: a brand-new task being crystallized. */
+  known: boolean | null;
+  status?: string;
+  current: number | null;
+  nodes: RemoteTraceNode[];
+}
+
 export interface RemoteRouting {
   /** routing → resolving · matched → router hit · unmatched → no hit · autonomous → fresh fallback */
   state: "routing" | "matched" | "unmatched" | "autonomous";
@@ -154,6 +178,8 @@ export interface RemoteAgent {
   title: string | null;
   /** Last 2-3 step descriptions from the current/last run. */
   recentSteps: RemoteStepPeek[];
+  /** Live granular step trace for runs not following a saved workflow. */
+  trace: RemoteTrace | null;
 }
 
 export interface RemoteEvent {
@@ -322,6 +348,17 @@ export function useCoordinator(): CoordinatorApi {
             nodeShotsRef.current.set(msg.agent_id, shots);
           }
         } else if (msg.event.type === "workflow.start") {
+          nodeShotsRef.current.delete(msg.agent_id);
+        } else if (msg.event.type === "step.complete") {
+          // Pin the live frame to the execution-trace step that just finished.
+          const idx = msg.event.data?.index as number | undefined;
+          const shot = frameRef.current;
+          if (idx !== undefined && shot) {
+            const shots = nodeShotsRef.current.get(msg.agent_id) ?? new Map();
+            shots.set(`trace:${idx}`, shot);
+            nodeShotsRef.current.set(msg.agent_id, shots);
+          }
+        } else if (msg.event.type === "execution.start") {
           nodeShotsRef.current.delete(msg.agent_id);
         }
         if (msg.agent_id === selectedRef.current) bump();
