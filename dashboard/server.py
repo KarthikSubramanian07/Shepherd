@@ -937,6 +937,64 @@ def register_intent_queue(q) -> None:
     _intent_queue = q
 
 
+# ── Fleet control: the Orchestrator (multi-agent mode) ──────────────────────
+_orchestrator = None
+
+
+def register_orchestrator(orch) -> None:
+    """Called by main.py in ENABLE_ORCHESTRATOR mode so REST endpoints can
+    dispatch agents, halt them, and read the live fleet + action-queue state."""
+    global _orchestrator
+    _orchestrator = orch
+
+
+@app.get("/api/fleet")
+async def fleet_snapshot() -> JSONResponse:
+    """Live fleet: every agent's status + the action-queue (who holds/awaits each
+    surface). Empty when the orchestrator isn't running."""
+    if _orchestrator is None:
+        return JSONResponse({"enabled": False, "agents": [], "backlog": [], "queue": []})
+    snap = _orchestrator.snapshot()
+    snap["enabled"] = True
+    return JSONResponse(snap)
+
+
+@app.post("/api/fleet/dispatch")
+async def fleet_dispatch(request: Request) -> JSONResponse:
+    """Spawn a new agent for a goal on a chosen surface (local | browserbase)."""
+    if _orchestrator is None:
+        return JSONResponse({"error": "orchestrator not running"}, status_code=409)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    goal = (body.get("goal") or body.get("text") or "").strip()
+    if not goal:
+        return JSONResponse({"error": "goal required"}, status_code=400)
+    surface_kind = (body.get("surface_kind") or "").strip().lower()
+    name = (body.get("name") or "").strip()
+    try:
+        agent_id = _orchestrator.dispatch(goal, surface_kind=surface_kind, name=name)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return JSONResponse({"ok": True, "agent_id": agent_id})
+
+
+@app.post("/api/fleet/halt/{agent_id}")
+async def fleet_halt(agent_id: str) -> JSONResponse:
+    if _orchestrator is None:
+        return JSONResponse({"error": "orchestrator not running"}, status_code=409)
+    ok = _orchestrator.halt(agent_id)
+    return JSONResponse({"ok": ok}, status_code=200 if ok else 404)
+
+
+@app.post("/api/fleet/halt_all")
+async def fleet_halt_all() -> JSONResponse:
+    if _orchestrator is None:
+        return JSONResponse({"error": "orchestrator not running"}, status_code=409)
+    return JSONResponse({"ok": True, "halted": _orchestrator.halt_all()})
+
+
 @app.post("/api/intent")
 async def submit_intent(request: Request) -> JSONResponse:
     """Queue a goal: hand it to an in-process agent if attached, else buffer it for
