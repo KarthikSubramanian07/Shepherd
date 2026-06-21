@@ -11,6 +11,7 @@ import {
   Move,
   ScrollText,
   ShieldAlert,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 import type { ActionType, StepStatus } from "@/lib/types";
@@ -55,6 +56,7 @@ export const ACTION_ICON: Record<ActionType, LucideIcon> = {
   wait: Timer,
   move: Move,
   scroll: ScrollText,
+  batch_fill: ClipboardList,
 };
 
 /** Maps a runtime step status onto a node ring tone. */

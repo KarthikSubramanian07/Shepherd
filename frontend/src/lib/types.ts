@@ -28,7 +28,8 @@ export type ActionType =
   | "wait"
   | "browser"
   | "scroll"
-  | "navigate";
+  | "navigate"
+  | "batch_fill";
 
 /** Failure modes the proactive detection layer watches for. */
 export type MonitorTrigger = "credential" | "captcha" | "phishing" | "stuck";
