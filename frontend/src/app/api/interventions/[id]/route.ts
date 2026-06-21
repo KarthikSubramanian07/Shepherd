@@ -11,7 +11,7 @@ export async function POST(
 ) {
   try {
     const body = await req.json();
-    const res = await fetch(`${BACKEND}/api/interventions/${params.id}`, {
+    const res = await fetch(`${BACKEND}/api/interventions/${encodeURIComponent(params.id)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

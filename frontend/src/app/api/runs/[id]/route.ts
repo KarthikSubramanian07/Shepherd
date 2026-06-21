@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   try {
-    const res = await fetch(`${BACKEND}/api/runs/${params.id}`, { cache: "no-store" });
+    const res = await fetch(`${BACKEND}/api/runs/${encodeURIComponent(params.id)}`, { cache: "no-store" });
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });
   } catch {
