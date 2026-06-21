@@ -287,6 +287,8 @@ class Hub:
             if conn._goal_text and not conn._title_requested:
                 conn._title_requested = True
                 generate_title_async(conn, conn._goal_text)
+                # Consumed — clear so it doesn't leak to an unrelated future run.
+                conn._goal_text = None
             # A run is starting: drop any stale workflow graph and open a fresh
             # trace. If this run is actually following a saved workflow, a
             # subsequent workflow.start re-establishes the workflow and clears
