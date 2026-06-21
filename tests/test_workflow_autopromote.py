@@ -162,7 +162,8 @@ def test_coalescer_auto_promotes_on_save(tmp_path, monkeypatch):
 
 
 if __name__ == "__main__":
-    import tempfile, pathlib
+    import tempfile
+    import pathlib
     # Fixtures don't run under the standalone runner — set the stubs directly.
     _describe.generate_description = lambda *a, **k: None
     _generalize.generalize_goal = lambda goal: (goal or "").strip()

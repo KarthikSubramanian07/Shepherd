@@ -21,7 +21,6 @@ machines that never install band-sdk.
 import asyncio
 import sys
 
-from config import BAND_VERIFIER_HANDLE
 from services.council_prompts import ROLES, prompt_for
 
 MODEL = "claude-haiku-4-5"

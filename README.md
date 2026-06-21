@@ -6,6 +6,8 @@
 
 ### The agent is the part you cannot trust. Shepherd is the layer that lets you trust it anyway.
 
+[![CI](https://github.com/KarthikSubramanian07/shepherd/actions/workflows/ci.yml/badge.svg)](https://github.com/KarthikSubramanian07/shepherd/actions/workflows/ci.yml)
+
 </div>
 
 Right now, somewhere, an AI agent is clicking through a real interface on
