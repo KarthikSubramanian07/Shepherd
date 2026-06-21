@@ -189,20 +189,38 @@ class RoutinePlanner:
             f"(Agent S uses separate AGENT_S_* config)"
         )
 
-    def draft(self, goal: str) -> tuple[RoutineDefinition, dict[str, str]]:
-        raw = self._call_llm(goal)
+    def draft(
+        self, goal: str, prior_milestones: "list[str] | None" = None,
+    ) -> tuple[RoutineDefinition, dict[str, str]]:
+        memory_hint = self._memory_hint(prior_milestones)
+        raw = self._call_llm(goal, memory_hint)
         payload = self._parse_json(raw)
         extracted = _extract_variables(goal)
         routine = self._to_definition(goal, payload, extracted)
         routine.steps = _optimize_planned_steps(routine.steps, goal, extracted)
         return routine, extracted
 
-    def _call_llm(self, goal: str) -> str:
-        if PLANNER_ENGINE_TYPE == "openai":
-            return self._openai_chat(goal)
-        return self._anthropic_chat(goal)
+    @staticmethod
+    def _memory_hint(prior_milestones: "list[str] | None") -> str:
+        """Turn a prior run's milestone trail into a planning hint, so the agent
+        reuses what worked before instead of re-deriving the task from scratch."""
+        ms = [m for m in (prior_milestones or []) if m]
+        if not ms:
+            return ""
+        trail = "\n".join(f"  {i + 1}. {m}" for i, m in enumerate(ms))
+        return (
+            "\n\nMEMORY — you have completed this goal before. The milestone trail "
+            "that worked last time was:\n" + trail +
+            "\nReuse this proven sequence as your plan; refine a step only if the "
+            "current screen clearly requires it."
+        )
 
-    def _openai_chat(self, goal: str) -> str:
+    def _call_llm(self, goal: str, memory_hint: str = "") -> str:
+        if PLANNER_ENGINE_TYPE == "openai":
+            return self._openai_chat(goal, memory_hint)
+        return self._anthropic_chat(goal, memory_hint)
+
+    def _openai_chat(self, goal: str, memory_hint: str = "") -> str:
         if not OPENAI_API_KEY:
             raise RuntimeError("OPENAI_API_KEY not set (PLANNER_ENGINE_TYPE=openai)")
         base = (AGENT_S_BASE_URL or "https://api.openai.com/v1").rstrip("/")
@@ -212,7 +230,7 @@ class RoutinePlanner:
             "temperature": 0.2,
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": f"Goal: {goal}"},
+                {"role": "user", "content": f"Goal: {goal}{memory_hint}"},
             ],
         }
         resp = httpx.post(
@@ -225,7 +243,7 @@ class RoutinePlanner:
             raise RuntimeError(f"OpenAI planner error: {self._http_error_detail(resp)}")
         return resp.json()["choices"][0]["message"]["content"]
 
-    def _anthropic_chat(self, goal: str) -> str:
+    def _anthropic_chat(self, goal: str, memory_hint: str = "") -> str:
         if not ANTHROPIC_API_KEY:
             raise RuntimeError("ANTHROPIC_API_KEY not set (PLANNER_ENGINE_TYPE=anthropic)")
         url = "https://api.anthropic.com/v1/messages"
@@ -233,7 +251,7 @@ class RoutinePlanner:
             "model": PLANNER_MODEL,
             "max_tokens": 4096,
             "system": _SYSTEM_PROMPT,
-            "messages": [{"role": "user", "content": f"Goal: {goal}"}],
+            "messages": [{"role": "user", "content": f"Goal: {goal}{memory_hint}"}],
         }
         resp = httpx.post(
             url,

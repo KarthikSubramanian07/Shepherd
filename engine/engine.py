@@ -109,10 +109,19 @@ class ShepherdExecutionEngine:
         event_bus.emit("routine.planning", {"goal": goal})
         print(f"[planner] Drafting routine for: {goal}")
 
+        # Memory: load this goal's prior graph and feed its milestone trail to the
+        # planner so it reuses what worked before instead of re-deriving the task.
+        task_key = self._autonomous_task_key(goal)
+        mem = self._graphs.load(task_key, {})
+        prior_milestones = [n.label for n in mem.nodes]
+        if prior_milestones:
+            print(f"[planner] recalled {len(prior_milestones)} milestone(s) from memory "
+                  f"(run #{mem.run_count})")
+
         plan_json = ""
         try:
             with self._telemetry.span("routine.plan", oi_kind="LLM") as plan_span:
-                routine, extracted = self._planner.draft(goal)
+                routine, extracted = self._planner.draft(goal, prior_milestones)
                 plan_json = json.dumps(
                     [{"action": s.action, "description": s.description or s.action}
                      for s in routine.steps],
@@ -158,7 +167,10 @@ class ShepherdExecutionEngine:
         saved_mode = self._mode
         self._mode = "LIVE"
         try:
-            return self.execute(resolved, routine=routine, mode_override="LIVE")
+            # graph_key = the per-goal memory key, so this run reads + extends the
+            # same graph the planner just consulted (generate + use, per goal).
+            return self.execute(resolved, routine=routine, mode_override="LIVE",
+                                graph_key=task_key)
         finally:
             self._mode = saved_mode
 
@@ -443,6 +455,7 @@ class ShepherdExecutionEngine:
         *,
         routine: RoutineDefinition | None = None,
         mode_override: str | None = None,
+        graph_key: str | None = None,
     ) -> ExecutionResult:
         self._halt_flag.clear()
         self.last_step_records = []
@@ -463,10 +476,15 @@ class ShepherdExecutionEngine:
         variables = resolved.variables
         self._run_variables = variables
 
+        # The graph this run reads/writes. Defaults to the routine id, but an
+        # autonomous goal passes a per-goal key so each distinct goal keeps its
+        # own memory graph (instead of all autonomous runs sharing one).
+        gkey = graph_key or resolved.routine_id
+
         # ── Load this task's persistent graph as a reference ────────────────────
         # The graph is coarse (milestones, not clicks). On a repeat run it tells us
         # (and Agent S) what's already been done; new milestones get appended below.
-        graph = self._graphs.load(resolved.routine_id, variables)
+        graph = self._graphs.load(gkey, variables)
         self._active_graph = graph
         was_known   = self._graphs.is_known(graph)
         prior_keys  = {n.key for n in graph.nodes}
@@ -814,7 +832,7 @@ class ShepherdExecutionEngine:
         ]
         submit_trace(RunTrace(
             run_id=run_id,
-            routine_id=resolved.routine_id,
+            routine_id=gkey,
             variables=variables,
             status=status,
             started_at=started_at,
