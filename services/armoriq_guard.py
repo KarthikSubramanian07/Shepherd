@@ -94,12 +94,19 @@ def authorize_run(goal: str, steps, variables: Optional[dict] = None,
         }
     except Exception as e:
         name = type(e).__name__
-        # Auth / token-issuance failures are real denials → block the run.
-        # Network / unknown errors degrade to "no enforcement" so a flaky link
-        # never strands an otherwise-fine run.
-        if name in ("AuthenticationError", "TokenIssuanceError"):
+        # Auth / token-issuance failures are real denials → block the run. Match
+        # by class name AND by an auth/forbidden signal in the message, so a
+        # renamed/subclassed SDK exception can't silently fail OPEN (degrade to
+        # "no enforcement"). Only genuine transport/unknown errors degrade.
+        blob = f"{name} {e}".lower()
+        is_denial = (
+            name in ("AuthenticationError", "TokenIssuanceError")
+            or any(s in blob for s in ("unauthor", "forbidden", "denied", "401", "403"))
+        )
+        if is_denial:
             return {"authorized": False, "token": None,
-                    "reason": f"ArmorIQ denied the plan ({name}): {e}", "plan_hash": None}
+                    "reason": f"ArmorIQ denied the plan ({name}): {e}",
+                    "plan_hash": None, "denied_tools": []}
         print(f"[armoriq] authorize skipped (non-fatal {name}): {e}")
         return None
 

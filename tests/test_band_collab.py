@@ -29,6 +29,13 @@ def test_parse_verdict_handles_ok_and_flag_and_prose():
     assert band_collab._parse_verdict("My VERDICT: flag — unsure here")["verdict"] == "flag"
 
 
+def test_parse_verdict_anchors_to_token_after_verdict():
+    # Regression: a reply whose reason mentions another verdict word must read the
+    # token right after "VERDICT:", not the first of (halt,flag,ok) found anywhere.
+    assert band_collab._parse_verdict("VERDICT: ok — no halt needed")["verdict"] == "ok"
+    assert band_collab._parse_verdict("VERDICT: halt — do not say ok")["verdict"] == "halt"
+
+
 def test_parse_verdict_rejects_garbage():
     assert band_collab._parse_verdict("I cannot decide right now") is None
     assert band_collab._parse_verdict("") is None

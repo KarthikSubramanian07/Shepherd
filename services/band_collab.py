@@ -20,6 +20,7 @@ Uses the free Agent API (REST) directly over httpx, so the engine side needs no
 SDK install — only the verifier agent process does. Endpoints and auth follow
 docs.band.ai/api (Agent API: /api/v1/agent).
 """
+import re
 import time
 from typing import Optional
 
@@ -33,7 +34,9 @@ from config import (
 )
 
 # How long to wait for the verifier peer to answer before falling back (seconds).
-_VERDICT_TIMEOUT_S = 20.0
+# Off the click path (a boundary check), but still a synchronous wait on the run
+# thread, so keep it tight: the live round-trip is ~5s.
+_VERDICT_TIMEOUT_S = 12.0
 _POLL_INTERVAL_S = 1.5
 _VALID = ("halt", "flag", "ok")
 
@@ -68,7 +71,9 @@ def request_verdict(reason: str, context: str = "") -> Optional[dict]:
     try:
         import httpx
         with httpx.Client(headers=_headers(), timeout=8.0) as client:
-            since = _latest_message_id(client)
+            # Snapshot existing message ids so we only accept a NEW verifier reply
+            # (order-independent and pagination-tolerant, unlike a "since" cursor).
+            before = _message_ids(client)
             body = (
                 f"@{BAND_VERIFIER_HANDLE} The rule-based monitor flagged a "
                 f"high-stakes desktop action and is uncertain.\n\n"
@@ -91,12 +96,12 @@ def request_verdict(reason: str, context: str = "") -> Optional[dict]:
             deadline = time.monotonic() + _VERDICT_TIMEOUT_S
             while time.monotonic() < deadline:
                 time.sleep(_POLL_INTERVAL_S)
-                reply = _verifier_reply_after(client, since)
+                reply = _new_verifier_reply(client, before)
                 if reply:
                     parsed = _parse_verdict(reply)
                     if parsed:
                         return parsed
-            print("[band] verifier peer did not answer in time — falling back")
+            print("[band] verifier peer did not answer in time, falling back")
     except Exception as e:
         print(f"[band] request_verdict non-fatal: {e}")
     return None
@@ -136,13 +141,12 @@ def _headers() -> dict:
     }
 
 
-def _latest_message_id(client) -> Optional[str]:
-    """Newest message id right now, so we only consider replies that come after."""
+def _message_ids(client) -> set:
+    """Set of message ids currently in the room (the 'before' snapshot)."""
     try:
-        msgs = _list_messages(client)
-        return msgs[-1].get("id") if msgs else None
+        return {m.get("id") for m in _list_messages(client) if m.get("id")}
     except Exception:
-        return None
+        return set()
 
 
 def _list_messages(client) -> list[dict]:
@@ -153,31 +157,41 @@ def _list_messages(client) -> list[dict]:
     return data.get("data", data) if isinstance(data, dict) else data
 
 
-def _verifier_reply_after(client, since_id: Optional[str]) -> Optional[str]:
-    """Text of the first message from the verifier agent posted after `since_id`."""
-    msgs = _list_messages(client)
-    seen_marker = since_id is None
-    for m in msgs:
-        if not seen_marker:
-            if m.get("id") == since_id:
-                seen_marker = True
+def _sender_id(m: dict) -> Optional[str]:
+    # The Band Agent API carries the author in `sender_id`; tolerate alternates.
+    return m.get("sender_id") or m.get("agent_id") or (m.get("sender") or {}).get("id")
+
+
+def _new_verifier_reply(client, before_ids: set) -> Optional[str]:
+    """Text of a NEW message (id not in the pre-post snapshot) authored by the
+    verifier agent that actually parses to a verdict. Order-independent, so it
+    does not depend on how the API paginates or sorts the message list."""
+    best = None
+    for m in _list_messages(client):
+        if m.get("id") in before_ids:
             continue
-        sender = m.get("agent_id") or m.get("sender_id") or (m.get("sender") or {}).get("id")
-        if sender == BAND_VERIFIER_AGENT_ID:
-            return m.get("content") or m.get("text") or ""
-    return None
+        if _sender_id(m) != BAND_VERIFIER_AGENT_ID:
+            continue
+        content = m.get("content") or m.get("text") or ""
+        if _parse_verdict(content):       # prefer a message that carries a verdict
+            best = content
+    return best
+
+
+_VERDICT_RE = re.compile(r"verdict\s*[:\-]*\s*(halt|flag|ok)\b", re.IGNORECASE)
 
 
 def _parse_verdict(text: str) -> Optional[dict]:
-    """Pull 'VERDICT: <halt|flag|ok> — <reason>' out of the verifier's reply."""
-    low = text.lower()
-    idx = low.find("verdict")
-    scan = low[idx:] if idx != -1 else low
-    verdict = next((v for v in _VALID if v in scan), None)
-    if not verdict:
+    """Pull the verdict token that immediately follows 'VERDICT:' out of the
+    reply. Anchored (not a substring-anywhere scan) so 'VERDICT: ok, no halt
+    needed' reads as ok, and so on-screen text cannot smuggle a verdict in."""
+    if not text:
         return None
-    # Reason = everything after the verdict word on its line.
-    after = scan.split(verdict, 1)[1].lstrip(" -—:").strip()
+    m = _VERDICT_RE.search(text)
+    if not m:
+        return None
+    verdict = m.group(1).lower()
+    after = text[m.end():].lstrip(" -:—").strip()
     explanation = (after.splitlines()[0] if after else "").strip() or "Band verifier peer verdict"
     return {
         "verdict":     verdict,

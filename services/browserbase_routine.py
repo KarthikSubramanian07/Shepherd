@@ -39,25 +39,31 @@ def run_browser_step(step: dict) -> dict:
         bb          = Browserbase(api_key=BROWSERBASE_API_KEY, project_id=BROWSERBASE_PROJECT_ID)
         session     = bb.create_session()
         connect_url = bb.get_connect_url(session.id)
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.connect_over_cdp(connect_url)
+                page    = browser.new_page()
+                url     = step.get("url", "https://example.com")
+                page.goto(url, wait_until="domcontentloaded", timeout=15000)
 
-        with sync_playwright() as p:
-            browser = p.chromium.connect_over_cdp(connect_url)
-            page    = browser.new_page()
-            url     = step.get("url", "https://example.com")
-            page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                action = step.get("action", "navigate")
+                result = {"status": "ok", "url": url, "action": action}
 
-            action = step.get("action", "navigate")
-            result = {"status": "ok", "url": url, "action": action}
+                if action == "click" and step.get("selector"):
+                    page.click(step["selector"])
+                    result["clicked"] = step["selector"]
+                elif action == "read":
+                    result["value"] = _read_content(page, step.get("selector"))
 
-            if action == "click" and step.get("selector"):
-                page.click(step["selector"])
-                result["clicked"] = step["selector"]
-            elif action == "read":
-                result["value"] = _read_content(page, step.get("selector"))
-
-            browser.close()
-            # VERIFY: correct session teardown method
-            return result
+                browser.close()
+                return result
+        finally:
+            # Release the cloud session immediately instead of leaking it until
+            # Browserbase's idle timeout (which would burn the account's quota).
+            try:
+                bb.complete_session(session.id)
+            except Exception:
+                pass
 
     except Exception as e:
         print(f"[browserbase] Failed: {e} — local fallback")
