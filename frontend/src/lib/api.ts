@@ -73,6 +73,17 @@ export interface WorkflowSummary {
   updated_at: number;
 }
 
+export interface TaskGraphSummary {
+  task_key: string;
+  routine_id: string | null;
+  run_count: number;
+  node_count: number;
+  edge_count: number;
+  updated_at: number;
+  intents: string[];
+  labels: string[];
+}
+
 export interface WorkflowNodeRaw {
   key: string;
   kind: string;
@@ -157,10 +168,20 @@ export const api = {
       body: JSON.stringify({ resolution, note }),
     }),
 
+  // Every stored task graph (newest first) — including dynamically-generated
+  // AUTONOMOUS::<goal> graphs. Lets the UI discover graph keys without hardcoding.
+  listTaskGraphs: async (): Promise<TaskGraphSummary[]> => {
+    const res = await fetch(`${BACKEND}/api/task-graphs`, { cache: "no-store" });
+    if (!res.ok) {
+      throw new Error(`task-graphs failed: ${res.status} ${res.statusText}`);
+    }
+    return res.json() as Promise<TaskGraphSummary[]>;
+  },
+
   // Task graph (REAL backend) — crystallized milestone workflow for a routine.
   // Returns null when the backend has no graph yet (404).
   getTaskGraph: async (routineId: string): Promise<TaskGraph | null> => {
-    const res = await fetch(`${BACKEND}/api/task-graph/${routineId}`, {
+    const res = await fetch(`${BACKEND}/api/task-graph/${encodeURIComponent(routineId)}`, {
       cache: "no-store",
     });
     if (res.status === 404) return null;

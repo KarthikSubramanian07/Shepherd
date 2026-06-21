@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Network, RefreshCw, Workflow } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, type TaskGraphSummary } from "@/lib/api";
 import type { TaskGraph } from "@/lib/types";
 import { TaskGraphView } from "@/components/graph/TaskGraphView";
 import {
@@ -14,19 +14,15 @@ import {
   Stat,
 } from "@/components/ui/primitives";
 
-const KNOWN_ROUTINES = [
-  "ROUTINE_JOB_APPLICATION",
-  "ROUTINE_FORM_FILL",
-  "ROUTINE_BROWSER_SHOWPIECE",
-];
-
 export default function TaskGraphPage() {
-  const [routineId, setRoutineId] = useState(KNOWN_ROUTINES[0]);
+  const [graphs, setGraphs] = useState<TaskGraphSummary[]>([]);
+  const [routineId, setRoutineId] = useState<string>("");
   const [graph, setGraph] = useState<TaskGraph | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (id: string) => {
+    if (!id) return;
     setLoading(true);
     setError(null);
     try {
@@ -38,6 +34,23 @@ export default function TaskGraphPage() {
       setLoading(false);
     }
   }, []);
+
+  // Discover every stored graph (incl. AUTONOMOUS::<goal>) and default to the
+  // most recently updated one so a just-finished run shows up immediately.
+  const refreshList = useCallback(async () => {
+    try {
+      const list = await api.listTaskGraphs();
+      setGraphs(list);
+      setRoutineId((cur) => cur || (list[0]?.task_key ?? ""));
+    } catch (e) {
+      setError((e as Error).message);
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshList();
+  }, [refreshList]);
 
   useEffect(() => {
     void load(routineId);
@@ -64,15 +77,23 @@ export default function TaskGraphPage() {
           <select
             value={routineId}
             onChange={(e) => setRoutineId(e.target.value)}
-            className="h-9 rounded-lg border border-edge bg-panel2 px-3 text-sm text-ink focus:border-accent focus:outline-none"
+            className="h-9 max-w-[22rem] rounded-lg border border-edge bg-panel2 px-3 text-sm text-ink focus:border-accent focus:outline-none"
           >
-            {KNOWN_ROUTINES.map((r) => (
-              <option key={r} value={r}>
-                {r}
+            {graphs.length === 0 && <option value="">No graphs yet</option>}
+            {graphs.map((g) => (
+              <option key={g.task_key} value={g.task_key}>
+                {g.task_key} ({g.node_count} nodes · {g.run_count} runs)
               </option>
             ))}
           </select>
-          <Button variant="outline" size="sm" onClick={() => void load(routineId)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void refreshList();
+              void load(routineId);
+            }}
+          >
             <RefreshCw size={14} />
             Reload
           </Button>
