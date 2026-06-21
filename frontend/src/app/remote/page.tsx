@@ -1156,6 +1156,7 @@ function CatalogPanel({ agentId }: { agentId: string }) {
 
   useEffect(() => {
     if (!open) return;
+    setCatalog(null);
     let cancelled = false;
     fetchAgentCatalog(agentId).then((c) => { if (!cancelled) setCatalog(c); });
     return () => { cancelled = true; };
