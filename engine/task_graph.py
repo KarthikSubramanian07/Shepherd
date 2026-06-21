@@ -20,7 +20,7 @@ import os
 import time
 from typing import Optional
 
-from shepherd_types import TaskGraph, TaskGraphNode, TaskGraphEdge
+from shepherd_types import TaskGraph, TaskGraphNode, TaskGraphEdge, Conditional
 
 _PATH = os.path.join(os.path.dirname(__file__), "..", "data", "task_graphs.json")
 
@@ -186,6 +186,7 @@ class TaskGraphStore:
             key=key, kind=kind, label=label, value=value,
             times_seen=1, last_status=status, fine_steps=fine_steps,
             first_run_id=run_id, last_run_id=run_id,
+            instruction=label, source="observed",
         )
         graph.nodes.append(node)
         return "appended", node
@@ -203,6 +204,34 @@ class TaskGraphStore:
         graph.edges.append(
             TaskGraphEdge(from_key=from_key, to_key=to_key, times_seen=1, last_run_id=run_id)
         )
+
+    # ── teaching loop: bake taught knowledge into a node (EDIT mode) ─────────────
+    def set_procedure(self, graph: TaskGraph, node_key: str, procedure: str,
+                      requires: Optional[list[str]] = None) -> bool:
+        """Attach/replace a node's standard procedure. Returns True if applied."""
+        node = self.node_by_key(graph, node_key)
+        if node is None or not procedure:
+            return False
+        node.procedure = procedure
+        node.source = "taught"
+        if requires:
+            node.requires = sorted(set(node.requires) | set(requires))
+        return True
+
+    def add_conditional(self, graph: TaskGraph, node_key: str, when: str, do: str,
+                        goto: Optional[str] = None) -> bool:
+        """Bake a conditional clause (if <when> → do <do>) onto a node. Idempotent
+        on (when, do) so re-coalescing the same run never duplicates a clause."""
+        node = self.node_by_key(graph, node_key)
+        if node is None or not (when and do):
+            return False
+        for c in node.conditionals:
+            if c.when.strip().lower() == when.strip().lower() and \
+               c.do.strip().lower() == do.strip().lower():
+                return False
+        node.conditionals.append(Conditional(when=when, do=do, goto=goto, source="taught"))
+        node.source = "taught"
+        return True
 
     def save(self, graph: TaskGraph, intent_text: str, variables: dict, run_id: str) -> None:
         graph.run_count += 1
@@ -236,6 +265,7 @@ def _serialize(g: TaskGraph) -> dict:
                 "to":          e.to_key,
                 "times_seen":  e.times_seen,
                 "last_run_id": e.last_run_id,
+                "condition":   e.condition,
             }
             for e in g.edges
         ],
@@ -250,6 +280,15 @@ def _serialize(g: TaskGraph) -> dict:
                 "fine_steps":   n.fine_steps,
                 "first_run_id": n.first_run_id,
                 "last_run_id":  n.last_run_id,
+                "instruction":  n.instruction,
+                "requires":     n.requires,
+                "conditionals": [
+                    {"when": c.when, "do": c.do, "goto": c.goto, "source": c.source}
+                    for c in n.conditionals
+                ],
+                "procedure":    n.procedure,
+                "optional":     n.optional,
+                "source":       n.source,
             }
             for n in g.nodes
         ],
@@ -266,12 +305,34 @@ def _deserialize(raw: dict) -> TaskGraph:
         created_at=raw.get("created_at", 0.0),
         updated_at=raw.get("updated_at", 0.0),
         last_run_id=raw.get("last_run_id", ""),
-        nodes=[TaskGraphNode(**n) for n in raw.get("nodes", [])],
+        nodes=[_node_from_raw(n) for n in raw.get("nodes", [])],
         edges=[
             TaskGraphEdge(
                 from_key=e["from"], to_key=e["to"],
                 times_seen=e.get("times_seen", 0), last_run_id=e.get("last_run_id", ""),
+                condition=e.get("condition"),
             )
             for e in raw.get("edges", [])
         ],
+    )
+
+
+def _node_from_raw(n: dict) -> TaskGraphNode:
+    """Rehydrate a node, tolerating graphs persisted before the taught/workflow
+    fields existed (they default cleanly)."""
+    return TaskGraphNode(
+        key=n["key"], kind=n["kind"], label=n["label"], value=n.get("value"),
+        times_seen=n.get("times_seen", 0), last_status=n.get("last_status"),
+        fine_steps=n.get("fine_steps", 0),
+        first_run_id=n.get("first_run_id", ""), last_run_id=n.get("last_run_id", ""),
+        instruction=n.get("instruction") or n["label"],
+        requires=n.get("requires", []),
+        conditionals=[
+            Conditional(when=c["when"], do=c["do"], goto=c.get("goto"),
+                        source=c.get("source", "taught"))
+            for c in n.get("conditionals", [])
+        ],
+        procedure=n.get("procedure"),
+        optional=n.get("optional", False),
+        source=n.get("source", "observed"),
     )

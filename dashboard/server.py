@@ -180,16 +180,22 @@ async def get_routine_info(routine_id: str) -> JSONResponse:
 
 @app.post("/api/control/{decision}")
 async def control_decision(decision: str, request: Request) -> JSONResponse:
-    """approve | halt | override — override body: {"instruction": "..."}"""
+    """approve | halt | override — override body:
+       {"instruction": "...", "flag": "one_off" | "save_as_rule"}
+
+       flag is the teaching gate: save_as_rule bakes the resolution into the
+       workflow as a conditional clause; one_off applies it for this run only.
+    """
     from engine.approvals import set_decision, set_override
     if decision == "override":
         try:
             body = await request.json()
             instruction = (body.get("instruction") or "").strip()
+            flag = (body.get("flag") or "one_off").strip()
         except Exception:
-            instruction = ""
+            instruction, flag = "", "one_off"
         if instruction:
-            set_override(instruction)
+            set_override(instruction, flag)
         else:
             set_decision("approve")
     elif decision in ("approve", "halt"):

@@ -12,7 +12,9 @@ Design constraints (see engine/engine.py docstring):
   • The click path is sacred — this NEVER runs inside the step actuation loop.
     The engine calls segment() at the RUN BOUNDARY (after the loop), exactly
     where the heuristic summarize() used to run.
-  • Always degrades gracefully: with no ANTHROPIC_API_KEY, on a network error,
+  • Provider-agnostic: all model calls go through engine/llm.py (gemini/gemma by
+    default, anthropic alt), so this module never hard-codes a provider.
+  • Always degrades gracefully: with no configured LLM key, on a network error,
     or on a malformed response, it falls back to the heuristic summarize().
 
 Output shape matches summarize()'s milestones so it is a drop-in:
@@ -21,10 +23,9 @@ in execution order.
 """
 from __future__ import annotations
 
-import json
 from typing import Optional
 
-from config import ANTHROPIC_API_KEY, AGENT_S_ENGINE_TYPE, AGENT_S_MODEL
+from engine import llm
 from engine.task_graph import summarize
 
 # Closed taxonomy — keeps milestone keys stable across runs and lets the UI
@@ -33,12 +34,6 @@ TAXONOMY = {
     "open", "navigate", "search", "research",
     "scan", "fill", "submit", "verify", "interact",
 }
-
-# Cheap, fast model for this classification task. Reuse the configured Agent S
-# Anthropic model when it is Anthropic, else default to Haiku.
-_MODEL = AGENT_S_MODEL if AGENT_S_ENGINE_TYPE == "anthropic" else "claude-haiku-4-5"
-_MAX_TOKENS = 1024
-_TIMEOUT_S = 20.0
 
 _SYSTEM = """\
 You segment a low-level UI automation trace into a SHORT list of high-level
@@ -146,7 +141,7 @@ _FEWSHOT = [
 
 
 def llm_available() -> bool:
-    return bool(ANTHROPIC_API_KEY)
+    return llm.available()
 
 
 def _truncate(text: str, n: int = 40) -> str:
@@ -195,9 +190,8 @@ def _snap_label(kind: str, label: str, prior_labels: list[str]) -> str:
     return label.strip()
 
 
-def _parse(raw: str, n_steps: int, prior_labels: list[str]) -> list[dict]:
-    """Parse + validate the model's JSON array into milestone dicts."""
-    data = json.loads(raw)
+def _parse(data: list, n_steps: int, prior_labels: list[str]) -> list[dict]:
+    """Validate the model's parsed JSON array into milestone dicts."""
     if not isinstance(data, list) or not data:
         raise ValueError("not a non-empty JSON array")
 
@@ -226,37 +220,13 @@ def _parse(raw: str, n_steps: int, prior_labels: list[str]) -> list[dict]:
     return milestones
 
 
-_API_URL = "https://api.anthropic.com/v1/messages"
-
-
 def _llm_segment(steps, variables: dict, prior_labels: list[str]) -> list[dict]:
-    # Call the Anthropic Messages API directly via httpx (already a FastAPI dep)
-    # to avoid pulling the anthropic SDK into the lockfile.
-    import httpx
+    # Provider-agnostic — engine/llm.py picks gemini/gemma or anthropic.
+    messages: list[llm.Message] = list(_FEWSHOT)
+    messages.append(("user", _render_trace(steps, prior_labels)))
 
-    messages = [{"role": role, "content": content} for role, content in _FEWSHOT]
-    messages.append({"role": "user", "content": _render_trace(steps, prior_labels)})
-    messages.append({"role": "assistant", "content": "["})  # prefill → force JSON array
-
-    resp = httpx.post(
-        _API_URL,
-        headers={
-            "x-api-key": ANTHROPIC_API_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json={
-            "model": _MODEL,
-            "max_tokens": _MAX_TOKENS,
-            "system": _SYSTEM,
-            "messages": messages,
-        },
-        timeout=_TIMEOUT_S,
-    )
-    resp.raise_for_status()
-    blocks = resp.json().get("content", [])
-    text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
-    return _parse("[" + text, len(steps), prior_labels)
+    text = llm.complete(_SYSTEM, messages, prefill="[")
+    return _parse(llm.parse_json_array(text), len(steps), prior_labels)
 
 
 def _heuristic_segment(steps, variables: dict) -> list[dict]:

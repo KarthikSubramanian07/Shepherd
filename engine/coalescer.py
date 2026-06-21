@@ -18,7 +18,7 @@ import threading
 from shepherd_types import RunTrace
 from engine.task_graph import TaskGraphStore, milestone_key
 from engine.milestones import segment
-from engine import trace_journal
+from engine import trace_journal, workflow_edit
 from dashboard.events import event_bus
 
 _q: "queue.Queue[RunTrace]" = queue.Queue()
@@ -73,14 +73,17 @@ def _loop() -> None:
 def _coalesce(trace: RunTrace) -> None:
     """Segment the executed trace into milestones and merge into the task graph.
 
-    (CREATE mode. EDIT-mode patching of an existing workflow + baking taught
-    procedures from trace.interventions is the next phase.)
+    CREATE: always merge the observed milestones + edges (builds/reinforces the graph).
+    EDIT:   if the workflow was already known and the run carried human teaching
+            (interventions), bake a patch on top — add conditional clauses / taught
+            procedures — so the workflow self-improves without re-recording.
     """
     graph = _store.load(trace.routine_id, trace.variables)
     was_known = _store.is_known(graph)
     prior_labels = [n.label for n in graph.nodes]
 
     executed_ms = segment(trace.executed, trace.variables, prior_labels=prior_labels)
+    _fill_intervention_node_keys(trace, executed_ms)
 
     # Dedupe within this run so times_seen counts runs, not intra-run repeats.
     unique_ms: list[dict] = []
@@ -107,6 +110,12 @@ def _coalesce(trace: RunTrace) -> None:
     for from_key, to_key in zip(ordered_keys, ordered_keys[1:]):
         _store.record_edge(graph, from_key, to_key, trace.run_id)
 
+    # ── EDIT mode: bake human teaching into the workflow (teaching loop) ─────────
+    applied_ops: list[dict] = []
+    if trace.interventions:
+        patch = workflow_edit.build_patch(graph, trace)
+        applied_ops = workflow_edit.apply_patch(_store, graph, patch, trace.run_id)
+
     _store.save(graph, intent_text="", variables=trace.variables, run_id=trace.run_id)
     event_bus.emit("task.graph.saved", {
         "run_id":     trace.run_id,
@@ -116,4 +125,21 @@ def _coalesce(trace: RunTrace) -> None:
         "edge_count": len(graph.edges),
         "appended":   appended,
         "milestones": [m["label"] for m in unique_ms],
+        "mode":       "edit" if (was_known and trace.interventions) else "create",
+        "baked_ops":  applied_ops,
     })
+
+
+def _fill_intervention_node_keys(trace: RunTrace, executed_ms: list[dict]) -> None:
+    """
+    Best-effort: for any intervention without a node_key, attach it to the
+    milestone whose fine-step range covers its step_index. The engine normally
+    sets node_key directly; this covers journaled/replayed traces.
+    """
+    for iv in trace.interventions:
+        if iv.node_key:
+            continue
+        for m in executed_ms:
+            if m["fine_start"] <= iv.step_index <= m["fine_end"]:
+                iv.node_key = milestone_key(m["kind"], m["value"], m["label"])
+                break

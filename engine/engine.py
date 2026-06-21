@@ -17,7 +17,9 @@ import pyautogui
 
 import config as _cfg
 from config import FEATURES, EXECUTION_MODE
-from shepherd_types import ExecutionResult, ResolvedRoutine, RoutineStep, StepRecord, RunTrace
+from shepherd_types import (
+    ExecutionResult, ResolvedRoutine, RoutineStep, StepRecord, RunTrace, InterventionEvent,
+)
 from engine.coords import get as get_coord
 from engine.routines import get_routine
 from engine.agent_s_adapter import AgentSAdapter
@@ -49,6 +51,7 @@ class ShepherdExecutionEngine:
         self._active_graph = None   # task graph loaded as reference for the current run
         self._step_ms      = {}     # fine-step index → milestone reference for Agent S
         self.last_step_records: list[StepRecord] = []
+        self._interventions: list[InterventionEvent] = []  # human teaching this run → coalescer
         self._halt_flag = threading.Event()
         self._pending_override: str = ""
 
@@ -59,6 +62,7 @@ class ShepherdExecutionEngine:
     def execute(self, resolved: ResolvedRoutine) -> ExecutionResult:
         self._halt_flag.clear()
         self.last_step_records = []
+        self._interventions = []
         # Fresh Agent S trajectory per run — its reflection/trajectory state is
         # per-task and must not leak across runs.
         self._agent_s.reset()
@@ -90,6 +94,7 @@ class ShepherdExecutionEngine:
             key = milestone_key(m["kind"], m["value"], m["label"])
             prior = prior_by_key.get(key)
             self._step_ms[idx] = {
+                "key":        key,
                 "label":      m["label"],
                 "times_seen": prior.times_seen if prior else 0,
             }
@@ -332,7 +337,7 @@ class ShepherdExecutionEngine:
             started_at=started_at,
             ended_at=ended_at,
             executed=executed,
-            interventions=[],   # populated by the teaching-loop phase
+            interventions=list(self._interventions),
             deviations=deviations,
         ))
         self._active_graph = None
@@ -380,6 +385,12 @@ class ShepherdExecutionEngine:
             demo_ctx += (
                 f"\n[task-graph reference] This click is part of milestone "
                 f"'{ms['label']}', performed {ms['times_seen']}x before.")
+
+        # Teaching loop — hand Agent S the taught procedure/conditionals saved on
+        # this milestone so it can apply them in-context (no separate predicate eval).
+        taught = self._taught_resolution(index)
+        if taught:
+            demo_ctx += f"\n[taught] For this milestone: {taught}"
 
         if step.action == "batch_fill" and step.fields:
             return self._agent_s.plan_batch_action(step.fields, index, demo_ctx)
@@ -527,8 +538,30 @@ class ShepherdExecutionEngine:
         if verdict not in ("flag", "halt"):
             return verdict
 
+        # Teaching loop — inject saved clauses instead of re-blocking. If a prior
+        # human already taught how to handle this milestone (save_as_rule → a node
+        # procedure/conditional), auto-resolve a FLAG with that taught action
+        # rather than stopping the human again. HALTs are hard stops, never auto.
+        if verdict == "flag":
+            taught = self._taught_resolution(index)
+            if taught:
+                self._pending_override = taught
+                self._interventions.append(InterventionEvent(
+                    step_index=index, trigger=step.monitor_trigger,
+                    decision="auto", instruction=taught, flag="one_off",
+                    node_key=self._step_ms.get(index, {}).get("key", ""),
+                    scenario=reason, ts=time.time(),
+                ))
+                event_bus.emit("monitor.auto_resolved", {
+                    "run_id": run_id, "step_index": index,
+                    "trigger": step.monitor_trigger, "instruction": taught,
+                })
+                return "ok"
+
         # Approval gate — separated so exceptions here don't silently return "ok"
-        from engine.approvals import suggestions_for, request_approval, get_override_instruction
+        from engine.approvals import (
+            suggestions_for, request_approval, get_override_instruction, get_override_flag,
+        )
 
         sugg = suggestions_for(step.monitor_trigger)
 
@@ -564,10 +597,27 @@ class ShepherdExecutionEngine:
         })
 
         if decision == "halt":
+            self._interventions.append(InterventionEvent(
+                step_index=index, trigger=step.monitor_trigger, decision="halt",
+                node_key=self._step_ms.get(index, {}).get("key", ""),
+                scenario=reason, ts=time.time(),
+            ))
             return "halt"
 
+        instruction, flag = "", "one_off"
         if decision == "override":
-            self._pending_override = get_override_instruction()
+            instruction = get_override_instruction()
+            flag = get_override_flag()
+            self._pending_override = instruction
+
+        # Record the human resolution so the coalescer can bake it (teaching loop).
+        # flag=save_as_rule → conditional clause baked onto this milestone's node.
+        self._interventions.append(InterventionEvent(
+            step_index=index, trigger=step.monitor_trigger, decision=decision,
+            instruction=instruction, flag=flag,
+            node_key=self._step_ms.get(index, {}).get("key", ""),
+            scenario=reason, ts=time.time(),
+        ))
 
         if self._evolution and routine_id:
             try:
@@ -576,3 +626,28 @@ class ShepherdExecutionEngine:
                 pass
 
         return "ok"
+
+    def _node_for_step(self, index: int):
+        """The active-graph milestone node this step belongs to, or None."""
+        if not self._active_graph:
+            return None
+        key = self._step_ms.get(index, {}).get("key", "")
+        if not key:
+            return None
+        for n in self._active_graph.nodes:
+            if n.key == key:
+                return n
+        return None
+
+    def _taught_resolution(self, index: int) -> str:
+        """Taught text (procedure + conditional clauses) saved on this step's node,
+        rendered for Agent S. Empty when nothing was taught here yet."""
+        node = self._node_for_step(index)
+        if node is None:
+            return ""
+        parts: list[str] = []
+        if node.procedure:
+            parts.append(node.procedure.strip())
+        for c in node.conditionals:
+            parts.append(f"if {c.when} → {c.do}")
+        return " | ".join(p for p in parts if p)

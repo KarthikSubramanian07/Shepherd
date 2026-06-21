@@ -146,6 +146,25 @@ stored as JSON in `data/task_graphs.json`, that accumulates across runs.
 - Writes are atomic (temp file + `os.replace`) so a crash never leaves a half-written graph.
 - Complements the Redis replay store: the graph is a *merged* view of what a task has ever
   done; Redis keeps *individual* run history. Read/written at boundaries only.
+- **Taught layer.** Beyond observed milestones, a node can carry a `procedure` and
+  `conditionals` (`if <when> → do <do>`) baked from human interventions, plus `requires`
+  and `source` (`observed` | `taught`). `set_procedure` / `add_conditional` mutate these
+  idempotently. This turns the passively-observed graph into a self-improving *workflow*.
+
+### `engine/llm.py`
+**Provider-agnostic LLM layer** for the COLD-path crystallization calls (milestone
+segmentation + EDIT-mode patches) — never the click path. One `complete()` over httpx
+selects `gemini` (Gemma/Gemini, dev default) or `anthropic` purely from `.env`
+(`LLM_PROVIDER`, `GEMINI_MODEL`, `LLM_ANTHROPIC_MODEL`). Normalizes provider quirks (Gemma
+"thought" parts, code-fenced output) and exposes `parse_json_array()` for robust extraction.
+
+### `engine/workflow_edit.py`
+**Teaching loop — EDIT-mode coalescing.** When a run traces an existing workflow and a
+human resolves a block with the `save_as_rule` flag, `build_patch()` emits a PATCH (ops
+referencing existing node keys: `add_conditional`, `set_procedure`, `add_node`, `add_branch`,
+`noop`) and `apply_patch()` bakes it in — patch, never rebuild, so keys stay stable. Uses the
+LLM when a key is configured; falls back to a deterministic heuristic otherwise. The engine
+then injects these saved clauses on the next run instead of re-blocking.
 
 ---
 

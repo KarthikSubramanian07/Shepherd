@@ -11,7 +11,7 @@ import {
   type Node,
   type NodeProps,
 } from "@xyflow/react";
-import type { TaskGraph } from "@/lib/types";
+import type { Conditional, TaskGraph } from "@/lib/types";
 
 const KIND_COLOR: Record<string, string> = {
   open: "#3b82f6",
@@ -31,15 +31,27 @@ interface MilestoneData {
   value: string | null;
   timesSeen: number;
   lastStatus: string | null;
+  taught: boolean;
+  procedure: string | null;
+  conditionals: Conditional[];
 }
+
+const TAUGHT_COLOR = "#a855f7";
 
 function MilestoneNode(props: NodeProps) {
   const data = props.data as unknown as MilestoneData;
   const color = KIND_COLOR[data.kind] ?? "#94a3b8";
+  // Taught nodes carry baked human knowledge — highlight them distinctly.
+  const borderColor = data.taught ? TAUGHT_COLOR : color;
   return (
     <div
       className="rounded-xl border bg-panel px-4 py-3 shadow-lg"
-      style={{ borderColor: color, minWidth: 210 }}
+      style={{
+        borderColor,
+        minWidth: 210,
+        maxWidth: 280,
+        boxShadow: data.taught ? `0 0 0 1px ${TAUGHT_COLOR}55` : undefined,
+      }}
     >
       <Handle type="target" position={Position.Left} className="!bg-edge" />
       <div className="flex items-center gap-2">
@@ -49,6 +61,14 @@ function MilestoneNode(props: NodeProps) {
         >
           {data.kind}
         </span>
+        {data.taught && (
+          <span
+            className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+            style={{ background: `${TAUGHT_COLOR}22`, color: TAUGHT_COLOR }}
+          >
+            taught
+          </span>
+        )}
         {data.timesSeen > 1 && (
           <span className="ml-auto text-[10px] text-muted">seen {data.timesSeen}×</span>
         )}
@@ -56,6 +76,29 @@ function MilestoneNode(props: NodeProps) {
       <div className="mt-1.5 text-sm font-medium text-ink">{data.label}</div>
       {data.value && (
         <div className="mt-0.5 max-w-[190px] truncate text-[11px] text-muted">{data.value}</div>
+      )}
+      {data.procedure && (
+        <div
+          className="mt-2 rounded-md px-2 py-1 text-[11px] leading-snug"
+          style={{ background: `${TAUGHT_COLOR}14`, color: "#d8b4fe" }}
+        >
+          <span className="font-semibold">procedure: </span>
+          {data.procedure}
+        </div>
+      )}
+      {data.conditionals.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {data.conditionals.map((c, i) => (
+            <div
+              key={i}
+              className="rounded-md px-2 py-1 text-[11px] leading-snug"
+              style={{ background: `${TAUGHT_COLOR}14`, color: "#d8b4fe" }}
+            >
+              <span className="font-semibold">if</span> {c.when}{" "}
+              <span className="font-semibold">→</span> {c.do}
+            </div>
+          ))}
+        </div>
       )}
       <Handle type="source" position={Position.Right} className="!bg-edge" />
     </div>
@@ -134,17 +177,29 @@ export function TaskGraphView({ graph }: { graph: TaskGraph }) {
         value: n.value,
         timesSeen: n.times_seen,
         lastStatus: n.last_status,
+        taught: n.source === "taught",
+        procedure: n.procedure ?? null,
+        conditionals: n.conditionals ?? [],
       },
     }));
-    const edges: Edge[] = graph.edges.map((e, i) => ({
-      id: `e${i}`,
-      source: e.from,
-      target: e.to,
-      type: "smoothstep",
-      animated: true,
-      label: e.times_seen > 1 ? `${e.times_seen}×` : undefined,
-      style: { strokeWidth: Math.min(1 + e.times_seen, 4), stroke: "#3b82f6" },
-    }));
+    const edges: Edge[] = graph.edges.map((e, i) => {
+      // Conditional/taught branches read as labelled NL guards, styled distinctly.
+      const conditional = Boolean(e.condition);
+      return {
+        id: `e${i}`,
+        source: e.from,
+        target: e.to,
+        type: "smoothstep",
+        animated: true,
+        label: e.condition ?? (e.times_seen > 1 ? `${e.times_seen}×` : undefined),
+        labelStyle: conditional ? { fill: TAUGHT_COLOR, fontSize: 11 } : undefined,
+        style: {
+          strokeWidth: Math.min(1 + e.times_seen, 4),
+          stroke: conditional ? TAUGHT_COLOR : "#3b82f6",
+          strokeDasharray: conditional ? "5 4" : undefined,
+        },
+      };
+    });
     return { nodes, edges };
   }, [graph]);
 

@@ -114,11 +114,29 @@ class ReplayRecord:
 
 
 @dataclass
+class Conditional:
+    """
+    A natural-language conditional clause carried by a milestone — read by the
+    agent in-context ("if <when> → do <do>"), NOT a separate predicate engine.
+    Baked by the coalescer when a human resolves a block/deviation with the
+    save_as_rule flag. `goto` optionally reuses another node's action.
+    """
+    when: str                         # NL guard, e.g. "you don't have the project info"
+    do: str                           # NL action, e.g. "research the user's GitHub …"
+    goto: Optional[str] = None        # key of another node whose action to reuse
+    source: str = "taught"            # "taught" | "observed"
+
+
+@dataclass
 class TaskGraphNode:
     """
     One coarse milestone the task has performed (e.g. "Search: AI agent safety",
     "Scan results", "Submit") — NOT a single click. Many fine clicks collapse into
     one node. Accumulates across runs.
+
+    Beyond the observed milestone it may carry TAUGHT knowledge — a standard
+    `procedure` and `conditionals` baked from human interventions — turning the
+    passively-observed graph into an opinionated, self-improving workflow.
     """
     key: str                          # stable signature: kind::value::label
     kind: str                         # open|navigate|search|scan|fill|submit|interact
@@ -129,6 +147,13 @@ class TaskGraphNode:
     fine_steps: int = 0               # # of clicks that collapsed into this milestone
     first_run_id: str = ""
     last_run_id: str = ""
+    # ── taught / workflow layer ────────────────────────────────────────────────
+    instruction: str = ""             # NL instruction handed to Agent S (defaults to label)
+    requires: list[str] = field(default_factory=list)        # profile/KB keys needed here
+    conditionals: list[Conditional] = field(default_factory=list)  # if <when> → do <do>
+    procedure: Optional[str] = None   # taught standard procedure for this milestone
+    optional: bool = False
+    source: str = "observed"          # "observed" | "taught"
 
 
 @dataclass
@@ -143,6 +168,7 @@ class TaskGraphEdge:
     to_key: str
     times_seen: int = 0
     last_run_id: str = ""
+    condition: Optional[str] = None   # NL guard on a conditional/taught branch
 
 
 @dataclass
@@ -180,6 +206,8 @@ class InterventionEvent:
     decision: str = ""            # "approve" | "halt" | "override"
     instruction: str = ""         # human override / taught procedure (NL)
     flag: str = "one_off"         # "one_off" | "save_as_rule"
+    node_key: str = ""            # milestone the block attaches to (for EDIT-mode baking)
+    scenario: str = ""            # NL description of the scenario, falls back to trigger
     ts: float = 0.0
 
 

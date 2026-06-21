@@ -14,9 +14,11 @@ Usage (server side):
 import queue
 import threading
 
-# (decision, override_instruction) — queue is race-free vs Event+global pattern
+# (decision, override_instruction, flag) — queue is race-free vs Event+global pattern.
+# flag is the human's discretionary teaching gate: "one_off" | "save_as_rule".
 _q: queue.SimpleQueue = queue.SimpleQueue()
 _last_instruction: str = ""
+_last_flag: str = "one_off"
 _instr_lock = threading.Lock()
 
 # Context-specific suggestions surfaced in the dashboard intervention panel.
@@ -66,10 +68,11 @@ def request_approval(
             break
 
     try:
-        decision, instruction = _q.get(timeout=timeout)
+        decision, instruction, flag = _q.get(timeout=timeout)
         with _instr_lock:
-            global _last_instruction
+            global _last_instruction, _last_flag
             _last_instruction = instruction
+            _last_flag = flag or "one_off"
         return decision
     except queue.Empty:
         return default
@@ -77,12 +80,16 @@ def request_approval(
 
 def set_decision(decision: str) -> None:
     """Called by the HTTP handler when the user clicks Approve or Halt."""
-    _q.put((decision, ""))
+    _q.put((decision, "", "one_off"))
 
 
-def set_override(instruction: str) -> None:
-    """Called when human submits a custom override instruction."""
-    _q.put(("override", instruction))
+def set_override(instruction: str, flag: str = "one_off") -> None:
+    """Called when a human submits a custom override instruction.
+
+    flag = "save_as_rule" bakes the resolution into the workflow (teaching loop);
+    "one_off" applies it for this run only.
+    """
+    _q.put(("override", instruction, flag if flag in ("one_off", "save_as_rule") else "one_off"))
 
 
 def get_override_instruction() -> str:
@@ -92,3 +99,12 @@ def get_override_instruction() -> str:
         inst = _last_instruction
         _last_instruction = ""
     return inst
+
+
+def get_override_flag() -> str:
+    """Consume the pending override flag ("one_off" | "save_as_rule")."""
+    global _last_flag
+    with _instr_lock:
+        flag = _last_flag
+        _last_flag = "one_off"
+    return flag

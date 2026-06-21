@@ -234,6 +234,13 @@ export type MilestoneKind =
   | "verify"
   | "interact";
 
+export interface Conditional {
+  when: string;
+  do: string;
+  goto: string | null;
+  source: string;
+}
+
 export interface TaskGraphNode {
   key: string;
   kind: MilestoneKind | string;
@@ -244,6 +251,13 @@ export interface TaskGraphNode {
   fine_steps: number;
   first_run_id: string;
   last_run_id: string;
+  // taught / workflow layer
+  instruction?: string;
+  requires?: string[];
+  conditionals?: Conditional[];
+  procedure?: string | null;
+  optional?: boolean;
+  source?: "observed" | "taught" | string;
 }
 
 export interface TaskGraphEdge {
@@ -251,6 +265,7 @@ export interface TaskGraphEdge {
   to: string;
   times_seen: number;
   last_run_id: string;
+  condition?: string | null;
 }
 
 export interface TaskGraph {
