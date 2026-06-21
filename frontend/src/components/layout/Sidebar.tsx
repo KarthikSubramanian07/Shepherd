@@ -102,8 +102,8 @@ export function Sidebar() {
             className="h-[19px] w-auto"
             draggable={false}
           />
-          <div className="mt-1 text-[10px] font-medium uppercase tracking-eyebrow text-muted">
-            Oversight Console
+          <div className="mt-1 font-serif text-[12px] italic leading-none text-accent-ink">
+            Oversight console
           </div>
         </div>
       </div>
