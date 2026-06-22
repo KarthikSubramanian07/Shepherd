@@ -10,6 +10,7 @@ data/workflows.json
 data/catalog_cache.json
 data/run_traces/
 data/requests.log
+data/simulang/
 
 # impeccable design tool (local install) + local agent settings
 .claude/
