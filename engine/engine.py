@@ -76,7 +76,7 @@ _CLICK_RE = re.compile(r"click\(\s*(\d+)\s*,\s*(\d+)", re.IGNORECASE)
 def _first_click_coords(code: Optional[str]) -> Optional[tuple]:
     """Pull the first pyautogui.click(x, y) coordinate out of agent code so the
     session-replay frame can annotate WHERE the agent decided to click."""
-    if not code:
+    if not code or not isinstance(code, str):
         return None
     m = _CLICK_RE.search(code)
     return (int(m.group(1)), int(m.group(2))) if m else None
