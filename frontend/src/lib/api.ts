@@ -15,6 +15,7 @@ import type {
   RunSummary,
   TaskGraph,
 } from "./types";
+import type { RemoteTrace } from "./coordinator";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
@@ -281,6 +282,11 @@ export const api = {
   haltAllAgents: async (): Promise<{ ok?: boolean; halted?: number }> => {
     const res = await fetch(`${BACKEND}/api/fleet/halt_all`, { method: "POST" });
     return res.json().catch(() => ({ ok: false }));
+  },
+  getAgentTrace: async (agentId: string): Promise<RemoteTrace | null> => {
+    const res = await fetch(`${BACKEND}/api/fleet/${agentId}/trace`, { cache: "no-store" });
+    const body = await res.json().catch(() => null);
+    return body?.trace ?? null;
   },
 };
 

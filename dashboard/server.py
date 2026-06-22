@@ -18,7 +18,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 import config as _cfg
 from config import DASHBOARD_PORT
 from dashboard.events import event_bus
+from dashboard import fleet_trace as _fleet_trace
 from dashboard.deepgram_routes import router as deepgram_router
+
+# Wire up per-agent trace accumulation for the Fleet view so it captures
+# events as soon as the event_bus is active (before any orchestrator runs).
+_fleet_trace.install()
 
 _started_at = time.time()
 _state: dict = {
@@ -1035,6 +1040,14 @@ async def fleet_halt_all() -> JSONResponse:
         return JSONResponse({"error": "orchestrator not running"}, status_code=409)
     return JSONResponse({"ok": True, "halted": _orchestrator.halt_all()})
 
+
+@app.get("/api/fleet/{agent_id}/trace")
+async def fleet_agent_trace(agent_id: str) -> JSONResponse:
+    """Live execution-trace graph for a specific fleet agent."""
+    tr = _fleet_trace.get_trace(agent_id)
+    if tr is None:
+        return JSONResponse({"trace": None})
+    return JSONResponse({"trace": tr})
 
 
 @app.post("/api/intent")
