@@ -23,10 +23,13 @@ in execution order.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from engine import llm
 from engine.task_graph import summarize
+
+if TYPE_CHECKING:
+    from shepherd_types import InterventionEvent, TaskGraphNode
 
 # Closed taxonomy — keeps milestone keys stable across runs and lets the UI
 # style nodes by kind. Anything off-taxonomy is coerced to "interact".
@@ -68,6 +71,11 @@ RULES:
   - value = the salient payload (search term, URL host, record/field handled), else null.
   - Reuse a PRIOR milestone's exact label when this milestone is the same action
     as one already in the task graph (listed below) — this keeps the graph stable.
+  - USER INTERVENTIONS: steps tagged <<< USER INTERVENED >>> are deliberate human
+    steering, NOT wrong turns. They must be their own milestone (or part of the
+    milestone they belong to) and NEVER flagged as detour. The user's instruction
+    and reasoning explain WHY those steps happened — preserve that context in
+    the milestone's detail field.
 
 KIND must be one of: open | navigate | search | research | scan | fill | submit | verify | interact
 
@@ -143,10 +151,63 @@ _EX3_OUT = """\
   {"kind": "scan", "label": "Dashboard loaded", "detail": "dashboard loaded after the retry", "value": null, "fine_start": 7, "fine_end": 7}
 ]"""
 
+# ── Few-shot example 4: repeat run with prior milestones + user intervention ──
+_EX4_IN = """\
+PRIOR MILESTONES:
+  Open application form
+  Fill applicant details  [taught: if projects field is empty → research their GitHub]
+  Submit application
+TRACE:
+0 open_app Chrome localhost/demo-form — "Open browser"
+1 wait — "Wait for form"
+2 batch_fill [First name, Last name, Email] — "Fill basic fields"
+3 hotkey cmd+t — "Open new tab"  <<< USER INTERVENED: research their GitHub projects first (reason: projects field was empty) >>>
+4 type "applicant github projects" — "Search GitHub"
+5 wait — "Results page"
+6 click — "Open profile"
+7 wait — "Read projects"
+8 hotkey cmd+1 — "Switch back to form"
+9 type "ML pipeline, data viz" — "Fill projects field"
+10 hotkey cmd+return — "Submit form\""""
+_EX4_OUT = """\
+[
+  {"kind": "open", "label": "Open application form", "detail": "opened Chrome to the demo application form", "value": "demo-form", "fine_start": 0, "fine_end": 1},
+  {"kind": "fill", "label": "Fill applicant details", "detail": "filled basic fields (name, email); projects field was empty", "value": null, "fine_start": 2, "fine_end": 2},
+  {"kind": "research", "label": "Research GitHub projects", "detail": "user instructed to research GitHub projects because projects field was empty; searched and read profile", "value": "GitHub", "fine_start": 3, "fine_end": 7},
+  {"kind": "fill", "label": "Complete application", "detail": "switched back and filled projects field with findings from research", "value": null, "fine_start": 8, "fine_end": 9},
+  {"kind": "submit", "label": "Submit application", "detail": "submitted the completed application", "value": null, "fine_start": 10, "fine_end": 10}
+]"""
+
+# ── Few-shot example 5: intervention mid-fill (steer within a milestone) ──────
+_EX5_IN = """\
+PRIOR MILESTONES:
+  Open email client
+  Compose new message
+  Send message
+TRACE:
+0 open_app Chrome mail.google.com — "Open Gmail"
+1 wait — "Inbox loaded"
+2 click — "Click Compose"
+3 type "team@example.com" — "To field"
+4 type "Weekly update" — "Subject"  <<< USER INTERVENED: also CC manager@example.com and mark as high priority (reason: this is the weekly status report) >>>
+5 click — "Open CC field"
+6 type "manager@example.com" — "CC field"
+7 click — "Click priority indicator"
+8 type "Here are this week's highlights..." — "Body text"
+9 hotkey cmd+return — "Send\""""
+_EX5_OUT = """\
+[
+  {"kind": "open", "label": "Open email client", "detail": "opened Gmail in Chrome", "value": "mail.google.com", "fine_start": 0, "fine_end": 1},
+  {"kind": "fill", "label": "Compose new message", "detail": "clicked compose, filled recipient and subject; user instructed to also CC manager and mark high priority for weekly status report", "value": null, "fine_start": 2, "fine_end": 8},
+  {"kind": "submit", "label": "Send message", "detail": "sent the email with cmd+return", "value": null, "fine_start": 9, "fine_end": 9}
+]"""
+
 _FEWSHOT = [
     ("user", _EX1_IN), ("assistant", _EX1_OUT),
     ("user", _EX2_IN), ("assistant", _EX2_OUT),
     ("user", _EX3_IN), ("assistant", _EX3_OUT),
+    ("user", _EX4_IN), ("assistant", _EX4_OUT),
+    ("user", _EX5_IN), ("assistant", _EX5_OUT),
 ]
 
 
@@ -200,10 +261,54 @@ def render_step(i: int, step) -> str:
     return line
 
 
-def _render_trace(steps, prior_labels: list[str]) -> str:
-    prior = "; ".join(dict.fromkeys(prior_labels)) if prior_labels else "none — first run"
-    lines = "\n".join(render_step(i, s) for i, s in enumerate(steps))
-    return f"PRIOR MILESTONES: {prior}\nTRACE:\n{lines}"
+def _render_trace(
+    steps,
+    prior_labels: list[str],
+    interventions: "Optional[list[InterventionEvent]]" = None,
+    prior_nodes: "Optional[list[TaskGraphNode]]" = None,
+) -> str:
+    # Richer prior context when full node objects are available.
+    if prior_nodes:
+        prior_lines: list[str] = []
+        for n in prior_nodes:
+            line = f"  {n.label}"
+            if n.conditionals:
+                conds = "; ".join(f"if {c.when} → {c.do}" for c in n.conditionals)
+                line += f"  [taught: {conds}]"
+            if n.source == "taught":
+                line += "  (user-taught)"
+            prior_lines.append(line)
+        prior_section = "PRIOR MILESTONES:\n" + "\n".join(prior_lines)
+    elif prior_labels:
+        prior_section = "PRIOR MILESTONES: " + "; ".join(dict.fromkeys(prior_labels))
+    else:
+        prior_section = "PRIOR MILESTONES: none — first run"
+
+    # Build an index of interventions by step_index for inline annotation.
+    # Multiple steers can share the same step_index (batch drain), so collect
+    # all of them per step.
+    iv_map: dict[int, list["InterventionEvent"]] = {}
+    for iv in (interventions or []):
+        iv_map.setdefault(iv.step_index, []).append(iv)
+
+    trace_lines: list[str] = []
+    for i, s in enumerate(steps):
+        line = render_step(i, s)
+        if i in iv_map:
+            annotations: list[str] = []
+            for iv in iv_map[i]:
+                reason = (iv.scenario or iv.trigger or "").strip()
+                instr = (iv.instruction or "").strip()
+                parts = []
+                if instr:
+                    parts.append(instr)
+                if reason:
+                    parts.append(f"(reason: {reason})")
+                annotations.append(" ".join(parts) if parts else "user override")
+            line += f"  <<< USER INTERVENED: {' | '.join(annotations)} >>>"
+        trace_lines.append(line)
+
+    return f"{prior_section}\nTRACE:\n" + "\n".join(trace_lines)
 
 
 def _coerce_kind(kind: Optional[str]) -> str:
@@ -211,17 +316,64 @@ def _coerce_kind(kind: Optional[str]) -> str:
     return k if k in TAXONOMY else "interact"
 
 
-def _snap_label(kind: str, label: str, prior_labels: list[str]) -> str:
-    """Reuse a prior milestone's exact label on a case-insensitive match — keeps
-    node keys stable so repeated runs reinforce nodes instead of duplicating them."""
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "to", "in", "on", "at", "of", "for", "and", "or",
+    "is", "it", "its", "this", "that", "with", "from", "by",
+})
+
+
+def _token_set(text: str) -> set[str]:
+    """Lowercase word tokens, stripping punctuation and stop words."""
+    return {w for w in text.lower().split() if w.isalpha() and w not in _STOP_WORDS}
+
+
+def _snap_label(
+    kind: str,
+    label: str,
+    prior_labels: list[str],
+    prior_kinds: Optional[list[str]] = None,
+) -> str:
+    """Reuse a prior milestone's label when it's the same action — fuzzy match.
+
+    Matching tiers (first hit wins):
+      1. Exact case-insensitive match (any kind).
+      2. Token-set Jaccard similarity >= 0.5, same kind only — picks the
+         highest-scoring prior.
+    This prevents key divergence from minor LLM wording variations
+    (e.g. "Fill applicant info" vs "Fill applicant details") while avoiding
+    cross-kind false matches (e.g. "Research application form" should not
+    snap to "Open application form")."""
     low = label.strip().lower()
     for p in prior_labels:
         if p.strip().lower() == low:
             return p
+    # Fuzzy tier: token-set Jaccard, restricted to same kind.
+    label_tokens = _token_set(label)
+    if not label_tokens:
+        return label.strip()
+    best_score, best_label = 0.0, ""
+    for idx, p in enumerate(prior_labels):
+        # Skip priors with a different kind (when kind info is available).
+        if prior_kinds and idx < len(prior_kinds) and prior_kinds[idx] != kind:
+            continue
+        p_tokens = _token_set(p)
+        if not p_tokens:
+            continue
+        jaccard = len(label_tokens & p_tokens) / len(label_tokens | p_tokens)
+        if jaccard > best_score:
+            best_score = jaccard
+            best_label = p
+    if best_score >= 0.5:
+        return best_label
     return label.strip()
 
 
-def _parse(data: list, n_steps: int, prior_labels: list[str]) -> list[dict]:
+def _parse(
+    data: list,
+    n_steps: int,
+    prior_labels: list[str],
+    prior_kinds: Optional[list[str]] = None,
+) -> list[dict]:
     """Validate the model's parsed JSON array into milestone dicts."""
     if not isinstance(data, list) or not data:
         raise ValueError("not a non-empty JSON array")
@@ -233,7 +385,10 @@ def _parse(data: list, n_steps: int, prior_labels: list[str]) -> list[dict]:
         if fe < fs:
             fs, fe = fe, fs
         kind = _coerce_kind(item.get("kind"))
-        label = _snap_label(kind, str(item.get("label") or "Step")[:60], prior_labels)
+        label = _snap_label(
+            kind, str(item.get("label") or "Step")[:60],
+            prior_labels, prior_kinds=prior_kinds,
+        )
         milestones.append({
             "kind": kind,
             "label": label,
@@ -253,13 +408,23 @@ def _parse(data: list, n_steps: int, prior_labels: list[str]) -> list[dict]:
     return milestones
 
 
-def _llm_segment(steps, variables: dict, prior_labels: list[str]) -> list[dict]:
+def _llm_segment(
+    steps,
+    variables: dict,
+    prior_labels: list[str],
+    interventions: "Optional[list[InterventionEvent]]" = None,
+    prior_nodes: "Optional[list[TaskGraphNode]]" = None,
+) -> list[dict]:
     # Provider-agnostic — engine/llm.py picks gemini/gemma or anthropic.
     messages: list[llm.Message] = list(_FEWSHOT)
-    messages.append(("user", _render_trace(steps, prior_labels)))
+    messages.append(("user", _render_trace(
+        steps, prior_labels, interventions=interventions, prior_nodes=prior_nodes,
+    )))
 
     text = llm.complete(_SYSTEM, messages, prefill="[")
-    return _parse(llm.parse_json_array(text), len(steps), prior_labels)
+    prior_kinds = [n.kind for n in prior_nodes] if prior_nodes else None
+    return _parse(llm.parse_json_array(text), len(steps), prior_labels,
+                  prior_kinds=prior_kinds)
 
 
 def _heuristic_segment(steps, variables: dict) -> list[dict]:
@@ -276,13 +441,24 @@ def _heuristic_segment(steps, variables: dict) -> list[dict]:
     return out
 
 
-def segment(steps, variables: dict, prior_labels: Optional[list[str]] = None) -> list[dict]:
+def segment(
+    steps,
+    variables: dict,
+    prior_labels: Optional[list[str]] = None,
+    interventions: "Optional[list[InterventionEvent]]" = None,
+    prior_nodes: "Optional[list[TaskGraphNode]]" = None,
+) -> list[dict]:
     """
     Segment a fine step sequence into ordered high-level milestones.
 
     Tries the LLM first (when a key is configured); on any failure falls back to
     the deterministic heuristic. Always returns a non-empty list when steps is
     non-empty, in execution order.
+
+    When *interventions* or *prior_nodes* are provided, intervention markers are
+    rendered inline at the step indices where they occurred, and prior milestones
+    include taught conditionals / procedures so the segmenter respects prior
+    teaching and treats user-directed steps as forward milestones (not detours).
     """
     if not steps:
         return []
@@ -291,7 +467,9 @@ def segment(steps, variables: dict, prior_labels: Optional[list[str]] = None) ->
         # Semantic cache lookup BEFORE the LLM call. The step count guards against
         # a near-match whose indices would not line up (a hit must be same length).
         cache = _semantic_cache()
-        cache_key = _render_trace(steps, prior_labels)
+        cache_key = _render_trace(
+            steps, prior_labels, interventions=interventions, prior_nodes=prior_nodes,
+        )
         if cache and cache.available:
             hit = cache.get(cache_key, min_sim=_CACHE_MIN_SIM)
             if hit:
@@ -300,7 +478,10 @@ def segment(steps, variables: dict, prior_labels: Optional[list[str]] = None) ->
                     print(f"[milestones] semantic cache HIT (sim={sim}) — skipped LLM call")
                     return cached["milestones"]
         try:
-            ms = _llm_segment(steps, variables, prior_labels)
+            ms = _llm_segment(
+                steps, variables, prior_labels,
+                interventions=interventions, prior_nodes=prior_nodes,
+            )
             if ms:
                 if cache and cache.available:
                     cache.put(cache_key, {"n_steps": len(steps), "milestones": ms})
