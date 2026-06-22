@@ -1,3 +1,121 @@
+# Shepherd Demos
+
+## Demo 1: Agent-Initiated Help Signal + Mid-Run Steering
+
+Demonstrates three capabilities:
+1. **Agent asks for help** — Agent S proactively suspends when it encounters something it can't handle (CAPTCHAs, credential fields, unknown info)
+2. **Operator steers** — amend a running task's goal without halting
+3. **Halt / resume** — pause the agent, provide instructions, continue
+
+### Prerequisites
+
+```bash
+cd shepherd
+source .venv/bin/activate
+
+# Required: Anthropic API key for Agent S
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+### Scenario A: Help Signal (agent encounters credentials)
+
+The built-in demo form (`data/demo_form.html`) has a "Password / API Key" field that the agent doesn't know how to fill.
+
+**Terminal 1 — start the engine:**
+```bash
+DISPLAY=:0 python main.py
+```
+
+**Terminal 2 — send a task via the dashboard API:**
+```bash
+# Tell the agent to fill the demo form
+curl -X POST http://localhost:52150/api/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Open file:///$(pwd)/data/demo_form.html in Chrome and fill out the entire form with realistic test data"}'
+```
+
+**What happens:**
+1. Agent starts filling the form (name, email, etc.)
+2. When it reaches the Password / API Key field, it emits `status: "help"` with reasoning like: *"I need a password or API key to fill the credential field but I don't have one"*
+3. Engine suspends — `execution.suspended` event fires with `reason: "agent_requested_help"`
+4. Dashboard shows the agent is suspended with the help message
+
+**Provide help and resume:**
+```bash
+# See the suspended state
+curl http://localhost:52150/api/status
+
+# Steer with the answer — this resumes the agent
+curl -X POST http://localhost:52150/api/steer \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Use password: TestPass123! for the credential field"}'
+```
+
+The agent resumes with the amended goal and fills in the password.
+
+### Scenario B: Mid-Run Steering (amend a live task)
+
+```bash
+# Send a task
+curl -X POST http://localhost:52150/api/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Open Chrome and search for machine learning papers on Google"}'
+
+# While the agent is running (within ~3-5 seconds), steer it
+curl -X POST http://localhost:52150/api/steer \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Actually use duckduckgo.com instead of Google"}'
+```
+
+The agent picks up the steer at the next step boundary, amends its goal, and switches to DuckDuckGo.
+
+### Scenario C: Halt and Resume
+
+```bash
+# Send a long task
+curl -X POST http://localhost:52150/api/intent \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Open Chrome and research the top 5 AI startups of 2025"}'
+
+# Halt it mid-run
+curl -X POST http://localhost:52150/api/halt
+
+# Check suspended state
+curl http://localhost:52150/api/status
+
+# Resume with new instructions
+curl -X POST http://localhost:52150/api/steer \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "Focus only on startups in the healthcare AI space"}'
+```
+
+### Using the Command Center UI (recommended)
+
+Instead of curl, use the full UI for visual feedback:
+
+```bash
+cd frontend && npm run dev
+# Open http://localhost:3000/remote
+```
+
+- **While running**: type in the text bar and click **Steer** to amend the task
+- **When agent asks for help**: an amber banner shows the help message; type your answer and click **Resume**
+- **Halt**: click the red **Halt** button; agent suspends at the next step boundary
+- **New Task**: click **New Task** to abandon current work and start fresh
+
+### What Triggers a Help Request
+
+The agent emits `status: "help"` when it encounters:
+- **Credential fields** — passwords, API keys, tokens it doesn't have
+- **CAPTCHA** — visual challenges it cannot solve
+- **Login / 2FA walls** — authentication barriers
+- **Unknown personal info** — SSN, account numbers, specific details the operator must provide
+- **Ambiguous fields** — when it genuinely doesn't know what value to enter
+
+The agent does NOT use "help" for recoverable issues (it tries alternatives first).
+
+---
+
 # Shepherd Remote Orchestration Demo
 
 Demonstrate one machine monitoring and operating another through the Shepherd Coordinator relay.

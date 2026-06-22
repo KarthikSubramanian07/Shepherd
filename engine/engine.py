@@ -101,41 +101,60 @@ class SuspendedTask:
 
 
 def activate_app(name: str, settle: float = 1.2) -> None:
-    """Deterministically bring a macOS app to the foreground and give it focus.
-
-    Exposed to autonomous chained-action code. Use this before typing so keystrokes
-    land in the intended window — Spotlight launches are unreliable about stealing
-    focus, which is what sends text into Spotlight/the wrong field. `open -a` both
-    launches the app (if needed) and activates it (brings a running app to front),
-    so it covers both cases without the AppleScript `activate` — which would require
-    macOS Automation (TCC) permission and could stall on a consent prompt."""
+    """Bring an app to the foreground. Cross-platform: macOS uses `open -a`,
+    Linux uses `wmctrl` or `xdotool` as fallback."""
+    import sys as _sys
     try:
-        subprocess.run(["open", "-a", name], check=False, timeout=10)
+        if _sys.platform == "darwin":
+            subprocess.run(["open", "-a", name], check=False, timeout=10)
+        else:
+            # Linux: try wmctrl first, then xdotool
+            try:
+                subprocess.run(
+                    ["wmctrl", "-a", name], check=True, timeout=5,
+                )
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                try:
+                    subprocess.run(
+                        ["xdotool", "search", "--name", name, "windowactivate"],
+                        check=False, timeout=5,
+                    )
+                except FileNotFoundError:
+                    print("[engine] activate_app: no wmctrl/xdotool on Linux (non-fatal)")
     except Exception as e:  # never let focus-setting abort the run
         print(f"[engine] activate_app({name!r}) failed (non-fatal): {e}")
     time.sleep(settle)
 
 
 def type_text(text: str) -> None:
-    """Reliable text entry for the autonomous agent — paste via the macOS clipboard
-    (pbcopy + AppleScript Cmd+V) instead of typing character-by-character.
-
-    pyautogui.typewrite holds Shift to make capitals; at low intervals the release
-    lags, so letters after a capital stay uppercase ('Introduction' -> 'INTRODUCTION')
-    until it catches up. Pasting sends no per-character keystrokes, so capitalization,
-    punctuation and newlines come out exactly as written. Falls back to typewrite if
-    the clipboard path fails. The focused field must already be active (click/select
-    first), same as typewrite."""
+    """Reliable text entry — paste via clipboard instead of character-by-character.
+    Cross-platform: macOS uses pbcopy + Cmd+V, Linux uses xclip + Ctrl+V."""
     if not text:
         return
+    import sys as _sys
     try:
-        subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True, timeout=5)
-        time.sleep(0.1)
-        subprocess.run(
-            ["osascript", "-e",
-             'tell application "System Events" to keystroke "v" using command down'],
-            check=False, timeout=5,
-        )
+        if _sys.platform == "darwin":
+            subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=True, timeout=5)
+            time.sleep(0.1)
+            subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to keystroke "v" using command down'],
+                check=False, timeout=5,
+            )
+        else:
+            # Linux: use xclip + Ctrl+V
+            try:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=text.encode("utf-8"), check=True, timeout=5,
+                )
+            except FileNotFoundError:
+                subprocess.run(
+                    ["xsel", "--clipboard", "--input"],
+                    input=text.encode("utf-8"), check=True, timeout=5,
+                )
+            time.sleep(0.1)
+            pyautogui.hotkey("ctrl", "v")
     except Exception as e:
         print(f"[engine] type_text paste failed ({e}); falling back to typewrite")
         pyautogui.typewrite(text, interval=0.05)
@@ -625,6 +644,40 @@ class ShepherdExecutionEngine:
                             "run_id": run_id, "step_index": i,
                             "goal": goal, "reason": "agent_reported_fail",
                             "error": error,
+                        })
+                        break
+
+                    if result.outcome == "help":
+                        help_msg = result.raw or "Agent needs human assistance"
+                        dur_ms = int((time.time() - step_t0) * 1000)
+                        self.last_step_records.append(StepRecord(
+                            index=i, action="agent_s", target=None,
+                            status="blocked", started_at=step_t0, duration_ms=dur_ms,
+                            error=help_msg,
+                        ))
+                        event_bus.emit("step.complete", {
+                            "run_id": run_id, "index": i,
+                            "status": "blocked", "duration_ms": dur_ms,
+                            "deviation": "help_requested",
+                        })
+                        event_bus.emit("step.help_requested", {
+                            "run_id": run_id, "index": i, "help_message": help_msg,
+                        })
+                        self._suspended_task = SuspendedTask(
+                            run_id=run_id, task_key=task_key, goal=goal,
+                            plan_hint=plan_hint, memory_hint=memory_hint,
+                            step_index=i, variables=variables,
+                            executed=list(executed),
+                            chain_history=list(self._agent_s._chain_history),
+                            interventions=list(self._interventions),
+                            graph=graph, halted_at=time.time(),
+                            steps_done=steps_done,
+                        )
+                        status = "suspended"
+                        event_bus.emit("execution.suspended", {
+                            "run_id": run_id, "step_index": i,
+                            "goal": goal, "reason": "agent_requested_help",
+                            "help_message": help_msg,
                         })
                         break
 
@@ -1385,15 +1438,45 @@ class ShepherdExecutionEngine:
             print(f"[execute_workflow] bake failed (non-fatal): {exc}")
 
         ended_at = time.time()
-        status = {"completed": "completed", "blocked": "aborted"}.get(wf_run.status, "aborted")
+
+        # Detect agent-initiated help in workflow runs: the inner loop marks
+        # blocked_on with a "__HELP__:" prefix so we can suspend instead of abort.
+        is_help = (wf_run.blocked_on or "").startswith("__HELP__:")
+        help_msg = ""
+        if is_help:
+            help_msg = wf_run.blocked_on[len("__HELP__:"):]
+            self._suspended_task = SuspendedTask(
+                run_id=run_id, task_key=workflow.id, goal=goal or workflow.name,
+                plan_hint="", memory_hint="",
+                step_index=len(wf_run.path),
+                variables=params or {},
+                executed=[], chain_history=list(self._agent_s._chain_history),
+                interventions=list(self._interventions),
+                graph=self._active_graph, halted_at=time.time(),
+                steps_done=len(wf_run.path),
+            )
+            event_bus.emit("execution.suspended", {
+                "run_id": run_id, "step_index": len(wf_run.path),
+                "goal": goal or workflow.name,
+                "reason": "agent_requested_help",
+                "help_message": help_msg,
+            })
+
+        status_map = {"completed": "completed", "blocked": "aborted"}
+        if is_help:
+            status = "suspended"
+        else:
+            status = status_map.get(wf_run.status, "aborted")
+
+        display_error = help_msg if is_help else (wf_run.blocked_on or "")
         response = summarize_run(
             goal or workflow.name, status, [r.label for r in wf_run.path],
-            error=(wf_run.blocked_on or "") if status != "completed" else "")
+            error=display_error if status != "completed" else "")
         result = ExecutionResult(
             routine_id=workflow.id,
             status=status,
             steps_completed=len(wf_run.path),
-            error=wf_run.blocked_on if status != "completed" else None,
+            error=display_error if status != "completed" else None,
             duration_ms=int((ended_at - started_at) * 1000),
             variables=params or {},
             started_at=started_at,
@@ -1629,6 +1712,15 @@ class ShepherdExecutionEngine:
                         if plan.outcome == "fail":
                             result_status, result_next = "blocked", "END"
                             blocked_on = plan.raw or "agent reported failure"
+                            break
+                        if plan.outcome == "help":
+                            help_msg = plan.raw or "agent needs human assistance"
+                            result_status, result_next = "blocked", "SAME"
+                            blocked_on = f"__HELP__:{help_msg}"
+                            event_bus.emit("step.help_requested", {
+                                "node_key": cur.key,
+                                "help_message": help_msg,
+                            })
                             break
                         if plan.outcome == "wait":
                             nxt = (plan.next or "SAME").strip()
@@ -1995,15 +2087,24 @@ class ShepherdExecutionEngine:
                 blocked = policy_engine.check_containment("open_app", url)
             if blocked:
                 raise ValueError(f"[containment] {blocked['reason']}")
-            cmd = ["open", "-a", app_name]
-            if url:
-                cmd.append(url)   # opens app directly at the URL, avoids Cmd+L issues
-            subprocess.Popen(cmd)
-            time.sleep(_APP_SETTLE)
-            subprocess.run(
-                ["osascript", "-e", f'tell application "{app_name}" to activate'],
-                check=False,
-            )
+            import sys as _sys_open
+            if _sys_open.platform == "darwin":
+                cmd = ["open", "-a", app_name]
+                if url:
+                    cmd.append(url)
+                subprocess.Popen(cmd)
+                time.sleep(_APP_SETTLE)
+                subprocess.run(
+                    ["osascript", "-e", f'tell application "{app_name}" to activate'],
+                    check=False,
+                )
+            else:
+                if url:
+                    subprocess.Popen(["xdg-open", url])
+                else:
+                    subprocess.Popen(["xdg-open", app_name])
+                time.sleep(_APP_SETTLE)
+                activate_app(app_name)
 
         elif a == "wait":
             time.sleep(step.seconds or 1.0)
@@ -2016,9 +2117,8 @@ class ShepherdExecutionEngine:
             if self._mode == "LIVE" and self._agent_s.available:
                 try:
                     import io as _io
-                    import subprocess as _sp0
                     # Bring Chrome to front so Claude's screenshot shows the form, not another window.
-                    _sp0.run(["osascript", "-e", 'tell application "Google Chrome" to activate'], check=False)
+                    activate_app("Google Chrome")
                     time.sleep(0.4)
                     shot = pyautogui.screenshot()
                     _b = _io.BytesIO()
@@ -2124,26 +2224,13 @@ class ShepherdExecutionEngine:
     def _js_fill(self, plan: list) -> None:
         """
         Actuate a fill plan ([{html_name, value}]) via Chrome JS injection — no
-        keyboard focus required, immune to focus-stealing. Auto-enables Chrome's
-        "Allow JavaScript from Apple Events", and falls back to click + Tab if JS
-        stays blocked.
+        keyboard focus required, immune to focus-stealing. On macOS uses AppleScript;
+        on Linux uses CDP via the Chrome DevTools port or falls back to keyboard.
         """
         import os as _os
         import subprocess as _sp
+        import sys as _sys_fill
         import tempfile as _tmp
-
-        # Best-effort enable "Allow JavaScript from Apple Events" (checks state first
-        # so it never toggles OFF when already enabled).
-        _enable_js = (
-            'tell application "Google Chrome" to activate\n'
-            'delay 0.3\n'
-            'tell application "System Events" to tell process "Google Chrome"\n'
-            '  set mi to menu item "Allow JavaScript from Apple Events" of menu "Developer" '
-            'of menu item "Developer" of menu "View" of menu bar 1\n'
-            '  if value of attribute "AXMenuItemMarkChar" of mi is missing value then click mi\n'
-            'end tell\n'
-        )
-        _sp.run(["osascript", "-e", _enable_js], check=False, capture_output=True, text=True)
 
         js_stmts = []
         for p in plan:
@@ -2153,38 +2240,71 @@ class ShepherdExecutionEngine:
             val = str(value).replace("\\", "\\\\").replace('"', '\\"')
             js_stmts.append(
                 f"(function(){{var e=document.querySelector('[name={name}]');"
-                f"if(e){{e.value=\\\"{val}\\\";e.dispatchEvent(new Event('input',{{bubbles:true}}))}}}})();"
+                f"if(e){{e.value=\"{val}\";e.dispatchEvent(new Event('input',{{bubbles:true}}))}}}})();"
             )
         js_block = "".join(js_stmts)
-        ascript = (
-            'tell application "Google Chrome"\n'
-            '  activate\n'
-            '  tell active tab of front window\n'
-            f'    execute javascript "{js_block}"\n'
-            '  end tell\n'
-            'end tell\n'
-        )
-        with _tmp.NamedTemporaryFile(mode="w", suffix=".applescript", delete=False) as f:
-            f.write(ascript)
-            apath = f.name
-        result = _sp.run(["osascript", apath], check=False, capture_output=True, text=True)
-        _os.unlink(apath)
 
-        if result.returncode != 0:
-            # JS blocked — click Chrome to focus, Cmd+L → Tab into the form, paste each value.
-            _sp.run(["osascript", "-e", 'tell application "Google Chrome" to activate'], check=False)
+        result_ok = False
+
+        if _sys_fill.platform == "darwin":
+            _enable_js = (
+                'tell application "Google Chrome" to activate\n'
+                'delay 0.3\n'
+                'tell application "System Events" to tell process "Google Chrome"\n'
+                '  set mi to menu item "Allow JavaScript from Apple Events" of menu "Developer" '
+                'of menu item "Developer" of menu "View" of menu bar 1\n'
+                '  if value of attribute "AXMenuItemMarkChar" of mi is missing value then click mi\n'
+                'end tell\n'
+            )
+            _sp.run(["osascript", "-e", _enable_js], check=False, capture_output=True, text=True)
+
+            # Re-escape quotes for AppleScript string embedding
+            js_block_escaped = js_block.replace('"', '\\"')
+            ascript = (
+                'tell application "Google Chrome"\n'
+                '  activate\n'
+                '  tell active tab of front window\n'
+                f'    execute javascript "{js_block_escaped}"\n'
+                '  end tell\n'
+                'end tell\n'
+            )
+            with _tmp.NamedTemporaryFile(mode="w", suffix=".applescript", delete=False) as f:
+                f.write(ascript)
+                apath = f.name
+            r = _sp.run(["osascript", apath], check=False, capture_output=True, text=True)
+            _os.unlink(apath)
+            result_ok = r.returncode == 0
+        else:
+            # Linux: open Chrome console, paste JS, execute
+            try:
+                activate_app("Google Chrome")
+                time.sleep(0.3)
+                pyautogui.hotkey("ctrl", "shift", "j")
+                time.sleep(0.5)
+                type_text(js_block)
+                time.sleep(0.2)
+                pyautogui.press("enter")
+                time.sleep(0.3)
+                pyautogui.hotkey("ctrl", "shift", "j")
+                result_ok = True
+            except Exception:
+                result_ok = False
+
+        if not result_ok:
+            # Fallback: click Chrome to focus, Tab into the form, paste each value.
+            activate_app("Google Chrome")
             time.sleep(0.3)
-            pyautogui.click(640, 50)      # Chrome tab bar — focus without touching a form field
+            pyautogui.click(640, 50)
             time.sleep(0.2)
-            pyautogui.hotkey("cmd", "l")
+            mod = "command" if _sys_fill.platform == "darwin" else "ctrl"
+            pyautogui.hotkey(mod, "l")
             time.sleep(0.15)
-            pyautogui.hotkey("tab")       # address bar → first form field
+            pyautogui.hotkey("tab")
             time.sleep(0.15)
             for p in plan:
                 value = p.get("value")
                 if value is not None:
-                    _sp.run(["pbcopy"], input=str(value).encode(), check=False)
-                    pyautogui.hotkey("cmd", "v")
+                    type_text(str(value))
                     time.sleep(0.12)
                 pyautogui.hotkey("tab")
                 time.sleep(0.08)

@@ -104,6 +104,25 @@ export default function RemoteCommandCenterPage() {
     }
   }, [halting, selectedStatus, eventsLen, events]);
 
+  // Show toast when agent proactively requests help.
+  // Reset the base index on agent switch to avoid replaying stale history.
+  const helpEvtBase = useRef(0);
+  const helpAgentRef = useRef(c.selectedId);
+  useEffect(() => {
+    if (helpAgentRef.current !== c.selectedId) {
+      helpAgentRef.current = c.selectedId;
+      helpEvtBase.current = events.length;
+      return;
+    }
+    for (let i = helpEvtBase.current; i < events.length; i++) {
+      if (events[i].type === "execution.suspended" && events[i].data?.reason === "agent_requested_help") {
+        const msg = (events[i].data?.help_message as string) || "Agent needs assistance";
+        setToast(`\u26A0\uFE0F ${msg}`);
+      }
+    }
+    helpEvtBase.current = events.length;
+  }, [eventsLen, events, c.selectedId]);
+
   // Auto-promote: when the toggle is on and the trace signals promoteReady,
   // fire the promote command exactly once per run (idempotency guard).
   const trace = c.selected?.trace ?? null;
@@ -487,14 +506,26 @@ export default function RemoteCommandCenterPage() {
                       else send(intent);
                     };
 
+                    const helpMessage = isSuspended
+                      && c.selected.block?.type === "suspended"
+                      && c.selected.block?.reason === "agent_requested_help"
+                      ? c.selected.block?.helpMessage ?? null
+                      : null;
+
                     return (
                       <>
+                        {helpMessage && (
+                          <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                            <span className="font-semibold">Agent needs help:</span>{" "}
+                            {helpMessage}
+                          </div>
+                        )}
                         <div className="flex items-center gap-2">
                           <Input
                             value={intent}
                             onChange={(e) => setIntent(e.target.value)}
                             onKeyDown={(e) => e.key === "Enter" && handleEnter()}
-                            placeholder={placeholder}
+                            placeholder={helpMessage ? "Provide the info or instructions to help…" : placeholder}
                           />
                           {isIdle && (
                             <Button onClick={() => send(intent)} disabled={!intent.trim()}>
@@ -544,7 +575,9 @@ export default function RemoteCommandCenterPage() {
                         </div>
                         <p className="mt-2 text-[11px] text-muted">
                           {isRunning && "Agent is running. Steer amends the current goal. Halt pauses without losing context."}
-                          {isSuspended && "Agent is suspended. Type a steer instruction and Resume, or start a New Task."}
+                          {isSuspended && (helpMessage
+                            ? "Agent is asking for help. Provide the info or instructions it needs, then Resume."
+                            : "Agent is suspended. Type a steer instruction and Resume, or start a New Task.")}
                           {isIdle && "Describe a task — routed to a saved workflow or a fresh autonomous run."}
                         </p>
                       </>
