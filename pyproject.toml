@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "pyautogui==0.9.54",
-    "Pillow>=12.2.0",
+    "Pillow>=13.0.0",
     "pynput==1.7.6",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.29.0",
@@ -63,6 +63,11 @@ override-dependencies = [
     # both ONLY on Intel macOS; keep them everywhere else.
     "fastembed; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "onnxruntime; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    # Security: opentelemetry-api <= 1.45.0 has a ReDoS in W3C tracestate parsing
+    # (GHSA-xcq7-p3pf-p88h). google-adk (via agentspan) caps the OTel family at
+    # <=1.44, so lift the floor for the lockstep-versioned packages until it relaxes.
+    "opentelemetry-api>=1.45.1,<2",
+    "opentelemetry-sdk>=1.45.1,<2",
 ]
 
 [dependency-groups]
