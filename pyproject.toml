@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "pyautogui==0.9.54",
-    "Pillow>=12.2.0",
+    "Pillow>=13.0.0",
     "pynput==1.7.6",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.29.0",
