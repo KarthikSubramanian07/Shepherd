@@ -62,7 +62,7 @@ export default function TaskGraphPage() {
     <div className="flex h-full flex-col gap-4 p-6">
       <header className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/15 text-accent-ink">
             <Workflow size={18} />
           </div>
           <div>
@@ -77,7 +77,8 @@ export default function TaskGraphPage() {
           <select
             value={routineId}
             onChange={(e) => setRoutineId(e.target.value)}
-            className="h-9 max-w-[22rem] rounded-lg border border-edge bg-panel2 px-3 text-sm text-ink focus:border-accent focus:outline-none"
+            aria-label="Task graph"
+            className="h-9 max-w-[22rem] rounded-lg border border-edge bg-panel2 px-3 text-sm text-ink focus:border-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-ink/40"
           >
             {graphs.length === 0 && <option value="">No graphs yet</option>}
             {graphs.map((g) => (
