@@ -78,7 +78,7 @@ export default function WorkflowDetailPage() {
             action={
               <Link
                 href="/workflows"
-                className="text-sm text-accent hover:underline"
+                className="text-sm text-accent-ink hover:underline"
               >
                 ← Back to workflows
               </Link>
@@ -126,7 +126,7 @@ export default function WorkflowDetailPage() {
         {conditionals.length > 0 && (
           <Card className="p-4">
             <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-              <Sparkles size={14} className="text-accent" />
+              <Sparkles size={14} className="text-accent-ink" />
               Judgment calls baked in
             </div>
             <ul className="space-y-2">
@@ -135,10 +135,10 @@ export default function WorkflowDetailPage() {
                   key={i}
                   className="flex items-start gap-2 text-[13px] leading-snug"
                 >
-                  <GitBranch size={13} className="mt-0.5 shrink-0 text-accent" />
+                  <GitBranch size={13} className="mt-0.5 shrink-0 text-accent-ink" />
                   <span>
                     <span className="font-medium">{c.node}</span>: if{" "}
-                    <span className="text-accent">{c.when}</span> → {c.do}
+                    <span className="text-accent-ink">{c.when}</span> → {c.do}
                     {c.goto && (
                       <span className="text-muted"> (go to {c.goto})</span>
                     )}

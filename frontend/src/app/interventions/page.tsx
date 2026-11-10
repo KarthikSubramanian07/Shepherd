@@ -83,7 +83,7 @@ export default function InterventionsPage() {
                         <p className="mt-2 text-sm text-ink">{i.detection.reason}</p>
                         <Link
                           href={`/runs/${i.runId}`}
-                          className="mt-1 inline-block text-[11px] text-accent hover:underline"
+                          className="mt-1 inline-block text-[11px] text-accent-ink hover:underline"
                         >
                           View run {i.runId} →
                         </Link>

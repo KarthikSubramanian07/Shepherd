@@ -120,7 +120,7 @@ function Pillar({
   return (
     <div className="rounded-xl border border-edge bg-panel2/40 p-3">
       <div className="flex items-center gap-2">
-        <span className="text-accent">{icon}</span>
+        <span className="text-accent-ink">{icon}</span>
         <span className="text-[13px] font-medium text-ink">{title}</span>
         <span
           className={`ml-auto h-1.5 w-1.5 rounded-full ${available ? "bg-ok" : "bg-muted"}`}
@@ -138,7 +138,7 @@ function Row({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
     <div className="flex items-baseline justify-between gap-3">
       <span className="text-[11px] text-muted">{k}</span>
       <span
-        className={`font-mono text-[12px] tabular-nums ${accent ? "text-accent" : "text-ink"}`}
+        className={`font-mono text-[12px] tabular-nums ${accent ? "text-accent-ink" : "text-ink"}`}
       >
         {v}
       </span>

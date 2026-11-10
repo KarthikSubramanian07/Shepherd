@@ -29,10 +29,11 @@ export function Badge({
   tone?: "neutral" | "ok" | "flag" | "halt" | "accent";
 }) {
   const tones: Record<string, string> = {
+    // Text colors are darkened vs fill tokens so 11px labels clear 4.5:1 on tinted fills.
     neutral: "bg-panel2 text-muted border-edge",
-    ok: "bg-ok/10 text-ok border-ok/30",
-    flag: "bg-flag/10 text-flag border-flag/30",
-    halt: "bg-halt/10 text-halt border-halt/30",
+    ok: "bg-ok/10 text-[#2a5f34] border-ok/30",
+    flag: "bg-flag/10 text-accent-ink border-flag/30",
+    halt: "bg-halt/10 text-[#8a3528] border-halt/30",
     accent: "bg-accent/10 text-accent-ink border-accent/30",
   };
   return (
@@ -159,7 +160,7 @@ export function Progress({
 
 export function Avatar({
   name,
-  hex = "#dd6a1f",
+  hex = "#a8502e",
   size = 28,
 }: {
   name: string;
@@ -207,7 +208,7 @@ export function IconButton({
   return (
     <button
       className={cn(
-        "inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-panel2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-panel2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ink/60 disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...props}
@@ -275,9 +276,11 @@ export function Tabs({
           className={cn(
             "rounded-md px-3 py-1 text-xs font-medium transition-colors",
             value === it.value
-              ? "bg-accent/15 text-accent"
+              ? "bg-accent/15 text-accent-ink"
               : "text-muted hover:text-ink",
           )}
+          aria-pressed={value === it.value}
+          type="button"
         >
           {it.label}
         </button>
