@@ -212,14 +212,19 @@ export function Sidebar() {
           >
             {MODES.map((m) => {
               const selected = state.mode === m;
-              const label = m.slice(0, m === "AUTONOMOUS" ? 4 : m.length);
+              // Short label for the narrow rail; accessible name must include that
+              // visible string (WCAG 2.5.3), so keep the abbreviation in the name.
+              const label = m === "AUTONOMOUS" ? "AUTO" : m;
+              const accessibleName =
+                m === "AUTONOMOUS" ? "AUTO (autonomous)" : m;
               return (
                 <button
                   key={m}
                   type="button"
                   disabled={switching || state.status === "running"}
                   aria-pressed={selected}
-                  aria-label={m}
+                  aria-label={accessibleName}
+                  title={m}
                   onClick={() => void switchMode(m)}
                   className={cn(
                     "flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ink/60",
