@@ -104,7 +104,7 @@ function WorkflowNode({ data, selected }: NodeProps) {
               {d.conditionals.map((c, i) => (
                 <div
                   key={i}
-                  className="flex items-start gap-1 text-[10px] leading-snug text-accent"
+                  className="flex items-start gap-1 text-[10px] leading-snug text-accent-ink"
                 >
                   <GitBranch size={11} className="mt-0.5 shrink-0" />
                   <span className="line-clamp-2">

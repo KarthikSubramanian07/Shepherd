@@ -173,7 +173,7 @@ export default function RunReplayPage() {
                   "flex h-7 w-7 items-center justify-center rounded-full transition-colors",
                   isDone
                     ? "bg-muted/20 text-muted hover:bg-panel2"
-                    : "bg-accent text-white hover:bg-accent/90",
+                    : "bg-accent-ink text-white hover:brightness-110",
                 )}
                 title={playing ? "Pause" : "Play"}
               >
@@ -220,7 +220,7 @@ export default function RunReplayPage() {
                     className={cn(
                       "rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
                       speed === x
-                        ? "bg-accent/20 text-accent"
+                        ? "bg-accent/20 text-accent-ink"
                         : "text-muted hover:bg-panel2 hover:text-ink",
                     )}
                   >

@@ -51,7 +51,7 @@ export default function WorkflowsPage() {
                 <Card className="flex h-full flex-col p-4 transition-colors hover:border-accent/50">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent-ink">
                         <Network size={16} />
                       </div>
                       <span className="font-medium">{w.name}</span>

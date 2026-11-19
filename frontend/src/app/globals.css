@@ -88,3 +88,30 @@ body {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Skip link · off-screen until keyboard focus (WCAG 2.4.1) */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background: #fffdf8;
+  color: #223b3a;
+  font-size: 0.875rem;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(34, 59, 58, 0.05), 0 8px 24px -16px rgba(34, 59, 58, 0.2);
+}
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+  outline: 2px solid #a8502e;
+  outline-offset: 2px;
+}
+
+/* Visible focus for native controls that lack a component wrapper */
+:where(a, button, summary, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid #a8502e;
+  outline-offset: 2px;
+}

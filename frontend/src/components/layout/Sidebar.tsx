@@ -49,7 +49,9 @@ export function Sidebar() {
   const { state } = useShepherd();
   const [switching, setSwitching] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const collapsed = isRemote && !hovered;
+  const [navFocused, setNavFocused] = useState(false);
+  // Expand on hover or keyboard focus so Remote's icon rail stays operable without a pointer.
+  const collapsed = isRemote && !hovered && !navFocused;
 
   // Dev mode reveals developer-only tabs. `?dev=true` turns it on (persisted in
   // localStorage so it survives navigation, since nav links drop the query),
@@ -93,12 +95,20 @@ export function Sidebar() {
 
   return (
     <aside
+      aria-label="Shepherd"
       className={cn(
         "flex shrink-0 flex-col border-r border-edge bg-panel/70 transition-all duration-200",
         isRemote ? (hovered ? "w-60" : "w-14") : "w-60",
       )}
       onMouseEnter={() => isRemote && setHovered(true)}
       onMouseLeave={() => isRemote && setHovered(false)}
+      onFocus={() => isRemote && setNavFocused(true)}
+      onBlur={(e) => {
+        if (!isRemote) return;
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setNavFocused(false);
+        }
+      }}
     >
       {/* Brand lockup · shepherd's crook + lantern */}
       <div className={cn("flex items-center gap-2.5 pb-3 pt-4", collapsed ? "justify-center px-2" : "px-4")}>
@@ -121,8 +131,13 @@ export function Sidebar() {
       </div>
 
       {/* Live watch · the agent heartbeat */}
-      <div className={cn("mx-3 mb-2 flex items-center gap-2 rounded-lg border border-edge bg-panel2/70", collapsed ? "justify-center px-1 py-2" : "px-3 py-2")}>
-        <span className="relative flex h-2 w-2 shrink-0">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-label={`${watchLabel}, mode ${state.mode}`}
+        className={cn("mx-3 mb-2 flex items-center gap-2 rounded-lg border border-edge bg-panel2/70", collapsed ? "justify-center px-1 py-2" : "px-3 py-2")}
+      >
+        <span className="relative flex h-2 w-2 shrink-0" aria-hidden="true">
           {(running || halted) && (
             <span
               className="absolute inline-flex h-full w-full animate-watch rounded-full"
@@ -141,16 +156,18 @@ export function Sidebar() {
         )}
       </div>
 
-      <nav className="flex flex-1 flex-col gap-0.5 px-2 py-1">
+      <nav aria-label="Primary" className="flex flex-1 flex-col gap-0.5 px-2 py-1">
         {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
             <Link
               key={href}
               href={href}
+              aria-current={active ? "page" : undefined}
+              aria-label={collapsed ? label : undefined}
               title={collapsed ? label : undefined}
               className={cn(
-                "group relative flex items-center rounded-lg py-2 text-sm transition-all duration-200 ease-out",
+                "group relative flex min-h-9 items-center rounded-lg py-2 text-sm transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ink/60",
                 collapsed ? "justify-center px-1" : "gap-2.5 px-3",
                 active
                   ? "bg-accent/[0.08] font-medium text-ink"
@@ -159,6 +176,7 @@ export function Sidebar() {
             >
               {/* Lantern indicator · slides in on the active route */}
               <span
+                aria-hidden="true"
                 className={cn(
                   "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-accent transition-all duration-300 ease-out",
                   active ? "h-5 opacity-100" : "h-0 opacity-0",
@@ -166,9 +184,10 @@ export function Sidebar() {
               />
               <Icon
                 size={16}
+                aria-hidden="true"
                 className={cn(
                   "shrink-0 transition-transform duration-200",
-                  active ? "scale-110 text-accent" : "group-hover:scale-105",
+                  active ? "scale-110 text-accent-ink" : "group-hover:scale-105",
                 )}
               />
               {!collapsed && label}
@@ -180,25 +199,44 @@ export function Sidebar() {
       {/* Mode toggle */}
       {!collapsed && (
         <div className="border-t border-edge px-3 py-3">
-          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+          <div
+            id="execution-mode-label"
+            className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted"
+          >
             Execution mode
           </div>
-          <div className="flex gap-1">
-            {MODES.map((m) => (
-              <button
-                key={m}
-                disabled={switching || state.status === "running"}
-                onClick={() => void switchMode(m)}
-                className={cn(
-                  "flex-1 rounded-md px-1.5 py-1 text-[10px] font-semibold transition-colors",
-                  state.mode === m
-                    ? "bg-accent text-white shadow-card"
-                    : "text-muted hover:bg-panel2 hover:text-ink",
-                )}
-              >
-                {m.slice(0, m === "AUTONOMOUS" ? 4 : m.length)}
-              </button>
-            ))}
+          <div
+            role="group"
+            aria-labelledby="execution-mode-label"
+            className="flex gap-1"
+          >
+            {MODES.map((m) => {
+              const selected = state.mode === m;
+              // Short label for the narrow rail; accessible name must include that
+              // visible string (WCAG 2.5.3), so keep the abbreviation in the name.
+              const label = m === "AUTONOMOUS" ? "AUTO" : m;
+              const accessibleName =
+                m === "AUTONOMOUS" ? "AUTO (autonomous)" : m;
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  disabled={switching || state.status === "running"}
+                  aria-pressed={selected}
+                  aria-label={accessibleName}
+                  title={m}
+                  onClick={() => void switchMode(m)}
+                  className={cn(
+                    "flex-1 rounded-md px-1.5 py-1.5 text-[10px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-ink/60",
+                    selected
+                      ? "bg-accent-ink text-white shadow-card"
+                      : "text-muted hover:bg-panel2 hover:text-ink",
+                  )}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

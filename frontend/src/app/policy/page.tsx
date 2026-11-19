@@ -92,7 +92,7 @@ export default function PolicyPage() {
               <Card>
                 <CardHeader>
                   <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-                    <Shield size={15} className="text-accent" />
+                    <Shield size={15} className="text-accent-ink" />
                     Screen rules ({policy.screen_rules.length})
                   </div>
                   <p className="mt-0.5 text-xs text-muted">
@@ -218,7 +218,7 @@ export default function PolicyPage() {
                         {policy.containment.allowed_domains.map((d) => (
                           <span
                             key={d}
-                            className="rounded border border-accent/30 bg-accent/5 px-2 py-0.5 font-mono text-xs text-accent"
+                            className="rounded border border-accent/30 bg-accent/5 px-2 py-0.5 font-mono text-xs text-accent-ink"
                           >
                             {d}
                           </span>

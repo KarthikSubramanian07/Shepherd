@@ -17,10 +17,10 @@ const config: Config = {
         panel2: "#f0e2d2",   // inset / secondary fills, rails — peach
         edge: "#e4d2bf",     // hairlines / borders — warm tan
         ink: "#223b3a",      // primary text — deep pine-teal (the brand mark color)
-        muted: "#5f7269",    // secondary text — desaturated teal-gray (≥4.5:1)
-        accent: "#cf6a43",   // PRIMARY interactive — terracotta (CTAs, active, links).
+        muted: "#53665d",    // secondary text — desaturated teal-gray (≥4.5:1 on panel2)
+        accent: "#cf6a43",   // PRIMARY interactive — terracotta (borders, icons, fills with dark text).
                              // Warm pop against teal+peach; the brand's complement.
-        "accent-ink": "#a8502e", // terracotta darkened for small TEXT on light (AA)
+        "accent-ink": "#a8502e", // terracotta darkened for small TEXT / white-on-fill (AA)
         teal: "#2c6e60",     // brand secondary — calm pine-teal (the "on watch" tone)
         lantern: "#cf6a43",  // attention/intervention signal — same terracotta
         bark: "#8a6f57",     // warm tertiary brown (rare structural use)

@@ -353,7 +353,7 @@ export default function RemoteCommandCenterPage() {
                           className={[
                             "px-2 py-0.5 font-semibold transition-colors",
                             c.selected!.mode === m
-                              ? "bg-accent text-white"
+                              ? "bg-accent-ink text-white"
                               : "text-muted hover:bg-panel2 hover:text-ink",
                           ].join(" ")}
                         >
@@ -462,7 +462,7 @@ export default function RemoteCommandCenterPage() {
                         onChange={(e) => setBakeToggle(e.target.checked)}
                         className="h-4 w-4 rounded border-edge accent-accent"
                       />
-                      <Sparkles size={13} className="text-accent" />
+                      <Sparkles size={13} className="text-accent-ink" />
                       Bake out a new workflow from this run
                     </label>
                     <span className="ml-auto text-[11px] text-muted">
@@ -758,7 +758,7 @@ function RosterCard({
         <ul className="mt-1.5 space-y-0.5">
           {agent.recentSteps.slice(-3).map((step, i) => (
             <li key={i} className="truncate text-[11px] text-muted">
-              <span className="text-accent/70">#{step.index ?? "·"}</span>{" "}
+              <span className="text-accent-ink/70">#{step.index ?? "·"}</span>{" "}
               {step.description}
             </li>
           ))}
@@ -862,25 +862,35 @@ function LiveScreen({
             )}
           </div>
           <button
+            type="button"
             onClick={onToggleExpand}
-            className="absolute right-2 top-2 rounded-md bg-black/60 p-1.5 text-white/80 transition-colors hover:text-white"
+            className="absolute right-2 top-2 rounded-md bg-black/60 p-1.5 text-white/80 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             title="Expand live view"
+            aria-label="Expand live view"
           >
-            <Maximize2 size={14} />
+            <Maximize2 size={14} aria-hidden="true" />
           </button>
         </div>
       </Card>
 
       {expanded &&
         createPortal(
-          <div className="fixed inset-0 z-50 flex flex-col bg-black/95">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${agent.name} live view`}
+            className="fixed inset-0 z-50 flex flex-col bg-black/95"
+          >
             {/* Close button */}
             <button
+              type="button"
               onClick={onToggleExpand}
-              className="absolute right-4 top-4 z-10 rounded-lg bg-white/10 p-2 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
+              className="absolute right-4 top-4 z-10 rounded-lg bg-white/10 p-2 text-white/80 transition-colors hover:bg-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               title="Close (Esc)"
+              aria-label="Close live view"
+              autoFocus
             >
-              <X size={20} />
+              <X size={20} aria-hidden="true" />
             </button>
 
             {/* LIVE badge */}
@@ -1044,7 +1054,7 @@ function WorkflowPane({
           <div className="flex h-full flex-col">
             {!wf && (
               <div className="flex items-start gap-2 border-b border-edge bg-panel2 px-3 py-2 text-[12px] text-muted">
-                <Sparkles size={13} className="mt-0.5 shrink-0 text-accent" />
+                <Sparkles size={13} className="mt-0.5 shrink-0 text-accent-ink" />
                 <span>
                   {trace.known === false
                     ? "New task — no saved workflow matched. A crystallized workflow is being recorded from this run; here is the live detailed execution trace."
@@ -1085,7 +1095,7 @@ function ViewTab({
     <button
       onClick={onClick}
       className={`inline-flex items-center gap-1 px-2.5 py-1 text-[12px] font-medium transition-colors ${
-        active ? "bg-accent text-white" : "bg-panel text-muted hover:text-ink"
+        active ? "bg-accent-ink text-white" : "bg-panel text-muted hover:text-ink"
       }`}
     >
       {icon}
@@ -1104,7 +1114,7 @@ function ActivityFeed({ events }: { events: RemoteEvent[] }) {
         <ul className="space-y-1 font-mono text-[12px]">
           {recent.map((e, i) => (
             <li key={i} className="flex gap-2">
-              <span className="shrink-0 text-accent">{e.type}</span>
+              <span className="shrink-0 text-accent-ink">{e.type}</span>
               <span className="truncate text-muted">{describeEvent(e)}</span>
             </li>
           ))}
@@ -1179,9 +1189,9 @@ function RoutingBanner({ routing }: { routing: RemoteRouting }) {
     const isWorkflow = routing.kind === "WORKFLOW";
     return (
       <div className="mt-3 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-[12px] text-ink">
-        <Sparkles size={13} className="shrink-0 text-accent" />
+        <Sparkles size={13} className="shrink-0 text-accent-ink" />
         Matched {isWorkflow ? "workflow" : "routine"}{" "}
-        <span className="font-mono text-accent">{routing.target}</span>
+        <span className="font-mono text-accent-ink">{routing.target}</span>
         {pct && <Badge tone="accent">{pct}</Badge>}
         {routing.source && (
           <span className="text-muted">via {routing.source}</span>
@@ -1228,7 +1238,7 @@ function FinalizePanel({
 
   return (
     <Card className="border-accent/50 bg-accent/5 p-4">
-      <div className="mb-2 flex items-center gap-2 text-accent">
+      <div className="mb-2 flex items-center gap-2 text-accent-ink">
         <Sparkles size={16} />
         <span className="text-sm font-semibold">
           Run captured {ops.length} judgment call{ops.length === 1 ? "" : "s"} — persist them?
@@ -1244,10 +1254,10 @@ function FinalizePanel({
         <ul className="mb-3 space-y-1.5">
           {ops.map((o, i) => (
             <li key={i} className="flex items-start gap-2 text-[13px] leading-snug">
-              <GitBranch size={13} className="mt-0.5 shrink-0 text-accent" />
+              <GitBranch size={13} className="mt-0.5 shrink-0 text-accent-ink" />
               <span>
                 <span className="font-mono text-[11px] text-muted">{o.node}</span>: if{" "}
-                <span className="text-accent">{o.when}</span> → {o.do}
+                <span className="text-accent-ink">{o.when}</span> → {o.do}
               </span>
             </li>
           ))}
@@ -1364,7 +1374,7 @@ function WorkflowIntervenePanel({
       <p className="mb-3 text-sm text-ink">{b.reason}</p>
 
       {targetNode && (
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] text-accent">
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] text-accent-ink">
           <GitBranch size={12} /> Targeting milestone: <span className="font-mono">{targetNode}</span>
           <button onClick={onClearTarget} className="ml-auto underline">
             clear
@@ -1383,7 +1393,7 @@ function WorkflowIntervenePanel({
                 className={[
                   "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
                   branch === o.key
-                    ? "border-accent bg-accent/20 text-accent"
+                    ? "border-accent bg-accent/20 text-accent-ink"
                     : "border-edge text-muted hover:border-accent/50",
                 ].join(" ")}
                 title={o.when ?? undefined}
@@ -1416,7 +1426,7 @@ function WorkflowIntervenePanel({
           onChange={(e) => setRemember(e.target.checked)}
           className="h-4 w-4 rounded border-edge accent-accent"
         />
-        <Sparkles size={14} className="text-accent" />
+        <Sparkles size={14} className="text-accent-ink" />
         Remember this as a default answer for future agents running this workflow
       </label>
 
@@ -1543,7 +1553,7 @@ function CatalogPanel({ agentId }: { agentId: string }) {
               <ul className="space-y-1">
                 {catalog.workflows.map((w) => (
                   <li key={w.id} className="flex items-center gap-2 rounded border border-edge px-2 py-1">
-                    <WorkflowIcon size={12} className="text-accent" />
+                    <WorkflowIcon size={12} className="text-accent-ink" />
                     <span className="font-medium text-ink">{w.name}</span>
                     <span className="ml-auto text-muted">v{w.version} · {w.nodes} nodes</span>
                   </li>
@@ -1557,7 +1567,7 @@ function CatalogPanel({ agentId }: { agentId: string }) {
               <ul className="space-y-1">
                 {catalog.routines.map((r) => (
                   <li key={r.id} className="flex items-center gap-2 rounded border border-edge px-2 py-1">
-                    <GitBranch size={12} className="text-accent" />
+                    <GitBranch size={12} className="text-accent-ink" />
                     <span className="font-medium text-ink">{r.name}</span>
                     <span className="ml-auto text-muted">{r.mode} · {r.stepCount} steps</span>
                   </li>
@@ -1571,7 +1581,7 @@ function CatalogPanel({ agentId }: { agentId: string }) {
               <ul className="space-y-1">
                 {catalog.task_graphs.map((g) => (
                   <li key={g.task_key} className="flex items-center gap-2 rounded border border-edge px-2 py-1">
-                    <ListTree size={12} className="text-accent" />
+                    <ListTree size={12} className="text-accent-ink" />
                     <span className="font-medium text-ink">{g.task_key}</span>
                     <span className="ml-auto text-muted">{g.run_count} runs · {g.node_count} nodes</span>
                   </li>
